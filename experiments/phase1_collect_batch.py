@@ -24,6 +24,22 @@ def _as_int_list(config: dict, name: str) -> list[int]:
     return [int(value) for value in values]
 
 
+def _fe_total_for_dimension(config: dict, dimension: int) -> int:
+    if "FE_total_by_dimension" in config:
+        budgets = config["FE_total_by_dimension"]
+        if not isinstance(budgets, dict):
+            raise ValueError("FE_total_by_dimension must be a mapping")
+        if dimension in budgets:
+            return int(budgets[dimension])
+        key = str(dimension)
+        if key in budgets:
+            return int(budgets[key])
+        raise ValueError(f"missing FE_total_by_dimension budget for dimension {dimension}")
+    if "FE_total" in config:
+        return int(config["FE_total"])
+    raise ValueError("config must define FE_total or FE_total_by_dimension")
+
+
 def _run_one(config: dict, algorithm: str, function: int, instance: int, dimension: int, seed: int) -> list:
     problem_config = {
         "suite": config["suite"],
@@ -41,7 +57,7 @@ def _run_one(config: dict, algorithm: str, function: int, instance: int, dimensi
             algorithm=algorithm,
             problem=problem,
             seed=seed,
-            fe_total=int(config["FE_total"]),
+            fe_total=_fe_total_for_dimension(config, dimension),
             settings=settings,
         )
     finally:
@@ -81,4 +97,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

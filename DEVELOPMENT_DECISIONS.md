@@ -98,7 +98,7 @@ same checkpoint state
 裁决：
 
 - Train: BBOB, 10D / 20D / 40D。
-- Validation: BBOB, 50D。
+- Validation: BBOB，按第 5.1 节正式 BBOB trajectory 协议执行。
 - Test: CEC2017 / CEC2022。
 - Engineering problems: 最终外部验证或扩展，不进入 MVE。
 
@@ -107,6 +107,90 @@ same checkpoint state
 - 用 CEC 或 engineering problems 调参。
 - 用测试函数训练 Decision Model、selection reference 或 threshold。
 - 随机 function instance split。
+
+---
+
+## 5.1 正式 BBOB trajectory 数据采集协议
+
+裁决：
+
+- BBOB trajectory 采集只使用 COCO `bbob` suite。
+- 不使用手写 benchmark 函数作为 BBOB 替代。
+- BBOB function family 以函数编号为单位，记为 `bbob_f001` 至 `bbob_f024`。
+- `problem_id` 保存具体问题粒度，例如 `bbob_f001_i01_d10`。
+- `family` 保存 function family 粒度，例如 `bbob_f001`。
+- 禁止按 instance、seed 或 dimension 随机拆分 train / validation。
+
+正式 function family split：
+
+```text
+train:
+1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23
+
+validation:
+5, 9, 13, 14, 19, 24
+```
+
+正式维度：
+
+```text
+train dimensions:
+10, 20, 40
+
+validation dimensions:
+10, 20, 40
+```
+
+50D 裁决：
+
+- 当前 COCO `bbob` suite 不支持 50D。
+- 早期文档中的 BBOB 50D validation 视为历史方案，不进入主协议。
+- 如需 50D / 100D 泛化，必须另设扩展实验并选择 COCO 支持的 suite，不得混入主 BBOB validation。
+
+正式采集重复设置：
+
+```text
+instances:
+1, 2, 3
+
+optimizer seeds:
+1 ... 30
+```
+
+预算口径：
+
+```text
+FE_total = 1000 * D
+
+10D: 10000
+20D: 20000
+40D: 40000
+```
+
+人口规模：
+
+```text
+population_size = 40
+```
+
+理由：
+
+- 上述预算均可被 `population_size = 40` 整除，便于保存完整 population checkpoint。
+- Checkpoint 继续使用 FE ratio，不使用固定 FE 间隔。
+
+正式配置文件：
+
+```text
+configs/phase1_bbob_train.yaml
+configs/phase1_bbob_validation.yaml
+```
+
+输出路径：
+
+```text
+results/phase1/bbob_train_trajectories.parquet
+results/phase1/bbob_validation_trajectories.parquet
+```
 
 ---
 
@@ -316,7 +400,7 @@ audit
 
 - BBOB function family 的具体 train / validation / test family 列表。
 - CEC2017 / CEC2022 的具体函数范围、维度和预算。
-- `FE_total`、`FE_prefix`、`FE_analysis`、`FE_optimization` 的具体数值。
+- `FE_prefix`、`FE_analysis`、`FE_optimization` 的具体数值。
 - ELA 采样点是否允许复用到后续优化。
 - 主 `lambda_time`、`lambda_memory` 和敏感性分析取值。
 - Search Maturity 中 ES、XS 的具体公式、窗口和归一化。

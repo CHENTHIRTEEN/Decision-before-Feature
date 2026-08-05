@@ -1,0 +1,14 @@
+suite: bbob
+functions: [1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23]
+instances: [1, 2, 3]
+dimensions: [10, 20, 40]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+FE_total_by_dimension:
+  10: 10000
+  20: 20000
+  40: 40000
+population_size: 40
+algorithms: [de, pso, cmaes, shade]
+checkpoint_ratios: [0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00]
+output: results/phase1/bbob_train_trajectories.parquet
+
