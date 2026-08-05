@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+import numpy as np
+
+
+Objective = Callable[[np.ndarray], np.ndarray]
+CloseCallback = Callable[[], None]
+
+
+@dataclass(frozen=True)
+class Problem:
+    problem_id: str
+    family: str
+    dimension: int
+    bounds: np.ndarray
+    objective: Objective
+    close_callback: CloseCallback | None = None
+
+    def __post_init__(self) -> None:
+        bounds = np.asarray(self.bounds, dtype=float)
+        if bounds.shape != (self.dimension, 2):
+            raise ValueError("bounds must have shape (dimension, 2)")
+        if np.any(bounds[:, 0] >= bounds[:, 1]):
+            raise ValueError("each lower bound must be smaller than the upper bound")
+        object.__setattr__(self, "bounds", bounds)
+
+    @property
+    def lower_bounds(self) -> np.ndarray:
+        return self.bounds[:, 0]
+
+    @property
+    def upper_bounds(self) -> np.ndarray:
+        return self.bounds[:, 1]
+
+    def evaluate(self, population: np.ndarray) -> np.ndarray:
+        values = np.asarray(population, dtype=float)
+        if values.ndim == 1:
+            values = values.reshape(1, -1)
+        if values.shape[1] != self.dimension:
+            raise ValueError("population dimension does not match problem dimension")
+        fitness = np.asarray(self.objective(values), dtype=float).reshape(-1)
+        if fitness.shape[0] != values.shape[0]:
+            raise ValueError("objective must return one fitness value per population row")
+        return fitness
+
+    def close(self) -> None:
+        if self.close_callback is not None:
+            self.close_callback()

@@ -1,0 +1,337 @@
+# AGENTS.md
+
+# Decision-before-Feature 项目开发规范（中文版）
+
+## 0. 文档目的
+
+本文档是 Decision-before-Feature 项目的最高优先级开发规范。
+
+用途：
+
+1. 指导 Vibe/Codex 等智能开发代理进行代码开发；
+2. 固化论文研究设计；
+3. 保证实验协议不被随意修改；
+4. 保证代码实现与论文目标一致；
+5. 保证当前实验与历史实验严格隔离。
+
+---
+
+# 0.1 实验隔离（Experiment Isolation）规范（最高优先级）
+
+## 背景说明
+
+当前主机环境中可能存在大量历史科研项目、实验代码、文档、数据和结果文件。
+
+这些内容可能来自：
+
+- 之前的研究方向；
+- 已废弃实验；
+- 不同论文方案；
+- 旧版本代码；
+- 不同实验协议。
+
+这些历史内容与当前 Decision-before-Feature 项目没有必然关系。
+
+## 核心规则
+
+### 禁止访问当前实验目录之外的任何内容
+
+Agent 执行任务时：
+
+**禁止主动读取、搜索、分析或引用当前实验目录之外的任何文件。**
+
+包括但不限于：
+
+- 其他代码仓库；
+- 其他实验目录；
+- 历史 Python 代码；
+- 旧实验配置；
+- 旧结果文件；
+- 旧 Markdown 文档；
+- 旧论文材料；
+- 旧模型 checkpoint；
+- 其他项目数据。
+
+## 当前项目唯一可信来源
+
+Agent 只能使用：
+
+1. 当前 Decision-before-Feature 项目目录；
+2. 当前项目 docs 文档；
+3. 当前项目配置文件；
+4. 当前项目生成的数据；
+5. 当前项目生成结果。
+
+其他位置默认视为：
+
+不可使用的历史信息。
+
+## 禁止行为
+
+禁止：
+
+- 扫描用户主目录寻找旧代码；
+- grep 全盘寻找类似实现；
+- 复制其他项目代码；
+- 使用旧实验结果；
+- 使用旧模型或旧数据。
+
+如果需要参考历史项目：
+
+必须由用户明确指定文件路径。
+
+## 缺少文件处理
+
+如果当前项目缺少：
+
+- 数据；
+- 代码；
+- 配置；
+- 模型；
+
+Agent 必须：
+
+1. 明确报告缺失；
+2. 提出重新生成方案；
+3. 不得自行搜索历史目录。
+
+---
+
+# 0.2 禁止的工程机制
+
+不得在源码、配置、脚本或输出接口中实现：
+
+- 文件哈希、checksum、digest、canonical-byte 比较或其他完整性身份系统；
+- receipt、manifest、authorization、source closure、append-only、quarantine 或执行解锁机制；
+- frozen/successor/v2/v3 式代码复制、一次性运行声明或隐藏阶段门；
+- dry、smoke、synthetic validation、resource calibration 或与真实科学运行无关的替代工作流；
+- pytest、JSON Schema、schema registry、测试目录或测试依赖；
+- 代码生成器、脚本调用脚本、循环依赖、同一逻辑的多版本并存；
+- 仅用于证明文件来源、字节一致、提交身份或运行许可的代码。
+
+不使用 Python 内置 `hash()` 或 `hashlib` 派生实验随机数。随机数必须通过显式整数 seed、unit number、stream code、generation、target 和 event 交给 `numpy.random.SeedSequence`。
+
+---
+
+# 0.3学术方法与表述
+
+论文、研究方案、配置、源码符号和输出字段必须使用与实际科学操作对应的领域术语，不得用治理或问责隐喻包装普通实验步骤。
+
+- 算法比较使用“性能评价”“基准比较”或 `evaluation/benchmarking`；
+- 实验设计与数据条件使用“有效性检查”“一致性检查”或“数据质量检查”；
+- 模型假设与异常行为使用“模型诊断”“误差分析”或“失败分析”；
+- 超参数、变换和样本选择影响使用“敏感性分析”或“稳健性分析”；
+- 组件贡献使用“消融实验”，引用和数值对应关系使用“来源核对”或“交叉核对”。
+
+不得使用“正向/负向”“正面/负面”“积极/消极”概括结果。必须写明指标、比较顺序、数值符号的含义、效应量、区间和阈值。`positive/negative` 仅可表示数学正负号、布尔条件或已有明确定义的类别标签。
+
+“反事实”及 `counterfactual` 只可用于具有正式定义的潜在结果、结构因果模型、反事实解释/公平性或离策略评价，并须给出 intervention、estimand 和识别假设。共享状态上的多动作完整运行不属于该用法，不得据此提出因果主张。
+
+`oracle` 只可表示现实中不可获得、由额外信息定义的理想决策规则；若只是从已运行候选中取最小 loss，必须称为“逐状态最佳动作”或 `best observed action`。不得使用 `headroom`、`gross gain`、`paid/free information`、`sham`、`pressure test`、`bundle`、`cost view` 等含义不精确或跨领域隐喻；应分别写成明确的性能差、实验条件、稳健性实验、特征集合和预算口径。`stress test` 仅在预先定义扰动、强度和失败判据时使用。
+
+新术语或缩写只有在没有通行名称且给出数学定义、计算方法和与既有术语的区别时才能引入；不得用宣传性名称替代标准任务、基线、指标或统计方法。
+
+除非研究对象本身是算法问责、偏差/歧视检测、合规评价或独立第三方检查，不得把普通的完整性检查、结果复核、字段检查、统计诊断或文献核对命名为“xx审计”、`audit`、`auditor` 或 `auditing`，也不得把它们写成科学贡献或独立实验阶段。确需使用该术语时，必须说明检查对象、规范性准则、检查者角色与独立性、证据程序和报告产物。
+
+上述用语遵循领域文献的通常分工：COCO 与生物启发优化实验指南使用 benchmark、performance measure、reference algorithm、validation 和 statistical analysis；算法选择文献使用 SBS、VBS、portfolio、feature cost 与 performance gap；AOS 文献使用 operator selection、credit assignment 和 reward。机器学习中的 counterfactual 有因果模型或预测解释的正式含义，不能泛化为任意备选运行。Raji 等的 algorithmic auditing 则面向组织问责、系统伤害和审计报告，不能泛化为“更严格的科学检查”。
+
+---
+
+# 0.4 对话输出规范
+
+除非用户明确要求使用其他语言，Agent 的对话更新和最终输出必须使用中文。
+
+每次对话结束时，最终输出除说明当前结果外，还必须提供“下一步建议”。如果下一步任务业务复杂、容易偏离实验协议或适合另开新对话推进，必须给出一段可直接复制使用的下一步 prompt。
+
+---
+
+# 1. 项目研究目标
+
+本项目研究：
+
+> 在黑盒优化中，Landscape Analysis 本身是否值得执行。
+
+不是设计新的优化算法。
+
+核心流程：
+
+黑盒问题
+
+↓
+
+廉价优化探测
+
+↓
+
+算法无关搜索行为
+
+↓
+
+Search Maturity
+
+↓
+
+ELA Utility
+
+↓
+
+Decision-before-Feature
+
+---
+
+# 2. 数据与模型规范
+
+采用：
+
+Offline trajectory collection + supervised learning。
+
+禁止在线控制器训练作为主实验。
+
+优化算法池：
+
+- DE
+- PSO
+- CMA-ES
+- SHADE
+
+Decision输入：
+
+只允许算法无关行为：
+
+- improvement rate
+- diversity
+- entropy
+- stagnation
+- distance decay
+
+禁止：
+
+- PSO参数；
+- DE参数；
+- CMA-ES内部参数；
+- ELA Feature；
+- Function ID；
+- Algorithm ID。
+
+---
+
+# 3. 实验协议规范
+
+训练：
+
+BBOB：
+
+- 10D
+- 20D
+- 40D
+
+测试：
+
+- CEC2017
+- CEC2022
+- 工程问题
+
+采用：
+
+Function Family Split。
+
+禁止：
+
+随机函数实例划分。
+
+---
+
+# 4. ELA Utility
+
+定义：
+
+$$
+U_{ELA}=(P_{skip}-P_{ELA})-\lambda C_{ELA}
+$$
+
+标签必须离线生成。
+
+---
+
+# 5. Baseline
+
+必须包含：
+
+- Never ELA；
+- Always ELA；
+- Random Analysis；
+- Traditional AAS；
+- SBS；
+- VBS。
+
+---
+
+# 6. 代码开发规则
+
+修改代码前：
+
+1. 阅读当前项目文档；
+2. 检查实验协议；
+3. 不改变研究假设；
+4. 说明修改原因；
+5. 保持模块独立。
+
+新增实验必须说明：
+
+1. 研究问题；
+2. baseline；
+3. 是否存在数据泄漏；
+4. 结果保存方式。
+
+---
+
+# 7. Git规范
+
+提交格式：
+
+    [类型] 描述
+
+例如：
+
+    [feature] add behavior extractor
+
+    [experiment] add CEC evaluation
+
+禁止提交：
+
+- 临时文件；
+- 大规模原始数据；
+- checkpoint；
+- 自动生成文件。
+
+---
+
+# 8. 最终目标
+
+实现：
+
+优化经验数据
+
+↓
+
+算法无关搜索行为
+
+↓
+
+Search Maturity
+
+↓
+
+ELA Utility
+
+↓
+
+Decision-before-Feature
+
+↓
+
+资源感知算法选择。
+
+最终目标：
+
+> 证明 Landscape Analysis 本身也应该成为优化对象。

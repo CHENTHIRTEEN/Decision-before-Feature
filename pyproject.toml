@@ -1,0 +1,32 @@
+[project]
+name = "decision-before-feature"
+version = "0.1.0"
+description = "Optimizer trajectory collection for Decision-before-Feature experiments"
+authors = [
+    { name = "BingChen", email = "1030339437@QQ.COM" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "cma>=4.4.4",
+    "coco-experiment>=2.8.2",
+    "numpy>=2.5.1",
+    "opfunu>=1.0.4",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.0",
+    "pymoo>=0.6.2",
+    "pyyaml>=6.0.3",
+    "scipy>=1.18.0",
+    "setuptools<81",
+]
+
+[project.scripts]
+phase1-collect = "experiments.phase1_collect:main"
+phase1-validate = "experiments.phase1_validate:main"
+benchmark-check = "experiments.benchmark_check:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["benchmarks*", "optimizers*", "trajectory*", "experiments*"]
