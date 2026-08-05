@@ -194,6 +194,54 @@ results/phase1/bbob_validation_trajectories.parquet
 
 ---
 
+## 5.2 正式 BBOB trajectory 分片运行策略
+
+裁决：
+
+- 正式 BBOB train / validation 采集不得写入单个 Parquet 文件作为主运行方式。
+- 正式采集采用按 `split / function family / dimension` 分片输出。
+- 单文件输出仅保留给 MVE 和小规模链路验证。
+
+推荐分片路径：
+
+```text
+results/phase1/bbob_train/bbob_f001/dimension_10/trajectories.parquet
+results/phase1/bbob_validation/bbob_f005/dimension_10/trajectories.parquet
+```
+
+分片粒度：
+
+```text
+train:
+18 function families * 3 dimensions = 54 shards
+
+validation:
+6 function families * 3 dimensions = 18 shards
+```
+
+每个正式 shard 包含：
+
+```text
+3 instances * 30 optimizer seeds * 4 algorithms * 8 checkpoints = 2880 trajectory rows
+```
+
+续跑口径：
+
+- 若目标 shard 文件已存在，默认跳过。
+- 显式传入 `--overwrite` 时允许重新生成目标 shard。
+- 单个 shard 失败时，只重跑该 shard。
+- 不实现哈希、checksum、manifest、receipt、append-only 或执行解锁机制。
+- 文件存在性只作为人工续跑便利判断，不作为数据身份或完整性证明。
+
+正式采集前必须先运行 shard plan：
+
+```text
+uv run phase1-plan-shards --config configs/phase1_bbob_train.yaml
+uv run phase1-plan-shards --config configs/phase1_bbob_validation.yaml
+```
+
+---
+
 ## 6. Dimension 使用
 
 裁决：

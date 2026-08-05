@@ -3,20 +3,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import yaml
-
 from optimizers.registry import SUPPORTED_ALGORITHMS
+from experiments.phase1_batch_common import (
+    as_int_list,
+    count_runs,
+    fe_total_for_dimension,
+    load_config,
+)
 
 
 BBOB_FUNCTIONS = set(range(1, 25))
-
-
-def _load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        config = yaml.safe_load(handle)
-    if not isinstance(config, dict):
-        raise ValueError(f"{path} must contain a YAML mapping")
-    return config
 
 
 def _as_list(config: dict, name: str) -> list:
@@ -24,26 +20,6 @@ def _as_list(config: dict, name: str) -> list:
     if not isinstance(values, list) or not values:
         raise ValueError(f"{name} must be a non-empty list")
     return values
-
-
-def _as_int_list(config: dict, name: str) -> list[int]:
-    return [int(value) for value in _as_list(config, name)]
-
-
-def _fe_total_for_dimension(config: dict, dimension: int) -> int:
-    if "FE_total_by_dimension" in config:
-        budgets = config["FE_total_by_dimension"]
-        if not isinstance(budgets, dict):
-            raise ValueError("FE_total_by_dimension must be a mapping")
-        if dimension in budgets:
-            return int(budgets[dimension])
-        key = str(dimension)
-        if key in budgets:
-            return int(budgets[key])
-        raise ValueError(f"missing FE_total_by_dimension budget for dimension {dimension}")
-    if "FE_total" in config:
-        return int(config["FE_total"])
-    raise ValueError("config must define FE_total or FE_total_by_dimension")
 
 
 def _validate_checkpoint_ratios(config: dict) -> tuple[float, ...]:
@@ -57,14 +33,14 @@ def _validate_checkpoint_ratios(config: dict) -> tuple[float, ...]:
 
 
 def validate_batch_config(path: Path) -> dict:
-    config = _load_config(path)
+    config = load_config(path)
     if str(config.get("suite", "")).lower() != "bbob":
         raise ValueError(f"{path}: suite must be bbob")
 
-    functions = _as_int_list(config, "functions")
-    instances = _as_int_list(config, "instances")
-    dimensions = _as_int_list(config, "dimensions")
-    seeds = _as_int_list(config, "seeds")
+    functions = as_int_list(config, "functions")
+    instances = as_int_list(config, "instances")
+    dimensions = as_int_list(config, "dimensions")
+    seeds = as_int_list(config, "seeds")
     algorithms = [str(value).lower() for value in _as_list(config, "algorithms")]
     unsupported = sorted(set(algorithms).difference(SUPPORTED_ALGORITHMS))
     if unsupported:
@@ -76,7 +52,7 @@ def validate_batch_config(path: Path) -> dict:
         raise ValueError(f"{path}: population_size must be at least 4")
 
     for dimension in dimensions:
-        fe_total = _fe_total_for_dimension(config, dimension)
+        fe_total = fe_total_for_dimension(config, dimension)
         if fe_total < population_size:
             raise ValueError(f"{path}: FE budget for {dimension}D must be at least population_size")
         if fe_total % population_size != 0:
@@ -94,7 +70,7 @@ def validate_batch_config(path: Path) -> dict:
         "seeds": tuple(seeds),
         "algorithms": tuple(algorithms),
         "checkpoint_ratios": ratios,
-        "fe_total_by_dimension": tuple((dimension, _fe_total_for_dimension(config, dimension)) for dimension in dimensions),
+        "fe_total_by_dimension": tuple((dimension, fe_total_for_dimension(config, dimension)) for dimension in dimensions),
     }
 
 
@@ -127,12 +103,10 @@ def main() -> None:
         raise ValueError("provide one config, or exactly two configs for train/validation pair checking")
 
     for summary in summaries:
-        run_count = (
-            len(summary["functions"])
-            * len(summary["instances"])
-            * len(summary["dimensions"])
-            * len(summary["seeds"])
-            * len(summary["algorithms"])
+        run_count = count_runs(
+            load_config(summary["path"]),
+            list(summary["functions"]),
+            list(summary["dimensions"]),
         )
         row_count = run_count * len(summary["checkpoint_ratios"])
         print(f"{summary['path']}: {run_count} runs, {row_count} trajectory rows")
@@ -140,4 +114,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

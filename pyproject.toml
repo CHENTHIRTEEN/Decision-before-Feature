@@ -25,6 +25,7 @@ phase1-validate = "experiments.phase1_validate:main"
 benchmark-check = "experiments.benchmark_check:main"
 phase1-collect-batch = "experiments.phase1_collect_batch:main"
 phase1-check-config = "experiments.phase1_check_config:main"
+phase1-plan-shards = "experiments.phase1_plan_shards:main"
 
 [build-system]
 requires = ["setuptools>=80"]
