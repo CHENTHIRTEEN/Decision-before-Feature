@@ -31,10 +31,9 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
 
     return Problem(
         problem_id=problem_id,
-        family="bbob",
+        family=f"bbob_f{function:03d}",
         dimension=dimension,
         bounds=bounds,
         objective=objective,
         close_callback=close_problem,
     )
-

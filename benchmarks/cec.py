@@ -49,9 +49,8 @@ def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
 
     return Problem(
         problem_id=problem_id,
-        family=f"cec{year}",
+        family=f"cec{year}_f{function:02d}",
         dimension=dimension,
         bounds=bounds,
         objective=objective,
     )
-

@@ -1,0 +1,32 @@
+suite: bbob
+functions:
+  - 1
+  - 6
+  - 15
+  - 24
+instances:
+  - 1
+dimensions:
+  - 10
+  - 20
+seeds:
+  - 1
+  - 2
+FE_total: 2400
+population_size: 12
+algorithms:
+  - de
+  - pso
+  - cmaes
+  - shade
+checkpoint_ratios:
+  - 0.005
+  - 0.01
+  - 0.02
+  - 0.05
+  - 0.10
+  - 0.20
+  - 0.50
+  - 1.00
+output: results/phase1/bbob_mve_trajectories.parquet
+
