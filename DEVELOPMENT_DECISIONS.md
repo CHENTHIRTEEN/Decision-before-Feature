@@ -178,6 +178,19 @@ population_size = 40
 - 上述预算均可被 `population_size = 40` 整除，便于保存完整 population checkpoint。
 - Checkpoint 继续使用 FE ratio，不使用固定 FE 间隔。
 
+正式 checkpoint ratios：
+
+```text
+0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+```
+
+裁决理由：
+
+- 当前 min_support 诊断显示 `changed_algorithm` 且 `U_ELA>0` 的主要机会集中在 `FE_ratio=0.30-0.55`。
+- `0.20` 保留为 transition 前参照，`0.25` 和 `0.28` 用于捕捉 0.20 到 0.30 之间的 selection-reference / performance-bucket 过渡。
+- `0.60` 保留为机会区之后的衰减参照。
+- very early checkpoints 例如 `0.005-0.15` 和 late endpoints 例如 `0.75/1.00` 不进入正式 phase1 主采样频率；如需研究 early/late 行为，应另设扩展实验。
+
 正式配置文件：
 
 ```text
@@ -188,8 +201,8 @@ configs/phase1_bbob_validation.yaml
 输出路径：
 
 ```text
-results/phase1/bbob_train_trajectories.parquet
-results/phase1/bbob_validation_trajectories.parquet
+results/phase1_refined_sampling/bbob_train_trajectories.parquet
+results/phase1_refined_sampling/bbob_validation_trajectories.parquet
 ```
 
 ---
@@ -205,8 +218,8 @@ results/phase1/bbob_validation_trajectories.parquet
 推荐分片路径：
 
 ```text
-results/phase1/bbob_train/bbob_f001/dimension_10/trajectories.parquet
-results/phase1/bbob_validation/bbob_f005/dimension_10/trajectories.parquet
+results/phase1_refined_sampling/bbob_train/bbob_f001/dimension_10/trajectories.parquet
+results/phase1_refined_sampling/bbob_validation/bbob_f005/dimension_10/trajectories.parquet
 ```
 
 分片粒度：
@@ -222,7 +235,7 @@ validation:
 每个正式 shard 包含：
 
 ```text
-3 instances * 30 optimizer seeds * 4 algorithms * 8 checkpoints = 2880 trajectory rows
+3 instances * 30 optimizer seeds * 4 algorithms * 10 checkpoints = 3600 trajectory rows
 ```
 
 续跑口径：
@@ -446,10 +459,18 @@ audit
 
 这些不是文档冲突，而是开发前仍需确定的实验参数：
 
-- BBOB function family 的具体 train / validation / test family 列表。
 - CEC2017 / CEC2022 的具体函数范围、维度和预算。
 - `FE_prefix`、`FE_analysis`、`FE_optimization` 的具体数值。
 - ELA 采样点是否允许复用到后续优化。
 - 主 `lambda_time`、`lambda_memory` 和敏感性分析取值。
 - Search Maturity 中 ES、XS 的具体公式、窗口和归一化。
 - 方向熵的高维离散方案、零位移处理和平滑方式。
+
+已经由 min_support 结果冻结并进入正式 phase1 的细节：
+
+- BBOB train / validation function family split，见第 5.1 节。
+- BBOB train / validation dimensions：10D / 20D / 40D。
+- Phase1 主 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
+- `dimension`、`function_id`、`algorithm_id`、算法内部参数、ELA features 不进入 Decision Model 输入；这些字段只作为 metadata 和分层诊断使用。
+- `same_algorithm` rows 作为共享前缀续跑随机差异参照，不应与 `changed_algorithm` rows 混为同一解释。
+- Selection Reference / ELA-based selection pipeline 是固定下游组件，不作为本文方法贡献点。

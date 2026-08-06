@@ -11,7 +11,79 @@
 
 ---
 
-## 当前任务状态
+## 当前项目状态（2026-08-06）
+
+当前阶段：
+
+> 已完成 Decision-before-Feature 的 min_support 链路验证和诊断，准备进入正式 phase1 BBOB 完整数据集实验。
+
+当前状态：
+
+- 已建立并运行 min_support 的 trajectory、behavior、ELA/selection reference、utility label、Decision Model、ablation、Pareto 和多轮诊断链路。
+- 已生成问题归因矩阵：`results/decision/min_support/problem_attribution_matrix.md`。
+- 已将正式 phase1 checkpoint ratios 从 early-heavy 旧采样改为 min_support 支撑的新采样：
+
+```text
+0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+```
+
+- 正式 phase1 配置文件已同步：
+
+```text
+configs/phase1_bbob_train.yaml
+configs/phase1_bbob_validation.yaml
+```
+
+- 正式 phase1 refined sampling 输出目录与旧 phase1 shards 隔离：
+
+```text
+results/phase1_refined_sampling/bbob_train/
+results/phase1_refined_sampling/bbob_validation/
+```
+
+正式 phase1 BBOB split：
+
+```text
+train functions:
+1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23
+
+validation functions:
+5, 9, 13, 14, 19, 24
+
+dimensions:
+10, 20, 40
+
+instances:
+1, 2, 3
+
+optimizer seeds:
+1 ... 30
+
+algorithms:
+de, pso, cmaes, shade
+```
+
+min_support 关键结论：
+
+- Decision-before-Feature 机会存在，但当前最小数据集不足以支撑正式泛化结论。
+- 唯一 state 统计中，train `changed_algorithm` 为 1040 rows，仅 9 rows 满足 `U_ELA>0`，比例 `0.87%`；validation `changed_algorithm` 为 1900 rows，245 rows 满足 `U_ELA>0`，比例 `12.89%`。
+- `U_ELA>0` 主要集中在 validation 的 `FE_ratio=0.30-0.552`，因此正式 phase1 采样聚焦 `0.20-0.60`。
+- prefix algorithm 行为会通过 behavior features 间接影响 Decision Model；algorithm id 仍禁止作为 Decision 输入，但需要按 `prefix_algorithm` 做分层诊断。
+- family-stage threshold 在 function-family split 下不能作为可部署 key；后续应优先比较 FE-only stage、score quantile、behavior-bucket / search-maturity bucket 等可迁移校准方式。
+- `same_algorithm` rows 主要作为共享前缀续跑随机差异参照，不应与 `changed_algorithm` rows 混为同一解释。
+- Selection Reference / downstream ELA-based selection pipeline 是固定实验组件；它会影响 `P_ELA` 和 utility label，但不是本文方法贡献点。
+
+正式 phase1 启动前必须保留的约束：
+
+- 不使用 ELA features、function id、algorithm id、算法内部参数作为 Decision 输入。
+- `dimension`、`prefix_algorithm`、`problem_id` 等只用于 metadata、split 和分层诊断。
+- 不引入 pytest、测试目录、JSON Schema、hash/checksum/manifest/receipt 等机制。
+- 不使用当前项目目录外的历史代码、数据或文档。
+- 不把 min_support 结果写成论文主结论；它只用于修正正式 phase1 协议和诊断计划。
+
+---
+
+## 历史初始任务状态
 
 最近一次任务：
 
@@ -183,6 +255,12 @@ Black-box problem
 ---
 
 ## 下次对话启动建议
+
+如果要进入正式 phase1 完整数据集实验，可以直接说：
+
+```text
+请阅读 AGENTS.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md、docs/README.md 和 results/decision/min_support/problem_attribution_matrix.md，然后基于当前正式 phase1 refined sampling 配置启动完整 BBOB 数据集实验：先检查 configs/phase1_bbob_train.yaml 与 configs/phase1_bbob_validation.yaml 的 function-family split、dimensions、seeds、algorithms、checkpoint_ratios=[0.20,0.25,0.28,0.30,0.35,0.40,0.45,0.50,0.55,0.60] 和输出目录 results/phase1_refined_sampling/，运行 shard plan，确认新目录 shards 为 missing，再按 split/family/dimension 分片采集 trajectory、抽取 behavior、构建 selection_reference、生成 utility labels，并训练 Decision Model 与 baseline/ablation/Pareto 评估。必须同时解决 problem_attribution_matrix.md 中的六类问题：label coverage、algorithm-behavior confounding、threshold transfer/calibration、downstream ELA-based selection pipeline quality、same_algorithm random continuation noise、behavior feature insufficiency。不使用 ELA features/function id/algorithm id/算法内部参数作为 Decision 输入，不引入 pytest/JSON Schema/hash/checksum/manifest/receipt 机制，不访问当前项目目录之外的历史文件。
+```
 
 如果要继续开发，可以直接说：
 

@@ -1,0 +1,51 @@
+suite: bbob
+split: min_support_bbob_train_late_stage_f024_followup
+extension_role: diagnostic_late_stage_f024_seed_coverage
+functions: [24]
+instances: [1, 2]
+dimensions: [10, 20]
+seeds: [4, 5]
+FE_total_by_dimension:
+  10: 10000
+  20: 20000
+population_size: 40
+algorithms: [de, pso, cmaes, shade]
+checkpoint_ratios: [0.005, 0.01, 0.02, 0.05, 0.10, 0.12, 0.15, 0.20, 0.30, 0.50, 0.75, 1.00]
+output: results/phase1/min_support_bbob_train_late_stage_f024_followup_trajectories.parquet
+
+diagnostic_scope:
+  source_diagnostic: results/decision/min_support/late_stage_coverage_extension/late_stage_extension_summary.json
+  target_utility_column: u_ela_lamT_1
+  late_stage_definition: FE_ratio >= 0.5
+  decision_inputs: behavior_features_only
+  original_utility_labels_modified: false
+  formal_phase1_configs_modified: false
+
+target_problem_seed_rows:
+  - problem_id: bbob_f024_i01_d10
+    family: bbob_f024
+    dimension: 10
+    FE_ratio: 0.50
+    train_seeds: [4, 5]
+    existing_holdout_validation_seeds: [1, 2, 3]
+    observed_default_algorithm: cmaes
+    observed_selected_algorithm: shade
+  - problem_id: bbob_f024_i02_d10
+    family: bbob_f024
+    dimension: 10
+    FE_ratio: 0.50
+    train_seeds: [4, 5]
+    existing_holdout_validation_seeds: [1, 2, 3]
+    observed_default_algorithm: cmaes
+    observed_selected_algorithm: shade
+  - problem_id: bbob_f024_i02_d20
+    family: bbob_f024
+    dimension: 20
+    FE_ratio: 0.50
+    train_seeds: [4, 5]
+    existing_holdout_validation_seeds: [1, 2, 3]
+    observed_default_algorithm: cmaes
+    observed_selected_algorithm: shade
+
+config_compatible_reference_problem_ids:
+  - bbob_f024_i01_d20

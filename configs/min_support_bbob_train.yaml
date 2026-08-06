@@ -1,0 +1,13 @@
+suite: bbob
+split: min_support_bbob_train
+functions: [1, 6, 10, 15, 21]
+instances: [1, 2]
+dimensions: [10, 20]
+seeds: [1, 2, 3, 4, 5]
+FE_total_by_dimension:
+  10: 10000
+  20: 20000
+population_size: 40
+algorithms: [de, pso, cmaes, shade]
+checkpoint_ratios: [0.005, 0.01, 0.02, 0.05, 0.10, 0.12, 0.15, 0.20, 0.30, 0.50, 0.75, 1.00]
+output: results/phase1/min_support_bbob_train_trajectories.parquet
