@@ -46,6 +46,7 @@ flowchart TD
     ELA[Mersmann et al. 2011<br/>Exploratory Landscape Analysis]
     COST[Bischl et al. 2012<br/>Cost-sensitive ELA selection]
     AAS[Kerschke & Trautmann 2019<br/>ELA + ML Algorithm Selection]
+    SURVEY[Kerschke et al. 2019<br/>AAS Survey]
     ASLIB[Bischl et al. 2016<br/>ASlib, SBS, VBS]
     SAMPLE[Renau et al. 2020<br/>Muñoz & Kirley 2021<br/>Sampling sensitivity]
     BEHAV[Hayward & Engelbrecht 2025<br/>Oliveira et al. 2020<br/>Behavior analysis]
@@ -61,8 +62,10 @@ flowchart TD
     RICE --> ASLIB
     ELA --> COST
     ELA --> AAS
+    AAS --> SURVEY
     COST --> DBF
     AAS --> DBF
+    SURVEY --> DBF
     SAMPLE --> UTILITY
     BEHAV --> MATURITY
     BEHAV --> GATE
@@ -86,16 +89,16 @@ flowchart TD
 
 | 编号 | 当前方案中的结论                                              | 证据等级 | 推荐引用               | 引用关系与限制                                                                 |
 | ---- | ------------------------------------------------------------- | -------: | ---------------------- | ------------------------------------------------------------------------------ |
-| C1   | 不同问题实例可能适合不同算法，因此需要按实例选择算法          |        D | [R1], [R4], [R5]       | Rice 给出经典 Algorithm Selection Problem；ASlib 和 ELA-based AAS 给出标准场景 |
+| C1   | 不同问题实例可能适合不同算法，因此需要按实例选择算法          |        D | [R1], [R4], [R5], [R5a] | Rice 给出经典 Algorithm Selection Problem；ASlib、ELA-based AAS 和 AAS 综述给出标准场景 |
 | C2   | ELA 通过数值特征描述连续黑盒问题，并可支持算法选择            |        D | [R2], [R5], [R6], [R7] | 可直接用于定义 ELA 及其用途                                                    |
-| C3   | 典型 ELA-based AAS 流程为“特征提取 → 选择器 → 优化算法”   |        D | [R3], [R5]             | 支持基本流程，但不代表所有方法都必须如此                                       |
+| C3   | 典型 ELA-based AAS 流程为“特征提取 → 选择器 → 优化算法”   |        D | [R3], [R5], [R5a]      | 支持基本流程，但不代表所有方法都必须如此                                       |
 | C4   | 特征获取成本和算法运行成本可以纳入成本敏感选择                |    D / I | [R3]                   | Bischl 等支持成本敏感选择；本项目进一步决定“是否获取特征”                    |
 | C5   | 应先判断 ELA 是否值得执行，再决定是否进入 ELA-based selection |        O | [R1]–[R5] 仅作背景    | 这是本文提出的 Analysis Selection Problem                                      |
 | C6   | ELA 的有效成本取决于采样、特征组、实现方式以及样本能否复用    |    D / M | [R5], [R8], [R9]       | 不能无条件写成“ELA 天然昂贵”                                                 |
 
 ### 推荐论文表述
 
-> Exploratory landscape analysis provides numerical descriptors of continuous black-box problems and has been combined with machine learning for per-instance algorithm selection [R2, R3, R5]. Existing pipelines, however, generally presume that landscape information is acquired before selection. We introduce a preceding analysis-selection problem that asks whether its expected downstream benefit justifies its acquisition cost.
+> Exploratory landscape analysis provides numerical descriptors of continuous black-box problems and has been combined with machine learning for per-instance algorithm selection [R2, R3, R5]. This setting is part of the broader automated algorithm selection literature [R5a]. Existing pipelines, however, generally presume that landscape information is acquired before selection. We introduce a preceding analysis-selection problem that asks whether its expected downstream benefit justifies its acquisition cost.
 
 最后一句属于本文贡献，不应在句末挂一串文献假装前人已经替你创新完了。
 
@@ -111,6 +114,7 @@ flowchart TD
 | C10  | $U_{\mathrm{ELA}}$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 连续效用是本文建模选择                                                     |
 | C11  | ELA 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
 | C12  | ELA 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
+| C12a | 当前 `selection_reference` 是固定下游组件，不是本文贡献点 |    M / O | [R3], [R5], [R5a]  | 文献支持 ELA-based selector 范式；当前实现质量和泛化风险必须由本文诊断报告 |
 
 ---
 
@@ -182,6 +186,7 @@ $$
 - Algorithm Selection Problem：[R1]；
 - ELA 特征 $\phi(p)$：[R2]；
 - ELA 与机器学习选择器：[R3], [R5]；
+- AAS 综述背景：[R5a]；
 - SBS、VBS 和标准化场景：[R4]。
 
 ---
@@ -233,7 +238,7 @@ $$
 - 差值本身：本文操作性定义；
 - 相同总 FE 和黑盒评估：[R10], [R11]；
 - 配对随机数与方差降低：[R29]；
-- ELA-based selector：[R3], [R5]。
+- ELA-based selector：[R3], [R5], [R5a]。
 
 Common Random Numbers 并不自动保证方差下降。其效果依赖两条路径输出的相关性，因此应保存共享前缀，并对不同随机流实现做稳健性检查。
 
@@ -272,6 +277,7 @@ $$
 
 - 成本敏感选择思想：[R3]；
 - ELA-based AAS：[R5]；
+- AAS 综述背景：[R5a]；
 - FE 与 anytime 评价：[R10], [R11]；
 - 具体公式：本文定义。
 
@@ -682,7 +688,7 @@ $$
 
 - Algorithm Selection：[R1], [R4]；
 - ELA：[R2]；
-- ELA-based AAS：[R3], [R5]；
+- ELA-based AAS：[R3], [R5], [R5a]；
 - 采样敏感性：[R8], [R9]。
 
 不要在引言中提前宣称：
@@ -700,7 +706,7 @@ $$
 
 建议分为：
 
-1. Automated Algorithm Selection：[R1], [R4]；
+1. Automated Algorithm Selection：[R1], [R4], [R5a]；
 2. Exploratory Landscape Analysis for AAS：[R2], [R3], [R5]–[R9]；
 3. Behavior-based Metaheuristic Analysis：[R12]–[R15]；
 4. Cost-aware and Resource-aware Evaluation：[R3], [R10], [R11]。
@@ -773,7 +779,7 @@ $$
 | `docs/10_protocols/Decision-before-Feature_Offline Utility Label构建协议.md` | [R3], [R5], [R8]–[R11], [R29]         | 共享前缀配对续跑、标签聚合                    |
 | `Decision-before-Feature_Search Maturity理论设计.md`                   | [R12]–[R15]                           | Search Maturity 和倒 U 假设                    |
 | `Decision-before-Feature Behavior Feature Taxonomy与指标选择协议.md`   | [R12]–[R15]                           | 特征集合、窗口和归一化                         |
-| `docs/10_protocols/Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md` | [R1], [R4], [R5], [R24]–[R28]         | 四算法组合和现实 selector                      |
+| `docs/10_protocols/Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md` | [R1], [R3], [R4], [R5], [R5a], [R24]–[R28] | 四算法组合、固定下游 selector 实现和其泛化诊断 |
 | `Decision-before-Feature Baseline与公平比较协议.md`                    | [R4], [R5], [R10], [R11], [R16]–[R19] | Never/Always/Random gate 协议                  |
 | `Decision-before-Feature_维度与泛化实验设计.md`                        | [R8]–[R11], [R30], [R31]              | BBOB→CEC 与多层 OOD                           |
 | `Decision-before-Feature_特征信息必要性与ELA信息价值验证设计.md`       | [R8], [R9], [R16], [R17]               | “多数不需要”规则、Compact ELA                |
@@ -916,6 +922,8 @@ CEC 技术报告 [R30], [R31] 只定义 benchmark。论文仍需说明：
 
 **[R5]** Kerschke, P., & Trautmann, H. (2019). Automated Algorithm Selection on Continuous Black-Box Problems by Combining Exploratory Landscape Analysis and Machine Learning. *Evolutionary Computation*, 27(1), 99–127. DOI: [https://doi.org/10.1162/evco_a_00236](https://doi.org/10.1162/evco_a_00236).
 
+**[R5a]** Kerschke, P., Hoos, H. H., Neumann, F., & Trautmann, H. (2019). Automated Algorithm Selection: Survey and Perspectives. *Evolutionary Computation*, 27(1), 3–45. DOI: [https://doi.org/10.1162/evco_a_00242](https://doi.org/10.1162/evco_a_00242).
+
 **[R6]** Kerschke, P., & Trautmann, H. (2016). The R-Package FLACCO for Exploratory Landscape Analysis with Applications to Multi-Objective Optimization Problems. In *2016 IEEE Congress on Evolutionary Computation* (pp. 5262–5269). DOI: [https://doi.org/10.1109/CEC.2016.7748359](https://doi.org/10.1109/CEC.2016.7748359).
 
 **[R7]** Prager, R. P., & Trautmann, H. (2024). Pflacco: Feature-Based Landscape Analysis of Continuous and Constrained Optimization Problems in Python. *Evolutionary Computation*, 32(3), 211–216. DOI: [https://doi.org/10.1162/evco_a_00341](https://doi.org/10.1162/evco_a_00341).
@@ -992,6 +1000,7 @@ mersmann2011ela
 bischl2012cost
 bischl2016aslib
 kerschke2019aas
+kerschke2019survey
 renau2020sampling
 munoz2021sampling
 hansen2021coco

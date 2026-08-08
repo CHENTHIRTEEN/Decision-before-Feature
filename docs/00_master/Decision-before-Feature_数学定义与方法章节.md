@@ -104,6 +104,8 @@ $$
 
 (S)为算法选择模型。
 
+该流程对应已有 ELA-based algorithm selection 范式：先获取 landscape features，再用监督学习模型从算法组合中选择优化器。本文不把该 selector 作为新贡献，而是把它作为固定下游 Selection Reference；本文研究的是调用该 selector 之前是否值得执行 ELA。
+
 ---
 
 ## 2.3 Limitation
