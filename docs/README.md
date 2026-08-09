@@ -39,6 +39,7 @@
 - downstream ELA-based selection pipeline quality：作为固定下游组件限制报告，不作为本文方法贡献。
 - same_algorithm random continuation noise：保留为共享前缀续跑随机差异参照。
 - behavior feature insufficiency：优先诊断算法无关 population/fitness behavior feature 候选。
+- 算法切换初始化：正式 phase1 主口径为 Population Transfer；ELA 采样点不复用到后续优化。
 
 ---
 
@@ -74,6 +75,13 @@
 - `10_protocols/Decision-before-Feature_Offline Utility Label构建协议.md`
   - 离线效用标签生成协议。
   - 开发口径使用 `utility_labels`，避免把普通标签生成写成独立算法贡献。
+  - 冻结 Skip/Run ELA 的共享 checkpoint population transfer 口径。
+- `10_protocols/Decision-before-Feature_phase1_refined_sampling_指标口径冻结.md`
+  - 正式 phase1 refined sampling 前的指标口径冻结。
+  - 统一 `P_skip`、`P_ELA`、`U_ELA`、observed/proxy utility、`selected=VBS`、capture 和 precision 的报告边界。
+- `10_protocols/Decision-before-Feature_phase1_utility_label_column_spec.md`
+  - phase1 utility label 字段规格。
+  - 明确 metadata、main label、cost ledger、diagnostic-only 和 calibration/evaluation 字段边界。
 - `10_protocols/Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md`
   - Algorithm portfolio 和 selection reference 设计。
   - `Selection Reference` 只用于离线标签生成，不作为部署阶段组件。
@@ -87,6 +95,7 @@
   - Search Maturity 与 ELA Utility 的关系验证实验。
 - `10_protocols/Decision-before-Feature_Decision_Model计算成本与资源开销分析设计.md`
   - Decision Model 推理成本、资源节省和开销分析。
+  - 在线测评中 behavior sampling 定义为 decision-check frequency，并区分主采样与 dense sensitivity。
 
 ---
 

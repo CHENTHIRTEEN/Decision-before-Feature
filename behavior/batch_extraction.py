@@ -25,8 +25,8 @@ def extract_behavior_shards(
 
     for config_path in config_paths:
         config = load_config(config_path)
-        if str(config["suite"]).lower() != "bbob":
-            raise ValueError("behavior-extract-batch currently supports only suite: bbob")
+        if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022"}:
+            raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022")
 
         for shard in make_shards(config, only_functions, only_dimensions):
             trajectory_path = shard.output_path

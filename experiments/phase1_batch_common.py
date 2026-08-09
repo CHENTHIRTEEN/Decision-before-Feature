@@ -10,13 +10,14 @@ from optimizers.registry import SUPPORTED_ALGORITHMS
 
 @dataclass(frozen=True)
 class Shard:
+    suite: str
     function: int
     dimension: int
     output_path: Path
 
     @property
     def family(self) -> str:
-        return f"bbob_f{self.function:03d}"
+        return family_name(self.suite, self.function)
 
 
 def load_config(path: Path) -> dict:
@@ -70,6 +71,15 @@ def split_name(config: dict) -> str:
     return stem[: -len(suffix)] if stem.endswith(suffix) else stem
 
 
+def family_name(suite: str, function: int) -> str:
+    suite_name = str(suite).lower()
+    if suite_name == "bbob":
+        return f"bbob_f{int(function):03d}"
+    if suite_name in {"cec2017", "cec2022"}:
+        return f"{suite_name}_f{int(function):02d}"
+    raise ValueError(f"unsupported benchmark suite for shard family: {suite}")
+
+
 def selected_functions(config: dict, only_functions: list[int] | None = None) -> list[int]:
     functions = as_int_list(config, "functions")
     if only_functions is None:
@@ -94,7 +104,7 @@ def selected_dimensions(config: dict, only_dimensions: list[int] | None = None) 
 
 def shard_output_path(config: dict, function: int, dimension: int) -> Path:
     base_dir = Path(config["output"]).parent / split_name(config)
-    return base_dir / f"bbob_f{function:03d}" / f"dimension_{dimension}" / "trajectories.parquet"
+    return base_dir / family_name(str(config["suite"]), function) / f"dimension_{dimension}" / "trajectories.parquet"
 
 
 def make_shards(
@@ -103,7 +113,12 @@ def make_shards(
     only_dimensions: list[int] | None = None,
 ) -> list[Shard]:
     return [
-        Shard(function=function, dimension=dimension, output_path=shard_output_path(config, function, dimension))
+        Shard(
+            suite=str(config["suite"]).lower(),
+            function=function,
+            dimension=dimension,
+            output_path=shard_output_path(config, function, dimension),
+        )
         for function in selected_functions(config, only_functions)
         for dimension in selected_dimensions(config, only_dimensions)
     ]
@@ -122,4 +137,3 @@ def count_runs(config: dict, functions: list[int], dimensions: list[int]) -> int
 def count_fe(config: dict, functions: list[int], dimensions: list[int]) -> int:
     per_function = len(as_int_list(config, "instances")) * len(as_int_list(config, "seeds")) * len(algorithms(config))
     return len(functions) * per_function * sum(fe_total_for_dimension(config, dimension) for dimension in dimensions)
-

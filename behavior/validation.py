@@ -30,6 +30,27 @@ BOUNDED_FEATURE_COLUMNS = (
     "bf_improvement_frequency_w02",
     "bf_directional_entropy_w05",
     "bf_stagnation_w10",
+    "bf_direction_consistency_w05",
+    "bf_success_rate_w02",
+    "bf_best_improvement_ratio_w02",
+    "bf_search_maturity",
+    "bf_search_maturity_linear",
+    "bf_population_overlap_w05",
+)
+
+NON_NEGATIVE_FEATURE_COLUMNS = (
+    "bf_fe_ratio",
+    "bf_diversity_mean_pairwise",
+    "bf_fitness_diversity",
+    "bf_fitness_diversity_rel",
+    "bf_movement_magnitude",
+    "bf_movement_diversity",
+    "bf_improvement_variance_w02",
+    "bf_elite_concentration",
+)
+
+CORRELATION_FEATURE_COLUMNS = (
+    "bf_best_distance_fitness_corr",
 )
 
 
@@ -57,10 +78,20 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
         if behavior_row["bf_diversity_mean_pairwise"] < 0.0:
             raise ValueError("bf_diversity_mean_pairwise must be non-negative")
 
+        for column in NON_NEGATIVE_FEATURE_COLUMNS:
+            value = behavior_row[column]
+            if value is not None and value < 0.0:
+                raise ValueError(f"{column} must be non-negative or null")
+
         for column in BOUNDED_FEATURE_COLUMNS:
             value = behavior_row[column]
             if value is not None and not 0.0 <= value <= 1.0:
                 raise ValueError(f"{column} must be in [0, 1] or null")
+
+        for column in CORRELATION_FEATURE_COLUMNS:
+            value = behavior_row[column]
+            if value is not None and not -1.0 <= value <= 1.0:
+                raise ValueError(f"{column} must be in [-1, 1] or null")
 
         for column in BEHAVIOR_FEATURE_COLUMNS:
             value = behavior_row[column]

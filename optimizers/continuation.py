@@ -24,6 +24,8 @@ class ContinuationResult:
     best_fitness: float
     runtime_seconds: float
     evaluations: int
+    population: np.ndarray | None = None
+    fitness: np.ndarray | None = None
 
 
 def run_population_continuation(
@@ -41,10 +43,11 @@ def run_population_continuation(
     best_fitness: float,
     settings: OptimizerSettings,
 ) -> ContinuationResult:
+    """Continue from checkpoint population state without optimizer-internal state transfer."""
     if fe_budget < 0:
         raise ValueError("fe_budget must be non-negative")
     if fe_budget == 0:
-        return ContinuationResult(float(best_fitness), 0.0, 0)
+        return ContinuationResult(float(best_fitness), 0.0, 0, np.asarray(population, dtype=float).copy(), np.asarray(fitness, dtype=float).copy())
 
     pop = np.asarray(population, dtype=float).copy()
     fit = np.asarray(fitness, dtype=float).reshape(-1).copy()
@@ -74,7 +77,7 @@ def run_population_continuation(
         best, evaluations = _continue_cmaes(problem, rng, fe_budget, pop, fit, float(best_fitness), settings)
     else:
         best, evaluations = _continue_shade(problem, rng, fe_budget, pop, fit, float(best_fitness))
-    return ContinuationResult(best, perf_counter() - started, evaluations)
+    return ContinuationResult(best, perf_counter() - started, evaluations, pop.copy(), fit.copy())
 
 
 def _continue_de(
@@ -181,6 +184,8 @@ def _continue_cmaes(
         candidates = np.clip(candidates, lower, upper)
         values = problem.evaluate(candidates)
         strategy.tell(candidates.tolist(), values.tolist())
+        population[: len(candidates)] = candidates
+        fitness[: len(values)] = values
         evaluations += int(len(values))
         best_fitness = min(best_fitness, float(np.min(values)))
     return float(best_fitness), evaluations

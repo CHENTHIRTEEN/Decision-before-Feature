@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 from pathlib import Path
 
@@ -56,21 +57,49 @@ def _collect_shards(
     only_functions: list[int] | None,
     only_dimensions: list[int] | None,
     overwrite: bool,
+    workers: int = 1,
 ) -> None:
     algorithms_ = algorithms(config)
     shards = make_shards(config, only_functions, only_dimensions)
-    written_count = 0
     skipped_count = 0
+    pending_shards = []
     for shard in shards:
         if shard.output_path.exists() and not overwrite:
             print(f"skip existing shard {shard.output_path}")
             skipped_count += 1
             continue
-        records = _collect_records(config, [shard.function], [shard.dimension], algorithms_)
-        written = write_parquet(records, shard.output_path)
-        print(f"wrote {len(records)} trajectory records to {written}")
-        written_count += 1
+        pending_shards.append(shard)
+
+    written_count = 0
+    if workers <= 1 or len(pending_shards) <= 1:
+        for shard in pending_shards:
+            records = _collect_records(config, [shard.function], [shard.dimension], algorithms_)
+            written = write_parquet(records, shard.output_path)
+            print(f"wrote {len(records)} trajectory records to {written}")
+            written_count += 1
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(_collect_and_write_shard, config, shard.function, shard.dimension, shard.output_path, algorithms_): shard
+                for shard in pending_shards
+            }
+            for future in as_completed(futures):
+                records_count, written = future.result()
+                print(f"wrote {records_count} trajectory records to {written}")
+                written_count += 1
     print(f"finished {written_count} written shards, {skipped_count} skipped shards")
+
+
+def _collect_and_write_shard(
+    config: dict,
+    function: int,
+    dimension: int,
+    output_path: Path,
+    algorithms_: list[str],
+) -> tuple[int, str]:
+    records = _collect_records(config, [function], [dimension], algorithms_)
+    written = write_parquet(records, output_path)
+    return len(records), str(written)
 
 
 def main() -> None:
@@ -81,21 +110,26 @@ def main() -> None:
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--workers", type=int, default=1, help="Shard-level worker processes for --sharded collection.")
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
-    if str(config["suite"]).lower() != "bbob":
-        raise ValueError("phase1-collect-batch currently supports only suite: bbob")
+    if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022"}:
+        raise ValueError("phase1-collect-batch supports suites: bbob, cec2017, cec2022")
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
 
     if args.sharded:
-        _collect_shards(config, args.only_function, args.only_dimension, args.overwrite)
+        _collect_shards(config, args.only_function, args.only_dimension, args.overwrite, args.workers)
         return
 
+    output_path = Path(args.output or config["output"])
+    if output_path.suffix != ".parquet":
+        raise ValueError("non-sharded collection requires a .parquet output file; use --sharded for shard directory output")
     functions = selected_functions(config, args.only_function)
     dimensions = selected_dimensions(config, args.only_dimension)
     records = _collect_records(config, functions, dimensions, algorithms(config))
 
-    output_path = Path(args.output or config["output"])
     written = write_parquet(records, output_path)
     print(f"wrote {len(records)} trajectory records to {written}")
 

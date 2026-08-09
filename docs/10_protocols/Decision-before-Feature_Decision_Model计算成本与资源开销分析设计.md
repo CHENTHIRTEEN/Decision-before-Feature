@@ -82,6 +82,39 @@ $$
 
 ------------------------------------------------------------------------
 
+## 2.1 Online behavior sampling protocol
+
+在线测评中的行为采样频率定义为：
+
+```text
+decision-check frequency
+```
+
+含义：
+
+- 每个 checkpoint 都是 behavior observation 点；
+- 每个 checkpoint 也是 controller、Random Analysis 和 Always ELA 可以触发 ELA 的决策点；
+- Always ELA 在当前 sampling protocol 的第一个 checkpoint 后触发；
+- Random Analysis 在每个 decision-check point 独立判断是否触发；
+- controller 在每个 decision-check point 使用 behavior features 预测是否触发。
+
+主在线测评使用训练 / label 同口径 checkpoint ratios：
+
+```text
+0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+```
+
+密集采样仅作为敏感性分析：
+
+```text
+0.20, 0.225, 0.25, 0.275, 0.28, 0.30, 0.325, 0.35, 0.375,
+0.40, 0.425, 0.45, 0.475, 0.50, 0.525, 0.55, 0.575, 0.60
+```
+
+密集采样不得解释为纯被动观测频率实验。当前 continuation adapter 会在 checkpoint 间分段续跑，因此该实验只报告决策检查频率敏感性，不替代主在线测评。
+
+------------------------------------------------------------------------
+
 # 3. Decision Module定位
 
 Decision Model不是：

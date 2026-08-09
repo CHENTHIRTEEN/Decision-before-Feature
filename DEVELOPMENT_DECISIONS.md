@@ -191,6 +191,15 @@ population_size = 40
 - `0.60` 保留为机会区之后的衰减参照。
 - very early checkpoints 例如 `0.005-0.15` 和 late endpoints 例如 `0.75/1.00` 不进入正式 phase1 主采样频率；如需研究 early/late 行为，应另设扩展实验。
 
+在线测评行为采样口径：
+
+- 在线测评中的行为采样频率定义为 `decision-check frequency`。
+- 每个采样点同时是 behavior observation 点，也是 controller、Random Analysis 和 Always ELA 可以触发 ELA 的决策点。
+- 主在线测评使用训练 / label 同口径 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
+- 密集采样只作为敏感性分析，使用：`0.20, 0.225, 0.25, 0.275, 0.28, 0.30, 0.325, 0.35, 0.375, 0.40, 0.425, 0.45, 0.475, 0.50, 0.525, 0.55, 0.575, 0.60`。
+- 密集采样不得解释为纯被动观测频率；当前 continuation adapter 会按 checkpoint 分段续跑，因此该结果只能解释为决策检查频率敏感性。
+- 主结论只使用训练同口径 online sampling protocol。
+
 正式配置文件：
 
 ```text
@@ -453,6 +462,22 @@ schema_registry
 audit
 ```
 
+## 16.1 算法切换后的初始化口径
+
+裁决：
+
+- 主实验采用 Population Transfer。
+- selector、Always ELA、Random Analysis 和 Traditional AAS 只要在共享 checkpoint 后切换算法，切换后的算法直接使用该 checkpoint 的 `population`、`fitness` 和 `best_fitness` 继续优化。
+- Best-so-far Warm Start 不作为主实验默认口径，只能作为后续稳健性分析候选。
+- ELA 采样点不并入后续优化 population；ELA 只提供 selector 所需特征，并通过减少 `FE_ela_optimization` 体现 FE 成本。
+
+实现含义：
+
+- 新算法继承的是算法无关搜索状态：位置、fitness 和当前 best。
+- 新算法不继承前缀算法内部状态。
+- DE、PSO、CMA-ES 和 SHADE 的内部状态由 continuation adapter 按新算法重新初始化。
+- `P_ELA` 表示付出 ELA 成本后，selection reference 选择的算法从同一 checkpoint population 继续优化得到的 final performance；不是围绕 best-so-far 重启得到的 performance。
+
 ---
 
 ## 17. 当前仍需单独冻结的实验细节
@@ -461,7 +486,6 @@ audit
 
 - CEC2017 / CEC2022 的具体函数范围、维度和预算。
 - `FE_prefix`、`FE_analysis`、`FE_optimization` 的具体数值。
-- ELA 采样点是否允许复用到后续优化。
 - 主 `lambda_time`、`lambda_memory` 和敏感性分析取值。
 - Search Maturity 中 ES、XS 的具体公式、窗口和归一化。
 - 方向熵的高维离散方案、零位移处理和平滑方式。
@@ -474,3 +498,4 @@ audit
 - `dimension`、`function_id`、`algorithm_id`、算法内部参数、ELA features 不进入 Decision Model 输入；这些字段只作为 metadata 和分层诊断使用。
 - `same_algorithm` rows 作为共享前缀续跑随机差异参照，不应与 `changed_algorithm` rows 混为同一解释。
 - Selection Reference / ELA-based selection pipeline 是固定下游组件，不作为本文方法贡献点。
+- 算法切换后的主初始化口径为 Population Transfer；ELA 采样点不复用到后续优化。

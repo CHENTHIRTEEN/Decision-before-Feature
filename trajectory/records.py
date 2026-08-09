@@ -32,6 +32,7 @@ class TrajectoryRecord:
         population: np.ndarray,
         fitness: np.ndarray,
         best_fitness: float,
+        fe_ratio: float | None = None,
     ) -> "TrajectoryRecord":
         pop = np.asarray(population, dtype=float)
         fit = np.asarray(fitness, dtype=float).reshape(-1)
@@ -46,9 +47,8 @@ class TrajectoryRecord:
             algorithm=algorithm,
             seed=int(seed),
             FE=int(fe),
-            FE_ratio=float(fe / fe_total),
+            FE_ratio=float(fe_ratio if fe_ratio is not None else fe / fe_total),
             population=pop.tolist(),
             fitness=fit.tolist(),
             best_fitness=float(best_fitness),
         )
-

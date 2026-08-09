@@ -20,6 +20,22 @@ Offline Utility Label。
 
 构造两个策略。
 
+两个策略必须从同一个共享 checkpoint state 派生。
+
+该 state 包括：
+
+- checkpoint population；
+- checkpoint fitness；
+- checkpoint best fitness。
+
+主实验采用 Population Transfer：
+
+- Skip ELA 和 Run ELA 都使用同一 checkpoint population 继续优化；
+- 如果 Run ELA 选择了不同算法，新算法继承 population、fitness 和 best fitness；
+- 新算法不继承前缀算法内部状态；
+- Best-so-far Warm Start 不进入主标签口径，只能作为后续稳健性分析候选；
+- ELA 采样点不复用到后续优化 population。
+
 ## Strategy A: Skip ELA
 
 直接优化。
@@ -71,6 +87,12 @@ $$
 $$
 P_{ELA}
 $$
+
+这里的 \(P_{ELA}\) 表示：
+
+> 付出 ELA 成本后，selection reference 选择的算法从同一 checkpoint population 继续优化得到的最终 performance。
+
+它不是围绕 best-so-far 重新初始化后得到的 performance。
 
 ---
 

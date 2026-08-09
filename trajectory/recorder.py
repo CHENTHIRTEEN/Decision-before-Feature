@@ -28,7 +28,8 @@ class TrajectoryRecorder:
         if self._next_checkpoint >= len(self._checkpoint_ratios):
             return
         fe_ratio = fe / fe_total
-        if fe_ratio < self._checkpoint_ratios[self._next_checkpoint]:
+        checkpoint_ratio = self._checkpoint_ratios[self._next_checkpoint]
+        if fe_ratio < checkpoint_ratio:
             return
 
         while (
@@ -51,7 +52,7 @@ class TrajectoryRecorder:
                 population=population,
                 fitness=fitness,
                 best_fitness=best_fitness,
+                fe_ratio=checkpoint_ratio,
             )
         )
         self._last_recorded_fe = fe
-

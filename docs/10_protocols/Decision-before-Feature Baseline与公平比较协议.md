@@ -259,6 +259,29 @@ Always ELA天然占优势。
 
 ------------------------------------------------------------------------
 
+## 5.4 算法切换后的初始化公平性
+
+所有会在 checkpoint 后调用 selector 的方法：
+
+- Always ELA；
+- Random Analysis 中的 Run ELA 分支；
+- Traditional AAS；
+- Decision-before-Feature 中的 Run ELA 分支。
+
+必须使用同一 Population Transfer 口径。
+
+具体规则：
+
+- 切换后的算法直接使用当前 checkpoint 的 `population`、`fitness` 和 `best_fitness`；
+- 切换后的算法重新初始化自身内部状态；
+- 不使用 Best-so-far Warm Start 作为主实验默认设置；
+- ELA 采样点不注入后续优化 population；
+- `FE_ela_optimization = FE_total - FE_prefix - FE_analysis`。
+
+这样比较的是是否执行 ELA 以及 selector 选择的算法，而不是额外重启策略或 ELA 样本复用策略。
+
+------------------------------------------------------------------------
+
 # 6. Algorithm Portfolio公平协议
 
 所有Algorithm Selection方法：

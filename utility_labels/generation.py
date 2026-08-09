@@ -34,39 +34,47 @@ def generate_utility_labels(
     max_labels: int | None,
 ) -> dict[str, int | str]:
     config = load_config(config_path)
-    split = Path(config["output"]).stem.removesuffix("_trajectories")
+    split = _split_name(config)
+    suite = str(config["suite"]).lower()
     selection = _read_selection_reference(selection_reference_path)
     ela_features = _read_ela_features(ela_root / split / "features.parquet")
     settings = OptimizerSettings(population_size=int(config["population_size"]), checkpoint_ratios=(1.0,))
     rows = []
+    problem_cache = {}
 
-    for shard in make_shards(config, only_functions, only_dimensions):
-        trajectory_path = behavior_root / split / shard.family / f"dimension_{shard.dimension}" / "trajectories.parquet"
-        behavior_path = trajectory_path.with_name("behavior.parquet")
-        if not trajectory_path.exists():
-            raise FileNotFoundError(f"missing trajectory shard: {trajectory_path}")
-        if not behavior_path.exists():
-            raise FileNotFoundError(f"missing behavior shard: {behavior_path}")
-        validate_behavior_file(trajectory_path, behavior_path)
-        trajectory_rows = pq.read_table(trajectory_path).to_pylist()
-        behavior_rows = pq.read_table(behavior_path).to_pylist()
-        for trajectory_row, behavior_row in zip(trajectory_rows, behavior_rows, strict=True):
-            if not _eligible_for_label(trajectory_row, config):
-                continue
-            label = _generate_one_label(
-                split=split,
-                config=config,
-                trajectory_row=trajectory_row,
-                behavior_row=behavior_row,
-                selection=selection,
-                ela_features=ela_features,
-                settings=settings,
-            )
-            rows.append(label)
+    try:
+        for shard in make_shards(config, only_functions, only_dimensions):
+            trajectory_path = behavior_root / split / shard.family / f"dimension_{shard.dimension}" / "trajectories.parquet"
+            behavior_path = trajectory_path.with_name("behavior.parquet")
+            if not trajectory_path.exists():
+                raise FileNotFoundError(f"missing trajectory shard: {trajectory_path}")
+            if not behavior_path.exists():
+                raise FileNotFoundError(f"missing behavior shard: {behavior_path}")
+            validate_behavior_file(trajectory_path, behavior_path)
+            trajectory_rows = pq.read_table(trajectory_path).to_pylist()
+            behavior_rows = pq.read_table(behavior_path).to_pylist()
+            for trajectory_row, behavior_row in zip(trajectory_rows, behavior_rows, strict=True):
+                if not _eligible_for_label(trajectory_row, config):
+                    continue
+                label = _generate_one_label(
+                    split=split,
+                    suite=suite,
+                    config=config,
+                    trajectory_row=trajectory_row,
+                    behavior_row=behavior_row,
+                    selection=selection,
+                    ela_features=ela_features,
+                    settings=settings,
+                    problem_cache=problem_cache,
+                )
+                rows.append(label)
+                if max_labels is not None and len(rows) >= max_labels:
+                    break
             if max_labels is not None and len(rows) >= max_labels:
                 break
-        if max_labels is not None and len(rows) >= max_labels:
-            break
+    finally:
+        for problem in problem_cache.values():
+            problem.close()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pylist(rows, schema=_schema()), output_path)
@@ -103,14 +111,16 @@ def _eligible_for_label(row: dict, config: dict) -> bool:
 def _generate_one_label(
     *,
     split: str,
+    suite: str,
     config: dict,
     trajectory_row: dict,
     behavior_row: dict,
     selection: dict[tuple[str, str, int, float], dict],
     ela_features: dict[str, dict],
     settings: OptimizerSettings,
+    problem_cache: dict[tuple[int, int, int], object],
 ) -> dict:
-    function, instance, dimension = _parse_problem_id(str(trajectory_row["problem_id"]))
+    function, instance, dimension = _parse_problem_id(str(trajectory_row["problem_id"]), suite=suite)
     fe_total = fe_total_for_dimension(config, dimension)
     fe_prefix = int(trajectory_row["FE"])
     fe_analysis = int(FE_ANALYSIS_RATIO * fe_total)
@@ -130,46 +140,47 @@ def _generate_one_label(
     population = np.asarray(trajectory_row["population"], dtype=float)
     fitness = np.asarray(trajectory_row["fitness"], dtype=float)
     best_fitness = float(trajectory_row["best_fitness"])
-    problem = make_problem(
-        {
-            "suite": "bbob",
-            "function": function,
-            "instance": instance,
-            "dimension": dimension,
-        }
+    problem_key = (function, instance, dimension)
+    if problem_key not in problem_cache:
+        problem_cache[problem_key] = make_problem(
+            {
+                "suite": suite,
+                "function": function,
+                "instance": instance,
+                "dimension": dimension,
+            }
+        )
+    problem = problem_cache[problem_key]
+    generation = max(1, fe_prefix // int(config["population_size"]))
+    # Both branches use population transfer from the same checkpoint state; ELA samples are not reused here.
+    skip = run_population_continuation(
+        algorithm=str(selection_row["default_algorithm"]),
+        problem=problem,
+        seed=int(trajectory_row["seed"]),
+        function=function,
+        instance=instance,
+        generation=generation,
+        event=1,
+        fe_budget=fe_skip,
+        population=population,
+        fitness=fitness,
+        best_fitness=best_fitness,
+        settings=settings,
     )
-    try:
-        generation = max(1, fe_prefix // int(config["population_size"]))
-        skip = run_population_continuation(
-            algorithm=str(selection_row["default_algorithm"]),
-            problem=problem,
-            seed=int(trajectory_row["seed"]),
-            function=function,
-            instance=instance,
-            generation=generation,
-            event=1,
-            fe_budget=fe_skip,
-            population=population,
-            fitness=fitness,
-            best_fitness=best_fitness,
-            settings=settings,
-        )
-        ela = run_population_continuation(
-            algorithm=str(selection_row["selected_algorithm"]),
-            problem=problem,
-            seed=int(trajectory_row["seed"]),
-            function=function,
-            instance=instance,
-            generation=generation,
-            event=2,
-            fe_budget=fe_ela,
-            population=population,
-            fitness=fitness,
-            best_fitness=best_fitness,
-            settings=settings,
-        )
-    finally:
-        problem.close()
+    ela = run_population_continuation(
+        algorithm=str(selection_row["selected_algorithm"]),
+        problem=problem,
+        seed=int(trajectory_row["seed"]),
+        function=function,
+        instance=instance,
+        generation=generation,
+        event=2,
+        fe_budget=fe_ela,
+        population=population,
+        fitness=fitness,
+        best_fitness=best_fitness,
+        settings=settings,
+    )
 
     p_skip = float(skip.best_fitness)
     p_ela = float(ela.best_fitness)
@@ -220,11 +231,20 @@ def _generate_one_label(
     }
 
 
-def _parse_problem_id(problem_id: str) -> tuple[int, int, int]:
-    match = re.match(r"^bbob_f(\d{3})_i(\d+)_d(\d+)$", problem_id)
-    if match is None:
-        raise ValueError(f"invalid BBOB problem_id: {problem_id}")
-    return tuple(int(value) for value in match.groups())
+def _parse_problem_id(problem_id: str, *, suite: str) -> tuple[int, int, int]:
+    suite_name = str(suite).lower()
+    if suite_name == "bbob":
+        match = re.match(r"^bbob_f(\d{3})_i(\d+)_d(\d+)$", problem_id)
+        if match is None:
+            raise ValueError(f"invalid BBOB problem_id: {problem_id}")
+        return tuple(int(value) for value in match.groups())
+    if suite_name in {"cec2017", "cec2022"}:
+        match = re.match(rf"^{suite_name}_f(\d{{2}})_d(\d+)$", problem_id)
+        if match is None:
+            raise ValueError(f"invalid {suite_name.upper()} problem_id: {problem_id}")
+        function, dimension = (int(value) for value in match.groups())
+        return function, 1, dimension
+    raise ValueError(f"unsupported benchmark suite for utility label generation: {suite}")
 
 
 def _schema() -> pa.Schema:
@@ -259,6 +279,12 @@ def _schema() -> pa.Schema:
     fields.extend((column, pa.bool_()) for column in NEED_ELA_COLUMNS)
     fields.extend((column, pa.float64()) for column in BEHAVIOR_FEATURE_COLUMNS)
     return pa.schema(fields)
+
+
+def _split_name(config: dict) -> str:
+    if "split" in config:
+        return str(config["split"])
+    return Path(config["output"]).stem.removesuffix("_trajectories")
 
 
 def main() -> None:

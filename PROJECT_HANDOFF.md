@@ -172,7 +172,7 @@ Black-box problem
 - BBOB function family 的具体 train/validation/test family 列表。
 - CEC2017 / CEC2022 的具体维度、函数范围和预算。
 - `FE_total`、`FE_prefix`、`FE_analysis`、`FE_optimization` 的精确定义。
-- ELA 采样点是否允许复用到后续优化。
+- 算法切换后的主初始化口径已冻结为 Population Transfer；ELA 采样点不复用到后续优化。
 - Utility 中 FE 成本是否已经通过减少优化预算体现，避免重复扣除。
 - Default optimizer 主设置使用 SBS 还是固定 CMA-ES/DE。
 - `lambda` 主值和敏感性分析取值。
@@ -213,6 +213,7 @@ Black-box problem
 
 7. 实现 Utility label generation
    - 基于共享 checkpoint 状态生成 Skip ELA 与 Run ELA 分支。
+   - Run ELA 分支使用同一 checkpoint 的 population transfer；不使用 best-so-far warm start，不复用 ELA 采样点。
    - 保存 `P_skip`、`P_ELA`、cost、`U_ELA`。
 
 8. 实现 Decision Model
@@ -238,6 +239,7 @@ Black-box problem
 - 不要用测试函数训练 Decision Model、selection reference 或 threshold。
 - 不要把固定 100 FE 当 checkpoint；使用 FE ratio。
 - 不要在线训练 controller 作为主实验。
+- 不要把在线密集行为采样解释为纯被动观测；当前定义是 decision-check frequency 敏感性。
 - 不要把 `P_skip - P_ELA` 用在越大越好的指标上，除非先统一成越小越好的 loss/error。
 - 不要重复扣除 ELA FE 成本：如果 ELA FE 已经从优化预算中扣除，Utility 中不能再扣同一笔 FE。
 - 不要把 VBS 当现实可部署方法；它只能作为理论上界。

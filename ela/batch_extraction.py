@@ -28,8 +28,7 @@ ELA_METADATA_COLUMNS = (
 
 
 def default_output_path(config: dict) -> Path:
-    output = Path(config["output"])
-    split = output.stem.removesuffix("_trajectories")
+    split = _split_name(config)
     return Path("results") / "ela" / split / "features.parquet"
 
 
@@ -41,9 +40,10 @@ def extract_ela_for_config(
     only_dimensions: list[int] | None,
 ) -> dict[str, int | str]:
     config = load_config(config_path)
-    if str(config["suite"]).lower() != "bbob":
-        raise ValueError("ela-extract-batch currently supports only suite: bbob")
-    split = Path(config["output"]).stem.removesuffix("_trajectories")
+    suite = str(config["suite"]).lower()
+    if suite not in {"bbob", "cec2017", "cec2022"}:
+        raise ValueError("ela-extract-batch supports suites: bbob, cec2017, cec2022")
+    split = _split_name(config)
     functions = selected_functions(config, only_functions)
     dimensions = selected_dimensions(config, only_dimensions)
     rows = []
@@ -54,7 +54,7 @@ def extract_ela_for_config(
             for instance in as_int_list(config, "instances"):
                 problem = make_problem(
                     {
-                        "suite": "bbob",
+                        "suite": suite,
                         "function": function,
                         "instance": instance,
                         "dimension": dimension,
@@ -127,6 +127,12 @@ def _schema() -> pa.Schema:
         ]
     )
     return pa.schema(fields)
+
+
+def _split_name(config: dict) -> str:
+    if "split" in config:
+        return str(config["split"])
+    return Path(config["output"]).stem.removesuffix("_trajectories")
 
 
 def main() -> None:

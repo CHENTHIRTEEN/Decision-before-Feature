@@ -17,15 +17,15 @@ from experiments.phase1_batch_common import (
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Print Phase 1 BBOB shard collection plan.")
+    parser = argparse.ArgumentParser(description="Print Phase 1 benchmark shard collection plan.")
     parser.add_argument("--config", default="configs/phase1_bbob_train.yaml")
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
-    if str(config["suite"]).lower() != "bbob":
-        raise ValueError("phase1-plan-shards currently supports only suite: bbob")
+    if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022"}:
+        raise ValueError("phase1-plan-shards supports suites: bbob, cec2017, cec2022")
 
     functions = selected_functions(config, args.only_function)
     dimensions = selected_dimensions(config, args.only_dimension)
@@ -51,4 +51,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

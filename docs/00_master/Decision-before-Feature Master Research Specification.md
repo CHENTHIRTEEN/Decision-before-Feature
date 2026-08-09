@@ -328,6 +328,15 @@ Search Maturity表示：
 
 # 8. Offline Utility Label
 
+Skip ELA 与 Run ELA 的 paired continuation 使用同一 checkpoint population state。
+
+主实验固定为 Population Transfer：
+
+- 继续优化时使用 checkpoint population、fitness 和 best fitness；
+- 若 selector 切换算法，新算法重新初始化自身内部状态；
+- 不使用 Best-so-far Warm Start；
+- 不复用 ELA 采样点。
+
 ## 8.1 Skip ELA
 
 得到：

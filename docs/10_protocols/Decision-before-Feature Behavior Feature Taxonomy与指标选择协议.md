@@ -746,29 +746,56 @@ H3:
 
 ------------------------------------------------------------------------
 
-# 16. 最终冻结方案
+# 16. 当前实现中的正式Feature分类
+
+当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含25个算法无关行为特征。
+
+这些特征只从已记录的 checkpoint population、fitness、best fitness、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用ELA feature，不使用function identity、algorithm identity 或优化器内部参数。
+
+| 类别 | Feature | 实现列名 | 口径 | Feature group |
+|---|---|---|---|---|
+| Progress | FE ratio | `bf_fe_ratio` | 当前 `FE/FE_total` | base, primary, primary_with_maturity, all_candidates |
+| Progress | improvement rate | `bf_improvement_rate_w02` | 2% FE-ratio窗口内 best fitness 相对改善率 | base, primary, primary_with_maturity, all_candidates |
+| Progress | improvement frequency | `bf_improvement_frequency_w02` | 2% FE-ratio窗口内相邻 checkpoint 发生严格 best-fitness 改善的比例 | base, primary, primary_with_maturity, all_candidates |
+| Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
+| Diversity | diversity change | `bf_diversity_change_w05` | 5% FE-ratio窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
+| Diversity | diversity slope | `bf_diversity_slope_w05` | 5% FE-ratio窗口内 diversity 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
+| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差 | primary, primary_with_maturity, all_candidates |
+| Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | fitness标准差除以 `abs(mean fitness)+epsilon` | primary, primary_with_maturity, all_candidates |
+| Movement | movement magnitude | `bf_movement_magnitude` | 相邻 checkpoint 间个体平均位移，除以 `sqrt(dimension)` | primary, primary_with_maturity, all_candidates |
+| Movement | movement variance | `bf_movement_diversity` | 相邻 checkpoint 间个体位移的标准差，除以 `sqrt(dimension)` | primary, primary_with_maturity, all_candidates |
+| Movement | direction entropy | `bf_directional_entropy_w05` | 5% FE-ratio窗口内位移方向分布的归一化entropy | base, primary, primary_with_maturity, all_candidates |
+| Movement | direction consistency | `bf_direction_consistency_w05` | 5% FE-ratio窗口内单位位移向量均值的范数 | primary, primary_with_maturity, all_candidates |
+| Movement | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例 | all_candidates |
+| Convergence | distance decay | `bf_distance_decay_w10` | 10% FE-ratio窗口内到当前population-best平均距离的相对下降 | base, primary, primary_with_maturity, all_candidates |
+| Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | base, primary, primary_with_maturity, all_candidates |
+| Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |
+| Convergence | success rate | `bf_success_rate_w02` | 2% FE-ratio窗口内 row-wise fitness 改善个体比例 | primary, primary_with_maturity, all_candidates |
+| Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
+| Convergence | improvement variance | `bf_improvement_variance_w02` | 2% FE-ratio窗口内非负 row-wise fitness 改善量方差 | primary, primary_with_maturity, all_candidates |
+| Convergence | best improvement ratio | `bf_best_improvement_ratio_w02` | 最大个体改善量占总非负改善量的比例 | primary, primary_with_maturity, all_candidates |
+| Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | primary, primary_with_maturity, all_candidates |
+| Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数 | all_candidates |
+| State | Search maturity | `bf_search_maturity` | `ES_t(1-XS_t)` 的可执行行为特征版本 | primary_with_maturity, all_candidates |
+| State | linear Search maturity | `bf_search_maturity_linear` | maturity 的线性合成备选形式 | primary_with_maturity, all_candidates |
+| State | exploration/exploitation ratio | `bf_explore_exploit_ratio` | 行为探索分量除以行为开发分量 | primary_with_maturity, all_candidates |
+
+其中：
+
+- `base` 保留原始9个行为特征，用作历史对照；
+- `primary` 加入截图中定义清楚、低成本、算法无关的行为特征；
+- `primary_with_maturity` 在 `primary` 基础上加入 Search Maturity 及其备选状态特征；
+- `all_candidates` 进一步加入 `bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr`，只作为消融和诊断口径，不作为主结论的单独证据。
+
+------------------------------------------------------------------------
+
+# 17. 最终冻结方案
 
 Decision输入：
 
 包含：
 
-    FE ratio
-
-    Improvement rate
-
-    Improvement frequency
-
-    Diversity
-
-    Diversity change
-
-    Directional entropy
-
-    Distance decay
-
-    Stagnation
-
-    Convergence rate
+    BEHAVIOR_FEATURE_GROUPS 中指定的 bf_* 行为特征集合
 
 不包含：
 

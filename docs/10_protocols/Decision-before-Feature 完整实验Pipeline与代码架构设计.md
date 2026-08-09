@@ -334,6 +334,15 @@ Behavior vector。
 
 # 7. Offline Utility Label模块
 
+Skip ELA 与 Run ELA 必须从同一个共享 checkpoint state 生成。
+
+主实验采用 Population Transfer：
+
+- 使用 checkpoint population、fitness 和 best fitness 继续优化；
+- 切换算法时只转移算法无关搜索状态；
+- 不使用 Best-so-far Warm Start；
+- 不复用 ELA 采样点。
+
 ## 7.1 Skip ELA路径
 
     Problem
