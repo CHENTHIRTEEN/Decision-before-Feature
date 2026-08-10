@@ -1,0 +1,7 @@
+criterion,metric,status,model_name,model_family,objective,threshold_mode,top_k_fraction,rmse,spearman,average_precision_u_gt_zero,decision_mean_utility,decision_ela_call_rate,utility_capture_rate,precision_u_gt_zero_under_calls,top_k_u_gt_zero_rate
+lowest_validation_rmse_regression_models,rmse,available,rbf_nystroem_svm_regression,kernel_svm_approx,regression,,,0.12891675890675863,0.4097737128422118,0.07780688433768632,,,,,
+highest_validation_spearman,spearman,available,linear_svm_regression,linear_svm,regression,,,0.40594073418864185,0.45638330875251654,0.1072429172583737,,,,,
+highest_validation_average_precision,average_precision_u_gt_zero,available,softmax_logistic_classifier,softmax_logistic,classification,,,,0.09123984657986212,0.1761930310399025,,,,,
+highest_train_utility_threshold_decision_mean_utility,decision_mean_utility,available,lda_classifier,lda,classification,train_utility,,,,,0.004324970767963681,0.03783950617283951,0.5610328332488974,0.3128058727569331,
+highest_top10_threshold_decision_mean_utility,decision_mean_utility,available,elastic_net_regression,elastic_net,regression,top_10,,,,,0.0012219059334572246,0.09688271604938271,0.6039556318060141,0.17744504619305512,
+highest_top10_ranking_utility_capture_rate,utility_capture_rate,available,softmax_logistic_classifier,softmax_logistic,classification,,0.1,,,,,,0.6464418510536564,,0.19012345679012346

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -17,6 +18,7 @@ import pyarrow.parquet as pq
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
 from benchmarks import make_problem
 from ela.features import ELA_FEATURE_COLUMNS, extract_ela_for_problem
+from experiments.phase1_batch_common import family_name
 from experiments.phase1_batch_common import as_int_list, fe_total_for_dimension, load_config, selected_dimensions, selected_functions
 from optimizers import OptimizerSettings, run_optimizer
 from optimizers.continuation import run_population_continuation
@@ -117,26 +119,83 @@ def evaluate_online_controller(
     only_dimensions: list[int] | None,
     only_seeds: list[int] | None,
     max_runs: int | None,
+    sharded: bool,
+    summarize_only: bool,
+    workers: int,
     overwrite: bool,
 ) -> dict[str, Any]:
+    if workers < 1:
+        raise ValueError("--workers must be at least 1")
+    if workers > 1 and not sharded and not summarize_only:
+        raise ValueError("--workers > 1 is only supported with --sharded")
     config = load_config(config_path)
     if str(config["suite"]).lower() not in {"cec2017", "cec2022"}:
         raise ValueError("online controller evaluation currently expects an external CEC suite")
     checkpoint_ratios = _checkpoint_ratios(config, sampling_protocol)
     decision_check_frequency = _decision_check_frequency(sampling_protocol)
     output_dir = _sampling_output_dir(output_dir, sampling_protocol)
-    _check_output_paths(output_dir, overwrite)
     functions = selected_functions(config, only_functions)
     dimensions = selected_dimensions(config, only_dimensions)
     seeds = _selected_seeds(config, only_seeds)
     controller = _load_controller(training_summary_path, model_name, threshold_mode)
-    selector = _fit_online_selector(train_config_path)
+    selector = None if summarize_only else _fit_online_selector(train_config_path)
     checkpoint_plan = {
         dimension: _checkpoint_plan(config, dimension, checkpoint_ratios)
         for dimension in dimensions
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    if summarize_only:
+        return _summarize_shards(
+            config=config,
+            config_path=config_path,
+            train_config_path=train_config_path,
+            training_summary_path=training_summary_path,
+            output_dir=output_dir,
+            model_name=model_name,
+            threshold_mode=threshold_mode,
+            sampling_protocol=sampling_protocol,
+            checkpoint_ratios=checkpoint_ratios,
+            decision_check_frequency=decision_check_frequency,
+            controller=controller,
+            random_ela_probability=random_ela_probability,
+            random_repetitions=random_repetitions,
+            random_seed=random_seed,
+            only_functions=only_functions,
+            only_dimensions=only_dimensions,
+            only_seeds=only_seeds,
+        )
+
+    if sharded:
+        return _evaluate_online_controller_sharded(
+            config=config,
+            config_path=config_path,
+            train_config_path=train_config_path,
+            training_summary_path=training_summary_path,
+            output_dir=output_dir,
+            model_name=model_name,
+            threshold_mode=threshold_mode,
+            sampling_protocol=sampling_protocol,
+            checkpoint_ratios=checkpoint_ratios,
+            decision_check_frequency=decision_check_frequency,
+            controller=controller,
+            selector=selector,
+            checkpoint_plan=checkpoint_plan,
+            random_ela_probability=random_ela_probability,
+            random_repetitions=random_repetitions,
+            random_seed=random_seed,
+            functions=functions,
+            dimensions=dimensions,
+            seeds=seeds,
+            only_functions=only_functions,
+            only_dimensions=only_dimensions,
+            only_seeds=only_seeds,
+            max_runs=max_runs,
+            workers=workers,
+            overwrite=overwrite,
+        )
+
+    _check_output_paths(output_dir, overwrite)
     rows = []
     run_counter = 0
     for function in functions:
@@ -171,6 +230,304 @@ def evaluate_online_controller(
     result = pd.DataFrame(rows)
     if result.empty:
         raise ValueError("online controller evaluation produced no rows")
+    return _write_online_summary(
+        result=result,
+        config_path=config_path,
+        train_config_path=train_config_path,
+        training_summary_path=training_summary_path,
+        output_dir=output_dir,
+        model_name=model_name,
+        threshold_mode=threshold_mode,
+        sampling_protocol=sampling_protocol,
+        checkpoint_ratios=checkpoint_ratios,
+        decision_check_frequency=decision_check_frequency,
+        controller=controller,
+        default_algorithm=selector.sbs_algorithm,
+        random_ela_probability=random_ela_probability,
+        random_repetitions=random_repetitions,
+        random_seed=random_seed,
+        run_mode="single_output",
+        shards={},
+    )
+
+
+def _evaluate_online_controller_sharded(
+    *,
+    config: dict,
+    config_path: Path,
+    train_config_path: Path,
+    training_summary_path: Path,
+    output_dir: Path,
+    model_name: str,
+    threshold_mode: str,
+    sampling_protocol: str,
+    checkpoint_ratios: tuple[float, ...],
+    decision_check_frequency: str,
+    controller: ControllerBundle,
+    selector: OnlineSelector | None,
+    checkpoint_plan: dict[int, list[tuple[float, int]]],
+    random_ela_probability: float,
+    random_repetitions: int,
+    random_seed: int,
+    functions: list[int],
+    dimensions: list[int],
+    seeds: list[int],
+    only_functions: list[int] | None,
+    only_dimensions: list[int] | None,
+    only_seeds: list[int] | None,
+    max_runs: int | None,
+    workers: int,
+    overwrite: bool,
+) -> dict[str, Any]:
+    if selector is None:
+        raise ValueError("sharded online evaluation requires an online selector")
+    jobs = []
+    skipped_existing_shards = 0
+    assigned_base_runs = 0
+    for function in functions:
+        for dimension in dimensions:
+            if max_runs is not None and assigned_base_runs >= max_runs:
+                break
+            shard_dir = _shard_output_dir(output_dir, str(config["suite"]).lower(), function, dimension)
+            shard_path = shard_dir / "online_policy_runs.parquet"
+            if shard_path.exists() and not overwrite:
+                print(f"skip existing online evaluation shard {shard_path}")
+                skipped_existing_shards += 1
+                continue
+
+            shard_seeds = list(seeds)
+            if max_runs is not None:
+                remaining = max_runs - assigned_base_runs
+                shard_seeds = shard_seeds[:remaining]
+            if not shard_seeds:
+                continue
+            jobs.append(
+                {
+                    "config": config,
+                    "function": int(function),
+                    "dimension": int(dimension),
+                    "seeds": [int(seed) for seed in shard_seeds],
+                    "checkpoint_plan": checkpoint_plan[dimension],
+                    "controller": controller,
+                    "selector": selector,
+                    "sampling_protocol": sampling_protocol,
+                    "decision_check_frequency": decision_check_frequency,
+                    "random_ela_probability": float(random_ela_probability),
+                    "random_repetitions": int(random_repetitions),
+                    "random_seed": int(random_seed),
+                    "output_dir": output_dir,
+                    "overwrite": bool(overwrite),
+                }
+            )
+            assigned_base_runs += len(shard_seeds)
+        if max_runs is not None and assigned_base_runs >= max_runs:
+            break
+
+    shard_results = _run_shard_jobs(jobs, workers)
+    written_shards = sum(1 for result in shard_results if result["status"] == "written")
+    worker_skipped_existing_shards = sum(1 for result in shard_results if result["status"] == "skipped_existing")
+    skipped_existing_shards += worker_skipped_existing_shards
+    executed_base_runs = sum(int(result["base_runs_executed"]) for result in shard_results)
+
+    print(
+        "finished sharded online evaluation: "
+        f"{written_shards} written shards, "
+        f"{skipped_existing_shards} existing shards skipped, "
+        f"{executed_base_runs} base runs executed, "
+        f"{workers} worker(s)"
+    )
+    return _summarize_shards(
+        config=config,
+        config_path=config_path,
+        train_config_path=train_config_path,
+        training_summary_path=training_summary_path,
+        output_dir=output_dir,
+        model_name=model_name,
+        threshold_mode=threshold_mode,
+        sampling_protocol=sampling_protocol,
+        checkpoint_ratios=checkpoint_ratios,
+        decision_check_frequency=decision_check_frequency,
+        controller=controller,
+        random_ela_probability=random_ela_probability,
+        random_repetitions=random_repetitions,
+        random_seed=random_seed,
+        only_functions=only_functions,
+        only_dimensions=only_dimensions,
+        only_seeds=only_seeds,
+        shard_run_summary={
+            "written_shards": int(written_shards),
+            "skipped_existing_shards": int(skipped_existing_shards),
+            "executed_base_runs": int(executed_base_runs),
+            "submitted_shards": int(len(jobs)),
+            "workers": int(workers),
+        },
+    )
+
+
+def _run_shard_jobs(jobs: list[dict[str, Any]], workers: int) -> list[dict[str, Any]]:
+    if not jobs:
+        return []
+    if workers == 1:
+        results = []
+        for job in jobs:
+            result = _evaluate_online_controller_shard(job)
+            _print_shard_result(result)
+            results.append(result)
+        return results
+
+    results = []
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_evaluate_online_controller_shard, job) for job in jobs]
+        for future in as_completed(futures):
+            result = future.result()
+            _print_shard_result(result)
+            results.append(result)
+    return results
+
+
+def _evaluate_online_controller_shard(job: dict[str, Any]) -> dict[str, Any]:
+    config = job["config"]
+    function = int(job["function"])
+    dimension = int(job["dimension"])
+    seeds = [int(seed) for seed in job["seeds"]]
+    output_dir = Path(job["output_dir"])
+    shard_dir = _shard_output_dir(output_dir, str(config["suite"]).lower(), function, dimension)
+    shard_path = shard_dir / "online_policy_runs.parquet"
+    if shard_path.exists() and not bool(job["overwrite"]):
+        return {
+            "status": "skipped_existing",
+            "path": str(shard_path),
+            "rows": 0,
+            "base_runs_executed": 0,
+        }
+
+    shard_rows = []
+    fe_total = fe_total_for_dimension(config, dimension)
+    for seed in seeds:
+        shard_rows.extend(
+            _evaluate_one_run(
+                config=config,
+                function=function,
+                dimension=dimension,
+                seed=seed,
+                fe_total=fe_total,
+                checkpoint_plan=job["checkpoint_plan"],
+                controller=job["controller"],
+                selector=job["selector"],
+                sampling_protocol=str(job["sampling_protocol"]),
+                decision_check_frequency=str(job["decision_check_frequency"]),
+                random_ela_probability=float(job["random_ela_probability"]),
+                random_repetitions=int(job["random_repetitions"]),
+                random_seed=int(job["random_seed"]),
+            )
+        )
+    if not shard_rows:
+        return {
+            "status": "empty",
+            "path": str(shard_path),
+            "rows": 0,
+            "base_runs_executed": 0,
+        }
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    shard_frame = pd.DataFrame(shard_rows)
+    _write_frame(shard_frame, shard_dir / "online_policy_runs")
+    return {
+        "status": "written",
+        "path": str(shard_path),
+        "rows": int(len(shard_frame)),
+        "base_runs_executed": int(len(seeds)),
+    }
+
+
+def _print_shard_result(result: dict[str, Any]) -> None:
+    if result["status"] == "written":
+        print(f"wrote {result['rows']} online policy rows to {result['path']}")
+    elif result["status"] == "skipped_existing":
+        print(f"skip existing online evaluation shard {result['path']}")
+    elif result["status"] == "empty":
+        print(f"skip empty online evaluation shard {result['path']}")
+    else:
+        print(f"finished online evaluation shard {result['path']} with status {result['status']}")
+
+
+def _summarize_shards(
+    *,
+    config: dict,
+    config_path: Path,
+    train_config_path: Path,
+    training_summary_path: Path,
+    output_dir: Path,
+    model_name: str,
+    threshold_mode: str,
+    sampling_protocol: str,
+    checkpoint_ratios: tuple[float, ...],
+    decision_check_frequency: str,
+    controller: ControllerBundle,
+    random_ela_probability: float,
+    random_repetitions: int,
+    random_seed: int,
+    only_functions: list[int] | None,
+    only_dimensions: list[int] | None,
+    only_seeds: list[int] | None,
+    shard_run_summary: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    shard_paths = _existing_shard_paths(config, output_dir, only_functions, only_dimensions)
+    if not shard_paths:
+        raise ValueError(f"no online evaluation shard outputs found under {output_dir}")
+    frames = [pq.read_table(path).to_pandas() for path in shard_paths]
+    result = pd.concat(frames, ignore_index=True)
+    if only_seeds is not None:
+        requested = set(int(seed) for seed in only_seeds)
+        result = result[result["seed"].astype(int).isin(requested)].reset_index(drop=True)
+    if result.empty:
+        raise ValueError("online evaluation shard rows are empty after filtering")
+    default_algorithms = sorted(result["default_algorithm"].astype(str).unique().tolist())
+    default_algorithm = default_algorithms[0] if len(default_algorithms) == 1 else ",".join(default_algorithms)
+    return _write_online_summary(
+        result=result,
+        config_path=config_path,
+        train_config_path=train_config_path,
+        training_summary_path=training_summary_path,
+        output_dir=output_dir,
+        model_name=model_name,
+        threshold_mode=threshold_mode,
+        sampling_protocol=sampling_protocol,
+        checkpoint_ratios=checkpoint_ratios,
+        decision_check_frequency=decision_check_frequency,
+        controller=controller,
+        default_algorithm=default_algorithm,
+        random_ela_probability=random_ela_probability,
+        random_repetitions=random_repetitions,
+        random_seed=random_seed,
+        run_mode="sharded",
+        shards={
+            "discovered_shards": int(len(shard_paths)),
+            "paths": [str(path) for path in shard_paths],
+            **(shard_run_summary or {}),
+        },
+    )
+
+
+def _write_online_summary(
+    *,
+    result: pd.DataFrame,
+    config_path: Path,
+    train_config_path: Path,
+    training_summary_path: Path,
+    output_dir: Path,
+    model_name: str,
+    threshold_mode: str,
+    sampling_protocol: str,
+    checkpoint_ratios: tuple[float, ...],
+    decision_check_frequency: str,
+    controller: ControllerBundle,
+    default_algorithm: str,
+    random_ela_probability: float,
+    random_repetitions: int,
+    random_seed: int,
+    run_mode: str,
+    shards: dict[str, Any],
+) -> dict[str, Any]:
     policy_summary = _policy_summary(result)
     relative_summary = _relative_summary(result)
     random_repetition_summary = _random_repetition_summary(result)
@@ -180,8 +537,10 @@ def evaluate_online_controller(
     _write_frame(relative_summary, output_dir / "online_relative_summary")
     _write_frame(random_repetition_summary, output_dir / "online_random_repetition_summary")
 
+    base_runs = int(result[["problem_id", "dimension", "seed"]].drop_duplicates().shape[0])
     summary = {
         "experiment": "cec_online_controller_evaluation",
+        "run_mode": run_mode,
         "config": str(config_path),
         "train_config": str(train_config_path),
         "training_summary": str(training_summary_path),
@@ -193,13 +552,14 @@ def evaluate_online_controller(
         "decision_check_count": int(len(checkpoint_ratios)),
         "threshold": float(controller.threshold),
         "feature_columns": controller.feature_columns,
-        "default_algorithm": selector.sbs_algorithm,
+        "default_algorithm": default_algorithm,
         "random_ela_probability": random_ela_probability,
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(result)),
-        "base_runs": int(run_counter),
+        "base_runs": base_runs,
         "policies": sorted(result["policy_name"].astype(str).unique().tolist()),
+        "shards": shards,
         "outputs": {
             "policy_runs": str(output_dir / "online_policy_runs.parquet"),
             "policy_summary": str(output_dir / "online_policy_summary.parquet"),
@@ -222,6 +582,8 @@ def evaluate_online_controller(
             "random_ela samples one independent checkpoint trigger stream per repetition and run at each decision-check point.",
             "dense_decision_check is a sensitivity analysis of decision-check frequency, not a passive observation protocol.",
             "The controller and threshold are frozen from BBOB train artifacts.",
+            "In sharded mode, existing function/dimension shard outputs are skipped unless --overwrite is passed.",
+            "Parallel workers execute independent function/dimension shards; summary outputs are written after shard completion.",
         ],
     }
     summary_path = output_dir / "online_controller_evaluation_summary.json"
@@ -239,6 +601,26 @@ def evaluate_online_controller(
     print(f"wrote online policy runs to {output_dir / 'online_policy_runs.parquet'}")
     print(f"wrote online controller report to {report_path}")
     return summary
+
+
+def _shard_output_dir(output_dir: Path, suite: str, function: int, dimension: int) -> Path:
+    return output_dir / family_name(suite, function) / f"dimension_{int(dimension)}"
+
+
+def _existing_shard_paths(
+    config: dict,
+    output_dir: Path,
+    only_functions: list[int] | None,
+    only_dimensions: list[int] | None,
+) -> list[Path]:
+    suite = str(config["suite"]).lower()
+    paths = []
+    for function in selected_functions(config, only_functions):
+        for dimension in selected_dimensions(config, only_dimensions):
+            path = _shard_output_dir(output_dir, suite, function, dimension) / "online_policy_runs.parquet"
+            if path.exists():
+                paths.append(path)
+    return sorted(paths)
 
 
 def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
@@ -916,6 +1298,9 @@ def main() -> None:
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
     parser.add_argument("--only-seed", type=int, action="append", default=None)
     parser.add_argument("--max-runs", type=int, default=None)
+    parser.add_argument("--sharded", action="store_true")
+    parser.add_argument("--summarize-only", action="store_true")
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -934,6 +1319,9 @@ def main() -> None:
         only_dimensions=args.only_dimension,
         only_seeds=args.only_seed,
         max_runs=args.max_runs,
+        sharded=args.sharded,
+        summarize_only=args.summarize_only,
+        workers=args.workers,
         overwrite=args.overwrite,
     )
 

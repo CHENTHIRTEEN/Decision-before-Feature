@@ -1,0 +1,75 @@
+{
+  "auxiliary_label_column": "need_ela_lamT_1",
+  "candidate_rows": 192,
+  "data_leakage_check": {
+    "decision_input_uses_only_primary_with_maturity_behavior_features_and_train_fit_derivatives": true,
+    "ela_features_used_as_input": false,
+    "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": false,
+    "metadata_used_as_input": false,
+    "validation_rows_used_for_feature_selection_model_or_threshold_fit": 0
+  },
+  "dataset": "results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet",
+  "expected_validation_prediction_rows": 388800,
+  "experiment": "phase1_refined_sampling_classifier_feature_engineering_tuning",
+  "feature_group": "primary_with_maturity",
+  "feature_schemes": [
+    "raw_primary_with_maturity",
+    "engineered_univariate_selected",
+    "engineered_interaction_selected"
+  ],
+  "feature_source_columns": [
+    "bf_fe_ratio",
+    "bf_improvement_rate_w02",
+    "bf_improvement_frequency_w02",
+    "bf_diversity_mean_pairwise",
+    "bf_diversity_change_w05",
+    "bf_directional_entropy_w05",
+    "bf_distance_decay_w10",
+    "bf_stagnation_w10",
+    "bf_convergence_rate_w10",
+    "bf_fitness_diversity",
+    "bf_fitness_diversity_rel",
+    "bf_movement_magnitude",
+    "bf_movement_diversity",
+    "bf_direction_consistency_w05",
+    "bf_success_rate_w02",
+    "bf_improvement_variance_w02",
+    "bf_best_improvement_ratio_w02",
+    "bf_elite_concentration",
+    "bf_best_fitness_slope_w05",
+    "bf_diversity_slope_w05",
+    "bf_search_maturity",
+    "bf_search_maturity_linear",
+    "bf_explore_exploit_ratio"
+  ],
+  "feature_source_count": 23,
+  "output_prediction_model_rows": 6,
+  "outputs": {
+    "output_selection_summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/output_selection_summary.parquet",
+    "report": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/classifier_feature_engineering_tuning_report.md",
+    "selected_feature_summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/selected_feature_summary.parquet",
+    "split_decision_summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/split_decision_summary.parquet",
+    "split_metric_summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/split_metric_summary.parquet",
+    "summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/classifier_feature_engineering_tuning_summary.json",
+    "tuning_candidate_summary": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/tuning_candidate_summary.parquet",
+    "validation_predictions": "results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/validation_predictions.parquet"
+  },
+  "readiness_summary": "results/decision/phase1_refined_sampling/full_training_readiness/full_training_readiness_summary.json",
+  "rows": {
+    "train": 194400,
+    "validation": 64800
+  },
+  "schema": "results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json",
+  "selection_metric": "bbob_validation layer=all threshold_mode=train_utility decision_mean_utility",
+  "skipped_candidate_policy": "engineered_interaction_selected LinearSVC candidates are recorded as skipped_slow_solver because this solver did not finish in repeated runs; raw and univariate LinearSVC candidates remain included",
+  "skipped_candidate_rows": 24,
+  "target_column": "u_ela_lamT_1",
+  "target_models": [
+    "lda_classifier",
+    "softmax_logistic_classifier",
+    "linear_svm_classifier"
+  ],
+  "train_split": "bbob_train",
+  "validation_prediction_rows": 388800,
+  "validation_split": "bbob_validation"
+}

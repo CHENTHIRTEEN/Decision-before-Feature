@@ -1,0 +1,101 @@
+{
+  "auxiliary_label_column": "need_ela_lamT_1",
+  "classification_score_meaning": "classification models use probability or decision-function scores for ranking and threshold decisions",
+  "data_leakage_check": {
+    "decision_input_uses_only_behavior_features": true,
+    "ela_features_used_as_input": false,
+    "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": false,
+    "metadata_used_as_input": false,
+    "validation_rows_used_for_imputer_scaler_model_or_threshold_fit": 0
+  },
+  "dataset": "results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet",
+  "experiment": "phase1_refined_sampling_model_benchmark_comparison",
+  "feature_columns": [
+    "bf_fe_ratio",
+    "bf_improvement_rate_w02",
+    "bf_improvement_frequency_w02",
+    "bf_diversity_mean_pairwise",
+    "bf_diversity_change_w05",
+    "bf_directional_entropy_w05",
+    "bf_distance_decay_w10",
+    "bf_stagnation_w10",
+    "bf_convergence_rate_w10",
+    "bf_fitness_diversity",
+    "bf_fitness_diversity_rel",
+    "bf_movement_magnitude",
+    "bf_movement_diversity",
+    "bf_direction_consistency_w05",
+    "bf_success_rate_w02",
+    "bf_improvement_variance_w02",
+    "bf_best_improvement_ratio_w02",
+    "bf_elite_concentration",
+    "bf_best_fitness_slope_w05",
+    "bf_diversity_slope_w05",
+    "bf_search_maturity",
+    "bf_search_maturity_linear",
+    "bf_explore_exploit_ratio"
+  ],
+  "feature_count": 23,
+  "feature_group": "primary_with_maturity",
+  "models_trained": [
+    "dummy_mean_regression",
+    "linear_regression",
+    "ridge_regression",
+    "elastic_net_regression",
+    "bayesian_ridge_regression",
+    "linear_svm_regression",
+    "rbf_nystroem_ridge_regression",
+    "rbf_nystroem_svm_regression",
+    "hist_gradient_boosting_regression",
+    "random_forest_regression",
+    "extra_trees_regression",
+    "mlp_regression",
+    "softmax_logistic_classifier",
+    "lda_classifier",
+    "linear_svm_classifier",
+    "mlp_classifier",
+    "lightgbm_regression",
+    "xgboost_regression"
+  ],
+  "outputs": {
+    "best_summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/model_benchmark_best_summary.parquet",
+    "decision_thresholds": "results/decision/phase1_refined_sampling/model_benchmark_comparison/decision_thresholds.parquet",
+    "model_fit_summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/model_fit_summary.parquet",
+    "model_input_contract": "results/decision/phase1_refined_sampling/model_benchmark_comparison/model_input_contract.parquet",
+    "report": "results/decision/phase1_refined_sampling/model_benchmark_comparison/model_benchmark_comparison_report.md",
+    "split_decision_summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/split_decision_summary.parquet",
+    "split_metric_summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/split_metric_summary.parquet",
+    "split_ranking_summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/split_ranking_summary.parquet",
+    "summary": "results/decision/phase1_refined_sampling/model_benchmark_comparison/model_benchmark_comparison_summary.json",
+    "train_predictions": "results/decision/phase1_refined_sampling/model_benchmark_comparison/train_predictions.parquet",
+    "validation_predictions": "results/decision/phase1_refined_sampling/model_benchmark_comparison/validation_predictions.parquet"
+  },
+  "readiness_summary": "results/decision/phase1_refined_sampling/full_training_readiness/full_training_readiness_summary.json",
+  "rows": {
+    "train": 194400,
+    "validation": 64800
+  },
+  "schema": "results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json",
+  "summary_layers": [
+    "all",
+    "label_source",
+    "dimension",
+    "FE_ratio"
+  ],
+  "target_column": "u_ela_lamT_1",
+  "threshold_modes": [
+    "zero",
+    "train_utility",
+    "top_05",
+    "top_10",
+    "top_20"
+  ],
+  "top_k_fractions": [
+    0.05,
+    0.1,
+    0.2
+  ],
+  "train_split": "bbob_train",
+  "unavailable_models": [],
+  "validation_split": "bbob_validation"
+}
