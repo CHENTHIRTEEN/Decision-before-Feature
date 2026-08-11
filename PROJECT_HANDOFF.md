@@ -25,19 +25,24 @@
 - 在线主协议与 dense decision-check 都使用同一连续状态；
 - 真实 BBOB 上的 checkpoint 保存/恢复与不中断运行逐状态完全一致。
 - behavior 的跨 checkpoint 空间变化使用经验 Wasserstein、centroid shift 与集合协方差形状，fitness 变化使用排序后的经验分位数；不保存 individual ID 或 ancestry。
+- trajectory 保存 `FE_total` 与完成的 `native_updates`；behavior 对 w02/w05/w10 分别保存实际 `effective_window_ratio_*`、`effective_window_fe_*`、`effective_native_updates_*`，且这些窗口测量 metadata 不进入 Decision 输入。
+- `behavior-permutation-check` 已在真实 BBOB 上对四种优化器逐 checkpoint 独立打乱 population 行序，25 个行为特征与9个窗口测量字段保持逐值一致。
 - Selection Reference 已改为逐共享状态 action-loss regression：动作集合为 `continue_current` 加其余三个 portfolio algorithms，remaining budget 连续输入，train 行使用 function-family cross-fitting；旧静态 bucket classifier 不再生成正式标签。
 - Utility label 增加 `best_observed_algorithm/loss`、`potential_gain_raw` 与 `selector_regret_raw`；handoff 影响和 query sampling FE 均不重复扣除。
+- Selection Reference、Utility 与在线策略输出增加 `no_query_algorithm` 和 `handoff_type`；前者是 `default_algorithm` 的显式兼容字段，后者是 Query-selected action `query_transition_mode` 的显式兼容字段。
 - 三档 `LandscapeQuerySpec`、共享/独立 LHS 样本边界、隔离 pflacco 1.2.2 提取和 query-generic 数据契约已实现。
 - query-sensitive 的模型比较、阈值、baseline、成本—性能和外部评价命令均要求显式 `--query-id`，并从 query-specific 目录读取；dense decision-check 使用独立输出目录。
+- Decision feature-group、baseline 与成本—性能比较已加入 `time_only_controller`：数学输入 `X={FE_ratio}`，实现列仅为逐行等于 `FE_ratio` 的 `bf_fe_ratio`；Time-only 与主 Controller 的预测文件、模型名、逐状态样本和实际推理时间分别核对。
+- Decision Model 活动候选已收敛为 LDA、Logistic Regression 与 Ridge；主选择使用 BBOB-train 嵌套 function-family OOF decision utility，完整 train 的 family-OOF 分数冻结 `oof_utility` 阈值，BBOB-validation 只作冻结评价。连续 Utility RMSE 只对 Ridge 计算。
 - 真实 BBOB 10D 上 cheap/standard 共享样本检查与 broad 52 列提取检查均已通过；40D cheap 距离计算使用等价的低内存 `pdist`/`cKDTree` 路径并通过真实提取检查。
-- 优化器状态、逐状态 action loss、Utility 分解、function-family 配置、Decision 输入边界、全仓编译与 55 个活动模块导入检查通过。
+- 优化器状态、behavior行排列不变性、逐状态 action loss、Utility 分解、function-family 配置、Decision 输入边界与全仓编译检查通过。
 - 本轮没有启动 72 个正式 trajectory shards。
 
 必须重新完成：
 
 - 覆盖生成 BBOB train/validation trajectory shards，并重提取 behavior；
 - 生成 state-action loss shards，重新拟合 Selection Reference，再生成 utility labels 和 Decision dataset；
-- 重新执行模型比较、阈值、baseline、消融和成本—性能评价；
+- 重新执行三候选嵌套 OOF 选择、冻结阈值、baseline、消融和成本—性能评价；
 - 完整 CEC2017 29 functions × 3 dimensions × 30 seeds 外部评价；
 - CEC2022 和工程问题外部评价；
 - 论文级统计推断和最终图表。
@@ -84,6 +89,7 @@ Decision dataset：
 
 当前主输入候选：
 
+- `time_only` 只含 `bf_fe_ratio`，是判断 Controller 是否只学习调用阶段的强制 baseline；
 - `primary_with_maturity`，23 个 permutation-invariant 算法无关行为字段；
 - `all_candidates` 含诊断字段，不能作为主输入组；
 - function、dimension、algorithm、query feature 和优化器内部参数不进入模型输入。
@@ -107,7 +113,7 @@ validation utility capture: 0.560990
 validation precision among calls: 0.315074
 ```
 
-提升很小。优先选择未调 LDA 作为简洁主模型，shrinkage LDA 作为敏感性结果。
+该差异只记录旧流程当时的观察，不能继续据此选择 LDA 或保留 shrinkage 调参。新协议只比较三个固定候选，并在重生成后的 BBOB-train 上按嵌套 family-OOF decision utility 重新选择。
 
 ## 结果解释边界
 
@@ -158,6 +164,7 @@ results/archive/cec2017_preliminary/
 - 被正式 phase1 取代的旧采样结果、模型、预测和图表已移出活动路径并在本机封存；
 - WPS 中间图片、缓存、`.DS_Store`；
 - 可再生的 Random Forest 大模型文件和重复 threshold-sweep CSV。
+- Decision Model 的 Random Forest、XGBoost、LightGBM、MLP、Linear SVM 等扩展候选，以及依赖 validation utility 的分类特征工程调参和旧模型解释脚本；撤回数值仍保留在结果说明中。
 
 preliminary/min_support 的关键归因矩阵与说明文档保存在 `docs/archive/min_support/`，只用于研究脉络追溯。
 
@@ -167,6 +174,7 @@ preliminary/min_support 的关键归因矩阵与说明文档保存在 `docs/arch
 - 不改变 function-family split、正式 checkpoint ratios 或等总 FE 预算。
 - 不将 query features、function id、dimension、algorithm id 或优化器内部参数放入 Decision 输入。
 - 不使用测试 benchmark 拟合 preprocessing、模型或 threshold。
+- 不使用 BBOB-validation 选择 Decision 模型或 threshold；活动候选只允许 LDA、Logistic Regression 与 Ridge。
 - 不在线训练 controller 作为主实验。
 - 不重复扣除 query FE 成本。
 - 不将 VBS 写成现实可部署方法。
@@ -181,10 +189,10 @@ preliminary/min_support 的关键归因矩阵与说明文档保存在 `docs/arch
 1. 已完成：optimizer-state、Selection Reference、三档样本/特征与 broad 真实提取一致性检查。
 2. 下一运行阶段对 BBOB train/validation 的 72 个 trajectory shards 使用 `--overwrite` 全量重生成，再覆盖提取 permutation-invariant behavior。
 3. 按 `lhs_50d` 与 `lhs_100d` 生成两档 action-loss shards，再独立构建三个 Selector、三套 Utility labels和三套 Decision dataset/model；检查 query 预算、协议字段与 best-observed-action 分解逐行一致。
-4. 重新执行三档 baseline、模型比较、阈值、ablation 和成本—性能评价；内部证据重建后再启动 CEC2017、CEC2022 和工程问题评价。
+4. 对每档执行三候选嵌套 family-OOF 模型选择、完整 train OOF 阈值冻结、baseline、ablation 和成本—性能评价；每档必须同表报告 `time_only_controller` 与主 Controller，并在内部证据重建后再启动 CEC2017、CEC2022 和工程问题评价。
 
 可直接复制的下一步 prompt：
 
 ```text
-请阅读 AGENTS.md、README.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md 与三档 Landscape Query 协议。三档 query 与完整状态一致性检查已通过；现在按正式配置重生成 BBOB train/validation 的 72 个 trajectory shards 与 permutation-invariant behavior。随后生成共享的 `lhs_50d` action losses 和独立的 `lhs_100d` action losses，分别构建 `descriptor_cheap`、`pflacco_standard`、`pflacco_broad` 的 Selector、Utility labels、Decision dataset/model 与 baselines。必须逐阶段运行一致性命令并检查 query_id/query_protocol/sample_design_id、FE_query、p_query、runtime_query、Utility 分解和 function-family split，不得混用不同预算或旧 `results/ela` artifact，不得修改 checkpoint ratios、算法池、等总 FE 或 Decision 输入边界。
+请阅读 AGENTS.md、README.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md 与三档 Landscape Query 协议。三档 query 与完整状态一致性检查已通过；现在按正式配置重生成 BBOB train/validation 的 72 个 trajectory shards 与 permutation-invariant behavior。随后生成共享的 `lhs_50d` action losses 和独立的 `lhs_100d` action losses，分别构建 `descriptor_cheap`、`pflacco_standard`、`pflacco_broad` 的 Selector、Utility labels、Decision dataset/model 与 baselines。每档 Decision Model 只比较固定的 LDA、Logistic Regression 与 Ridge，以 BBOB-train 嵌套 function-family OOF decision utility 选择模型，并用完整 BBOB-train family-OOF 分数冻结 `oof_utility` threshold；BBOB-validation 只作评价。每档必须同表报告 `time_only_controller`（`X={FE_ratio}`，实现列仅 `bf_fe_ratio`）与主 Controller，使用同名模型、相同 OOF 过程、held-out family 和外部评价口径。必须逐阶段运行一致性命令并检查 query_id/query_protocol/sample_design_id、FE_query、p_query、runtime_query、Utility 分解和 function-family split，不得混用不同预算或旧 `results/ela` artifact，不得修改 checkpoint ratios、算法池、等总 FE 或 Decision 输入边界。
 ```

@@ -183,18 +183,13 @@ $$
 
 这违背研究目标。
 
-因此第一篇论文推荐：
+因此第一篇论文固定比较：
 
--   Random Forest；
--   XGBoost；
--   LightGBM。
+-   LDA；
+-   Logistic Regression；
+-   Ridge。
 
-原因：
-
-1.  训练成本低；
-2.  推理速度快；
-3.  适合tabular behavior data；
-4.  支持SHAP解释。
+三者均为低成本线性候选，按 BBOB-train nested function-family OOF decision utility 选择，不继续扩展 Random Forest、XGBoost、LightGBM 或 MLP 的 Decision Model 变体。
 
 ------------------------------------------------------------------------
 
@@ -235,11 +230,7 @@ $$
 -   特征归一化；
 -   模型预测。
 
-对于：
-
-Random Forest / XGBoost：
-
-通常为毫秒级。
+对 LDA、Logistic Regression 与 Ridge 分别实测单行和批量推理时间，不以“通常为毫秒级”替代当前硬件上的实际结果。
 
 ------------------------------------------------------------------------
 
@@ -387,6 +378,7 @@ Decision overhead comparison
 比较：
 
 -   Always Query；
+-   Time-only Controller，$X=\{FE\_ratio\}$；
 -   Decision-before-Feature。
 
 指标：
@@ -403,14 +395,11 @@ Model complexity ablation
 
 比较：
 
+-   LDA；
 -   Logistic Regression；
--   Random Forest；
--   XGBoost；
--   MLP。
+-   Ridge。
 
-分析：
-
-模型复杂度是否带来实际收益。
+分析三个固定线性候选的 nested OOF decision utility、辅助排序指标与推理开销；不进行复杂模型变体搜索。
 
 ------------------------------------------------------------------------
 
@@ -434,7 +423,10 @@ $$
 
 -   Never Query；
 -   Always Query；
+-   Time-only Controller；
 -   Proposed。
+
+Time-only 与 Proposed 必须分别计入其实际每行模型预测时间。若 Proposed 在最终性能、Utility 或调用质量上没有稳定优于 Time-only，则不能把额外行为特征的开销解释为获得了阶段之外的有效信息。
 
 ------------------------------------------------------------------------
 

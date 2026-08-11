@@ -468,7 +468,7 @@ $$ Search\ Behavior \rightarrow Query\ Utility $$
 
 ## 10.2 与 How do metaheuristics exploit? 的关系
 
-*How do metaheuristics exploit?* 使用 distance-to-reference decay、directional entropy 和 stagnation indicators 描述粒子级 exploitation dynamics，并用global-best在50-iteration sliding window内的relative improvement低于5%来划分late-stage exploitation phase。其方向统计要求agent displacement具有跨窗口身份语义，本文不直接采用。
+*How do metaheuristics exploit?* 使用 distance-to-reference decay、directional entropy 和 stagnation indicators 描述粒子级 exploitation dynamics，并用global-best在50-iteration sliding window内的relative improvement低于5%来划分late-stage exploitation phase。其方向统计要求agent displacement具有跨窗口身份语义，本文不直接采用；directional entropy及其direction bins已由permutation-invariant集合分布变化指标替代，不属于活动实现。
 
 本项目与其关系如下。
 
@@ -638,15 +638,13 @@ CMA:
 
 ## Stage 2: Feature importance analysis
 
-训练：
+只在训练集 OOF 上分析三个活动线性候选：
 
-RF/XGBoost。
+-   标准化 Logistic/Ridge 系数；
+-   LDA 判别方向；
+-   train-family permutation importance。
 
-分析：
-
--   gain importance
--   permutation importance
--   SHAP
+不为特征重要性另行引入 RF/XGBoost 或据 validation 结果筛选输入列。
 
 ------------------------------------------------------------------------
 
@@ -754,11 +752,11 @@ H3:
 
 当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含25个permutation-invariant算法无关行为特征。
 
-这些特征只从已记录的 checkpoint population、fitness、best fitness、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。
+这些特征只从已记录的 checkpoint population、fitness、best fitness、FE、FE_total、native update计数、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。native update计数仅用于窗口跨度记录，不进入特征集合。
 
 | 类别 | Feature | 实现列名 | 口径 | Feature group |
 |---|---|---|---|---|
-| Progress | FE ratio | `bf_fe_ratio` | 当前 `FE/FE_total` | base, primary, primary_with_maturity, all_candidates |
+| Progress | FE ratio | `bf_fe_ratio` | 当前 `FE/FE_total`；逐行强制等于元数据 `FE_ratio` | time_only, base, primary, primary_with_maturity, all_candidates |
 | Progress | improvement rate | `bf_improvement_rate_w02` | 2% FE-ratio窗口内 best fitness 相对改善率 | base, primary, primary_with_maturity, all_candidates |
 | Progress | improvement frequency | `bf_improvement_frequency_w02` | 2% FE-ratio窗口内相邻 checkpoint 发生严格 best-fitness 改善的比例 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
@@ -784,8 +782,33 @@ H3:
 | State | linear Search maturity | `bf_search_maturity_linear` | maturity 的线性合成备选形式 | primary_with_maturity, all_candidates |
 | State | exploration/exploitation ratio | `bf_explore_exploit_ratio` | 行为探索分量除以行为开发分量 | primary_with_maturity, all_candidates |
 
+窗口测量 metadata 不属于 `BEHAVIOR_FEATURE_COLUMNS`。对 `suffix in {w02,w05,w10}`，behavior 输出：
+
+```text
+effective_window_ratio_suffix = (FE_t - FE_anchor) / FE_total
+effective_window_fe_suffix = FE_t - FE_anchor
+effective_native_updates_suffix = native_updates_t - native_updates_anchor
+```
+
+具体列名为：
+
+```text
+effective_window_ratio_w02
+effective_window_fe_w02
+effective_native_updates_w02
+effective_window_ratio_w05
+effective_window_fe_w05
+effective_native_updates_w05
+effective_window_ratio_w10
+effective_window_fe_w10
+effective_native_updates_w10
+```
+
+anchor 仍由相应名义窗口在稀疏 checkpoint 序列中选择最近且不晚于目标位置的已记录 checkpoint；rate与slope一律使用上述实际 FE 跨度。无可用 anchor 时，同一 suffix 的三个字段同时为空。`native_updates` 表示完整 optimizer state 中已经完成的原生 generation/update 数，差值只作计算来源记录，不作为 Decision 或 Selector 输入。
+
 其中：
 
+- `time_only` 只使用 `bf_fe_ratio`，数学输入为 $X=\{FE\_ratio\}$；它是阶段信息 baseline，用于判断完整 Controller 的性能是否只是来自“在哪个优化阶段调用 Query”；
 - `base` 使用9个紧凑、permutation-invariant行为特征；旧identity-dependent base不再保留为活动组；
 - `primary` 加入低成本的population与fitness集合变化特征；
 - `primary_with_maturity` 在 `primary` 基础上加入 Search Maturity 及其备选状态特征；

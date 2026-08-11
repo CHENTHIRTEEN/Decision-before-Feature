@@ -11,11 +11,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.model_protocol import FROZEN_THRESHOLD_MODE
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_FEATURE_GROUPS = ("primary", "primary_with_maturity", "all_candidates")
+DEFAULT_FEATURE_GROUPS = ("time_only", "primary", "primary_with_maturity", "all_candidates")
 TARGET_COLUMN = "u_query_lamT_1"
 AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
 TRAIN_SPLIT = "bbob_train"
@@ -33,6 +34,7 @@ REQUIRED_COLUMNS = {
     "FE",
     "FE_ratio",
     "default_algorithm",
+    "no_query_algorithm",
     "selection_reference_default_algorithm",
     "selected_algorithm",
     "selected_equals_default",
@@ -40,14 +42,15 @@ REQUIRED_COLUMNS = {
     "skip_switches_from_prefix",
     "no_query_transition_mode",
     "query_transition_mode",
+    "handoff_type",
     "label_source",
     TARGET_COLUMN,
     AUXILIARY_LABEL_COLUMN,
     "decision_score",
     "decision_run_query_zero",
     "decision_utility_zero",
-    "decision_run_query_train_utility",
-    "decision_utility_train_utility",
+    f"decision_run_query_{FROZEN_THRESHOLD_MODE}",
+    f"decision_utility_{FROZEN_THRESHOLD_MODE}",
 }
 GROUP_LAYERS = {
     "all": [],
@@ -86,10 +89,10 @@ def run_threshold_sweep(
     base_grid = _base_threshold_grid(threshold_min, threshold_max, threshold_step)
     for payload in group_payloads:
         feature_group = payload["feature_group"]
-        train = payload["train"]
+        train_oof = payload["train_oof"]
         validation = payload["validation"]
         existing_thresholds = payload["existing_thresholds"]
-        for (model_name, model_family), model_train in train.groupby(["model_name", "model_family"], sort=True):
+        for (model_name, model_family), model_train in train_oof.groupby(["model_name", "model_family"], sort=True):
             model_validation = validation[
                 (validation["model_name"] == model_name) & (validation["model_family"] == model_family)
             ].copy()
@@ -103,28 +106,15 @@ def run_threshold_sweep(
                 feature_group=feature_group,
                 model_name=str(model_name),
                 model_family=str(model_family),
-                eval_split="train",
+                eval_split="train_oof",
                 layer="all",
                 group={},
                 threshold_policy="sweep",
                 uses_validation_utility_for_threshold=False,
             )
-            validation_dense = _sweep_metrics(
-                frame=model_validation,
-                thresholds=thresholds,
-                feature_group=feature_group,
-                model_name=str(model_name),
-                model_family=str(model_family),
-                eval_split="validation",
-                layer="all",
-                group={},
-                threshold_policy="sweep",
-                uses_validation_utility_for_threshold=False,
-            )
-            dense_frames.extend([train_dense, validation_dense])
+            dense_frames.append(train_dense)
 
             train_best_threshold = _best_threshold(train_dense)
-            validation_best_threshold = _best_threshold(validation_dense)
             existing_threshold = existing_thresholds.get(str(model_name))
             policies = [
                 {
@@ -135,25 +125,18 @@ def run_threshold_sweep(
                     "uses_validation_utility_for_threshold": False,
                 },
                 {
-                    "threshold_policy": "existing_train_utility",
+                    "threshold_policy": "frozen_oof_utility",
                     "threshold": existing_threshold,
-                    "threshold_source_split": "train",
+                    "threshold_source_split": "train_oof",
                     "deployable_policy": True,
                     "uses_validation_utility_for_threshold": False,
                 },
                 {
-                    "threshold_policy": "train_sweep_best",
+                    "threshold_policy": "train_oof_sweep_best_check",
                     "threshold": train_best_threshold,
-                    "threshold_source_split": "train",
+                    "threshold_source_split": "train_oof",
                     "deployable_policy": True,
                     "uses_validation_utility_for_threshold": False,
-                },
-                {
-                    "threshold_policy": "validation_sweep_best_descriptive",
-                    "threshold": validation_best_threshold,
-                    "threshold_source_split": "validation",
-                    "deployable_policy": False,
-                    "uses_validation_utility_for_threshold": True,
                 },
             ]
             for policy in policies:
@@ -169,7 +152,7 @@ def run_threshold_sweep(
                 )
                 policy_frames.append(
                     _policy_layer_summary(
-                        train,
+                        train_oof,
                         model_validation,
                         feature_group=feature_group,
                         model_name=str(model_name),
@@ -181,7 +164,9 @@ def run_threshold_sweep(
                     )
                 )
 
-        distribution_frames.append(_distribution_summary(train, feature_group=feature_group, eval_split="train"))
+        distribution_frames.append(
+            _distribution_summary(train_oof, feature_group=feature_group, eval_split="train_oof")
+        )
         distribution_frames.append(
             _distribution_summary(validation, feature_group=feature_group, eval_split="validation")
         )
@@ -206,8 +191,8 @@ def run_threshold_sweep(
         "query_protocol": get_query_spec(query_id).protocol,
         "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
-            "Does post-hoc threshold selection improve Query call decisions without retraining the Decision model "
-            "or regenerating utility labels?"
+            "Does the frozen train-OOF threshold agree with a direct sweep over the same OOF scores, without using "
+            "BBOB-validation Utility for threshold selection?"
         ),
         "input_root": str(input_root),
         "feature_groups": feature_groups,
@@ -216,14 +201,14 @@ def run_threshold_sweep(
             "min": threshold_min,
             "max": threshold_max,
             "step": threshold_step,
-            "train_scores_added_per_model": True,
+            "train_oof_scores_added_per_model": True,
+            "validation_threshold_grid_evaluated": False,
         },
         "threshold_policies": {
             "zero": "Run the fixed query when decision_score > 0.",
-            "existing_train_utility": "Use the threshold stored by the existing training run.",
-            "train_sweep_best": "Choose the threshold that maximizes train decision_utility_sum and apply it to validation.",
-            "validation_sweep_best_descriptive": (
-                "Choose the threshold that maximizes validation decision_utility_sum; descriptive upper bound only."
+            "frozen_oof_utility": "Use the threshold fitted from full BBOB-train family-OOF scores.",
+            "train_oof_sweep_best_check": (
+                "Recompute the best threshold on the same train-OOF scores as an implementation consistency check."
             ),
         },
         "rows": {
@@ -246,7 +231,8 @@ def run_threshold_sweep(
             "original_utility_labels_modified": False,
             "decision_input_uses_query_features": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
-            "validation_utility_used_only_by_descriptive_threshold": True,
+            "validation_utility_used_for_threshold_selection": False,
+            "validation_threshold_grid_evaluated": False,
             "deployable_thresholds_use_validation_utility": False,
         },
     }
@@ -298,18 +284,18 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> dict[str, Any]:
     group_dir = input_root / feature_group
-    train_path = group_dir / "train_predictions.parquet"
+    train_path = group_dir / "train_oof_predictions.parquet"
     validation_path = group_dir / "validation_predictions.parquet"
     threshold_path = group_dir / "decision_thresholds.parquet"
     summary_path = group_dir / "full_decision_model_training_summary.json"
     for path in (train_path, validation_path, threshold_path, summary_path):
         if not path.exists():
             raise FileNotFoundError(path)
-    train = pq.read_table(train_path).to_pandas()
+    train_oof = pq.read_table(train_path).to_pandas()
     validation = pq.read_table(validation_path).to_pandas()
-    validate_query_frame(train, query_id=query_id, artifact=f"{feature_group} train predictions")
+    validate_query_frame(train_oof, query_id=query_id, artifact=f"{feature_group} train OOF predictions")
     validate_query_frame(validation, query_id=query_id, artifact=f"{feature_group} validation predictions")
-    _check_prediction_frame(train, expected_data_split="train", feature_group=feature_group)
+    _check_prediction_frame(train_oof, expected_data_split="train_oof", feature_group=feature_group)
     _check_prediction_frame(validation, expected_data_split="validation", feature_group=feature_group)
     thresholds = _read_existing_thresholds(threshold_path)
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -318,7 +304,7 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
         raise ValueError(f"training summary feature_group mismatch for {feature_group}")
     return {
         "feature_group": feature_group,
-        "train": train,
+        "train_oof": train_oof,
         "validation": validation,
         "existing_thresholds": thresholds,
         "summary": summary,
@@ -344,7 +330,7 @@ def _check_prediction_frame(frame: pd.DataFrame, *, expected_data_split: str, fe
 
 def _check_family_split(group_payloads: list[dict[str, Any]]) -> None:
     for payload in group_payloads:
-        train_families = set(payload["train"]["family"].astype(str))
+        train_families = set(payload["train_oof"]["family"].astype(str))
         validation_families = set(payload["validation"]["family"].astype(str))
         overlap = sorted(train_families.intersection(validation_families))
         if overlap:
@@ -357,7 +343,7 @@ def _read_existing_thresholds(path: Path) -> dict[str, float]:
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"decision threshold file missing columns: {missing}")
-    rows = frame[frame["threshold_mode"].astype(str) == "train_utility"].copy()
+    rows = frame[frame["threshold_mode"].astype(str) == FROZEN_THRESHOLD_MODE].copy()
     return {str(row["model_name"]): float(row["threshold"]) for _, row in rows.iterrows()}
 
 
@@ -428,7 +414,7 @@ def _sweep_metrics(
             "family": group.get("family"),
             "threshold_policy": threshold_policy,
             "threshold": thresholds.astype(float),
-            "deployable_policy": threshold_policy != "validation_sweep_best_descriptive",
+            "deployable_policy": True,
             "uses_validation_utility_for_threshold": uses_validation_utility_for_threshold,
             "rows": rows,
             "u_gt_zero_rows": total_positive_rows,
@@ -630,27 +616,27 @@ def _distribution_row(
 
 
 def _draw_plots(*, sweep_summary: pd.DataFrame, output_dir: Path) -> dict[str, list[str]]:
-    validation = sweep_summary[
-        (sweep_summary["eval_split"] == "validation")
+    train_oof = sweep_summary[
+        (sweep_summary["eval_split"] == "train_oof")
         & (sweep_summary["layer"] == "all")
         & (sweep_summary["threshold_policy"] == "sweep")
     ].copy()
     plot_paths: dict[str, list[str]] = {}
     plot_paths["threshold_vs_summed_utility"] = _plot_threshold_metric(
-        validation,
+        train_oof,
         output_dir=output_dir,
         stem="threshold_vs_summed_utility",
         y_column="decision_utility_sum",
         y_label="Summed selected utility",
     )
     plot_paths["threshold_vs_call_rate"] = _plot_threshold_metric(
-        validation,
+        train_oof,
         output_dir=output_dir,
         stem="threshold_vs_call_rate",
         y_column="query_call_rate",
         y_label="Query call rate",
     )
-    plot_paths["utility_precision_call_curve"] = _plot_utility_precision_call(validation, output_dir=output_dir)
+    plot_paths["utility_precision_call_curve"] = _plot_utility_precision_call(train_oof, output_dir=output_dir)
     return plot_paths
 
 
@@ -669,7 +655,7 @@ def _plot_threshold_metric(
     ax.axvline(0.0, color="black", linewidth=0.8, linestyle="--")
     ax.set_xlabel("Threshold")
     ax.set_ylabel(y_label)
-    ax.set_title(y_label + " across validation thresholds")
+    ax.set_title(y_label + " across BBOB-train family-OOF thresholds")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=7, ncol=2)
     fig.tight_layout()
@@ -729,9 +715,6 @@ def _markdown_report(
     deployable = validation_all[validation_all["deployable_policy"]].sort_values(
         ["decision_utility_sum", "utility_capture_rate"], ascending=False
     )
-    descriptive = validation_all[~validation_all["deployable_policy"]].sort_values(
-        ["decision_utility_sum", "utility_capture_rate"], ascending=False
-    )
     distribution_all = utility_distribution[
         (utility_distribution["eval_split"] == "validation") & (utility_distribution["layer"] == "all")
     ].sort_values(["feature_group", "model_name"])
@@ -765,7 +748,8 @@ def _markdown_report(
             "",
             "- Existing Decision predictions are reused; no model is retrained.",
             "- Utility labels are not regenerated or modified.",
-            "- `validation_sweep_best_descriptive` uses validation utility only as a descriptive upper bound.",
+            "- Threshold candidates are selected from BBOB-train family-OOF predictions only.",
+            "- BBOB-validation Utility is evaluated only at thresholds frozen before validation.",
             "- Metadata layers are used only for stratified reporting.",
             "",
             "## Threshold policies",
@@ -775,10 +759,6 @@ def _markdown_report(
             "## Best deployable validation policies",
             "",
             _markdown_table(deployable[metric_columns].head(20)),
-            "",
-            "## Validation descriptive upper bound",
-            "",
-            _markdown_table(descriptive[metric_columns].head(20)),
             "",
             "## Validation utility and score distribution",
             "",
@@ -836,7 +816,9 @@ def _group_label(group: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Post-hoc threshold sweep for Decision-before-Feature predictions.")
+    parser = argparse.ArgumentParser(
+        description="Check frozen Decision thresholds against BBOB-train family-OOF score sweeps."
+    )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--input-root", type=Path, default=None)
     parser.add_argument("--feature-groups", nargs="+", default=list(DEFAULT_FEATURE_GROUPS))

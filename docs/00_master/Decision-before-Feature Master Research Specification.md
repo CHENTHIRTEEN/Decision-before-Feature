@@ -268,7 +268,7 @@ CMA-ES:
 
 关键口径：
 
-1. *How do metaheuristics exploit?* 中的distance-to-reference decay、directional entropy和stagnation indicators主要用于分析和调节late-stage exploitation behavior，并使用iteration窗口和exploitation phase划分；本文不采用需要跨代个体对应关系的directional entropy。
+1. *How do metaheuristics exploit?* 中的distance-to-reference decay、directional entropy和stagnation indicators主要用于分析和调节late-stage exploitation behavior，并使用iteration窗口和exploitation phase划分；本文不采用需要跨代个体对应关系的directional entropy，也不实现其direction bins，而以permutation-invariant集合分布变化指标替代。
 2. *Determining Metaheuristic Similarity Using Behavioral Analysis* 中的behavioral characteristics主要用于whole-run algorithm similarity，包括diversity/accuracy/convergence/locality/communication/evaluation-effort等整段搜索特征。
 3. 本项目只继承其中可解释、低成本、算法无关的行为语义，并改写为checkpoint-level、FE-ratio-normalized、permutation-invariant behavior state。
 
@@ -350,7 +350,7 @@ No-query 与 Run Query 的 paired continuation 使用同一完整 optimizer chec
 - 不使用 Best-so-far Warm Start；
 - 不复用 query 采样点。
 
-全 prefix trajectory 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化。正式标签必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `skip_switches_from_prefix`；多 prefix 数据中的 `same_algorithm` 不得解释为“继续当前算法”。
+全 prefix trajectory 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化。正式标签必须保存 `selected_equals_default`、`selected_equals_prefix`、`skip_switches_from_prefix`、`no_query_algorithm` 和 `handoff_type`；其中 `no_query_algorithm=default_algorithm`，`handoff_type=query_transition_mode`。多 prefix 数据中的 `same_algorithm` 不得解释为“继续当前算法”。
 
 ## 8.1 No-query
 
@@ -442,19 +442,15 @@ $$
 
 ## Recommended Models
 
-Baseline:
+活动候选固定为：
 
-- Logistic Regression
-- Random Forest
+- LDA classification：预测 `U_query > 0` 的分类分数；
+- Logistic Regression classification：预测 `U_query > 0` 的分类分数；
+- Ridge regression：预测连续 `U_query`。
 
-Main:
+不继续把 Random Forest、XGBoost、LightGBM、MLP 或其变体加入 Decision Model 活动模型搜索。Selection Reference 中固定的 action-loss Random Forest regression 属于不同组件，不受本条影响。
 
-- XGBoost
-- LightGBM
-
-Optional:
-
-- MLP
+主模型按 BBOB-train 上 nested function-family OOF decision mean utility 选择。每个外层 family fold 的 threshold 只由对应内层 family-OOF 分数拟合；随后用完整 BBOB-train family-OOF 分数冻结 `oof_utility` threshold，并在完整 BBOB-train 重拟合模型。BBOB-validation 只用于冻结后的性能评价。
 
 ---
 
@@ -568,6 +564,10 @@ Virtual Best Solver。
 
 VBS 保留为标准静态算法选择上界；共享状态上已运行候选动作的最小 loss 另称为 `best observed action`，不得与 VBS 或现实可部署方法混称。
 
+## Time-only Controller
+
+输入严格为 $X=\{FE\_ratio\}$，并与 Proposed Controller 使用同名模型、同一 train-only preprocessing/threshold、同一 held-out family 和外部评价口径。用于判断主 Controller 是否只学习了调用阶段。
+
 ---
 
 # 14. Evaluation Protocol
@@ -580,11 +580,12 @@ VBS 保留为标准静态算法选择上界；共享状态上已运行候选动�
 
 ## Decision Metrics
 
-- MAE
-- RMSE
-- R2
-- Spearman
-- AUROC
+- 主选择：nested function-family OOF decision mean utility
+- 辅助：AUROC、Average Precision、Spearman
+- 连续 Utility 回归：Ridge 的 RMSE
+- 策略：query call rate、utility capture、precision under calls、最终优化性能
+
+分类概率或判别分数不与连续 Utility 直接计算 RMSE。
 
 ## Resource Metrics
 

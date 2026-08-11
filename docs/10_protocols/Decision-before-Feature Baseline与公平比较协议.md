@@ -1,6 +1,6 @@
 # Decision-before-Feature Baseline与公平比较协议
 
-> 实现同步（2026-08-11）：Never Query、Always Query、Random Analysis、Traditional AAS 和 SBS skip reference 的代码路径已实现；Traditional AAS 与 Always Query 共享“固定 query + 同一 Selector”的等价运行结果，不重复 continuation。VBS 仍由静态 per-problem 完整候选结果单独计算，不以逐状态 `best observed action` 替代。现有表依赖撤回的 trajectory、旧 16 维构念与旧 Ridge controller，不是当前性能证据。三档 query 必须分别重跑本协议后才能形成论文表。详见 `../30_results/phase1_current_results.md`。
+> 实现同步（2026-08-11）：Never Query、Always Query、Random Analysis、Traditional AAS、SBS skip reference 和 Time-only Controller 的代码路径已实现；Traditional AAS 与 Always Query 共享“固定 query + 同一 Selector”的等价运行结果，不重复 continuation。VBS 仍由静态 per-problem 完整候选结果单独计算，不以逐状态 `best observed action` 替代。现有表依赖撤回的 trajectory、旧 16 维构念与旧 Ridge controller，不是当前性能证据。三档 query 必须分别重跑本协议后才能形成论文表。详见 `../30_results/phase1_current_results.md`。
 
 ## 1. 文档定位
 
@@ -194,6 +194,36 @@ VBS 是静态 per-problem 标准上界。共享 state 上从已运行 continuati
 
 ------------------------------------------------------------------------
 
+# Baseline 7: Time-only Controller
+
+## 定义
+
+使用与 Proposed Controller 相同的监督学习与 threshold 协议，但输入严格限定为：
+
+$$
+X_{time}=\{FE\_ratio\}.
+$$
+
+代码使用 `BEHAVIOR_FEATURE_GROUPS["time_only"] = ("bf_fe_ratio",)`；`bf_fe_ratio` 必须逐行等于 `FE_ratio`。
+
+### 公平比较要求
+
+- 与 Proposed Controller 使用同一 materialized dataset、目标列与 function-family split；
+- 比较同名模型，或明确逐模型报告，不能给 Time-only 分配更弱的模型候选；
+- preprocessing、模型参数和 threshold 只能由 BBOB train 拟合；
+- validation 与外部 benchmark 只用于评价；
+- 使用同一 query、Selector、总 FE 与 Utility 口径。
+
+### 作用
+
+用于回答：
+
+> Controller 是否只是学会在哪个优化阶段调用固定 landscape-analysis query？
+
+若 Proposed Controller 没有在 held-out families 与外部 benchmark 上稳定优于 Time-only Controller，则不能声称算法无关搜索行为提供了阶段信息之外的预测价值。
+
+------------------------------------------------------------------------
+
 # 4. Proposed Method
 
 ## Decision-before-Feature
@@ -374,22 +404,7 @@ Expected Running Time。
 
 # 8.2 Decision Performance
 
-如果预测：
-
-$$ U_{query} $$
-
-评价：
-
--   MAE
--   RMSE
--   R²
--   Spearman correlation
-
-如果转为decision：
-
--   Accuracy
--   F1
--   AUROC
+主模型选择评价 nested function-family OOF decision mean utility。辅助分数指标统一报告 AUROC、Average Precision 与 Spearman；连续 Utility RMSE 只对 Ridge 报告。策略层报告调用率、utility capture、precision under calls 与 mean decision utility。
 
 ------------------------------------------------------------------------
 
@@ -479,11 +494,11 @@ problem × algorithm
 
 ## Ablation A
 
-去除Behavior Feature。
+Time-only Controller：只保留 `FE_ratio`，去除其余Behavior Feature。
 
 验证：
 
-行为信息是否必要。
+完整行为信息是否提供阶段之外的增量预测价值。
 
 ------------------------------------------------------------------------
 
@@ -507,9 +522,11 @@ Behavior → Utility。
 
 比较：
 
--   RF
--   XGBoost
--   MLP
+-   LDA
+-   Logistic Regression
+-   Ridge
+
+候选只按 BBOB-train nested function-family OOF decision utility 选择；BBOB-validation 不参与选模或 threshold 拟合。连续 Utility RMSE 只对 Ridge 报告。
 
 ------------------------------------------------------------------------
 

@@ -10,14 +10,31 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.model_protocol import ACTIVE_MODEL_NAMES, FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.query_contract import decision_query_root, validate_query_frame
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_MODEL_NAME = "ridge_regression"
-DEFAULT_THRESHOLD_MODE = "train_utility"
+DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
+DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_EXPECTED_SPLIT = "bbob_validation"
 TARGET_COLUMN = "u_query_lamT_1"
+PREDICTION_ALIGNMENT_COLUMNS = (
+    "split",
+    "problem_id",
+    "family",
+    "dimension",
+    "prefix_algorithm",
+    "seed",
+    "FE",
+    "FE_ratio",
+    "default_algorithm",
+    "no_query_algorithm",
+    "selected_algorithm",
+    "handoff_type",
+    "label_source",
+    TARGET_COLUMN,
+)
 GROUP_LAYERS = {
     "overall": [],
     "label_source": ["label_source"],
@@ -32,6 +49,7 @@ def compare_controller_baselines(
     *,
     query_id: str,
     predictions_path: Path,
+    time_only_predictions_path: Path,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
@@ -45,8 +63,22 @@ def compare_controller_baselines(
     predictions = _read_predictions(
         predictions_path, model_name, threshold_mode, expected_split, query_id
     )
+    resolved_model_names = predictions["model_name"].astype(str).unique().tolist()
+    if len(resolved_model_names) != 1:
+        raise ValueError("current controller predictions must resolve to exactly one model")
+    model_name = resolved_model_names[0]
+    validate_time_only_training_summary(time_only_predictions_path, query_id)
+    time_only_predictions = _read_predictions(
+        time_only_predictions_path,
+        model_name,
+        threshold_mode,
+        expected_split,
+        query_id,
+    )
+    _check_prediction_alignment(predictions, time_only_predictions)
     policies = _policy_frames(
         predictions=predictions,
+        time_only_predictions=time_only_predictions,
         threshold_mode=threshold_mode,
         random_query_probability=random_query_probability,
         random_seed=random_seed,
@@ -74,10 +106,16 @@ def compare_controller_baselines(
         "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
             "How does the current Decision-before-Feature controller compare with SBS/No-query, "
-            "Always Query, and Random Analysis under the existing validation U_query labels?"
+            "Always Query, Random Analysis, and a time-only controller under the existing validation U_query labels?"
         ),
         "predictions_path": str(predictions_path),
+        "time_only_predictions_path": str(time_only_predictions_path),
         "model_name": model_name,
+        "time_only_model_name": model_name,
+        "time_only_input": {
+            "mathematical_input": ["FE_ratio"],
+            "implementation_input": ["bf_fe_ratio"],
+        },
         "threshold_mode": threshold_mode,
         "expected_split": expected_split,
         "random_query_probability": random_query_probability,
@@ -99,11 +137,12 @@ def compare_controller_baselines(
             "expected_split_rows_used_for_controller_fit_or_threshold": False,
             "query_features_used_as_decision_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
+            "time_only_rows_match_current_controller_rows": True,
         },
         "scope_notes": [
             "The comparison is expressed in the current U_query label space.",
-            "sbs_skip_reference and no_query have identical utility under the current phase1 materialized dataset because "
-            "default_algorithm is CMA-ES, matching the selection_reference SBS algorithm.",
+            "sbs_skip_reference and no_query have identical zero utility because both retain the train-derived SBS "
+            "skip path without calling the fixed query.",
             "A distinct optimizer-level SBS performance comparison requires materializing P_sbs or final-performance "
             "columns; those fields are not present in the current controller prediction table.",
         ],
@@ -171,7 +210,9 @@ def _read_predictions(
         "FE",
         "FE_ratio",
         "default_algorithm",
+        "no_query_algorithm",
         "selected_algorithm",
+        "handoff_type",
         "label_source",
         TARGET_COLUMN,
         f"decision_run_query_{threshold_mode}",
@@ -180,6 +221,14 @@ def _read_predictions(
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"prediction table is missing required columns: {missing}")
+    if model_name == SELECTED_MODEL_ALIAS:
+        if "selected_by_nested_oof" not in frame.columns:
+            raise ValueError("prediction table does not identify the nested-OOF selected model")
+        selected = frame[frame["selected_by_nested_oof"].astype(bool)]
+        selected_names = selected["model_name"].astype(str).unique().tolist()
+        if len(selected_names) != 1:
+            raise ValueError("prediction table must identify exactly one nested-OOF selected model")
+        model_name = selected_names[0]
     frame = frame[frame["model_name"] == model_name].copy()
     if frame.empty:
         raise ValueError(f"no prediction rows for model_name={model_name}")
@@ -187,12 +236,62 @@ def _read_predictions(
         raise ValueError(f"controller baseline comparison expects {expected_split} prediction rows")
     if not np.isfinite(frame[TARGET_COLUMN].to_numpy(dtype=float)).all():
         raise ValueError(f"{TARGET_COLUMN} contains non-finite values")
-    return frame.reset_index(drop=True)
+    return frame.sort_values(list(PREDICTION_ALIGNMENT_COLUMNS)).reset_index(drop=True)
+
+
+def validate_time_only_training_summary(path: Path, query_id: str) -> None:
+    summary_path = path.parent / "full_decision_model_training_summary.json"
+    if not summary_path.exists():
+        raise FileNotFoundError(summary_path)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    spec = get_query_spec(query_id)
+    if summary.get("query_id") != query_id or summary.get("query_protocol") != spec.protocol:
+        raise ValueError("time-only training summary does not match the requested query protocol")
+    if summary.get("feature_group") != "time_only":
+        raise ValueError("time-only predictions must come from feature_group=time_only")
+    if list(summary.get("feature_columns", [])) != ["bf_fe_ratio"]:
+        raise ValueError("time-only training summary must use only bf_fe_ratio")
+    if tuple(summary.get("models_trained", [])) != ACTIVE_MODEL_NAMES:
+        raise ValueError("time-only training must use the same frozen three-model candidate set")
+    if summary.get("threshold_modes") != ["zero", FROZEN_THRESHOLD_MODE]:
+        raise ValueError("time-only training must use the frozen OOF threshold protocol")
+
+
+def _check_prediction_alignment(current: pd.DataFrame, time_only: pd.DataFrame) -> None:
+    if len(current) != len(time_only):
+        raise ValueError("current and time-only prediction tables must have identical row counts")
+    string_columns = (
+        "split",
+        "problem_id",
+        "family",
+        "prefix_algorithm",
+        "default_algorithm",
+        "no_query_algorithm",
+        "selected_algorithm",
+        "handoff_type",
+        "label_source",
+    )
+    integer_columns = ("dimension", "seed", "FE")
+    for column in string_columns:
+        if not np.array_equal(current[column].astype(str).to_numpy(), time_only[column].astype(str).to_numpy()):
+            raise ValueError(f"current and time-only prediction rows disagree on {column}")
+    for column in integer_columns:
+        if not np.array_equal(current[column].astype(int).to_numpy(), time_only[column].astype(int).to_numpy()):
+            raise ValueError(f"current and time-only prediction rows disagree on {column}")
+    for column in ("FE_ratio", TARGET_COLUMN):
+        if not np.allclose(
+            current[column].to_numpy(dtype=float),
+            time_only[column].to_numpy(dtype=float),
+            rtol=0.0,
+            atol=1e-12,
+        ):
+            raise ValueError(f"current and time-only prediction rows disagree on {column}")
 
 
 def _policy_frames(
     *,
     predictions: pd.DataFrame,
+    time_only_predictions: pd.DataFrame,
     threshold_mode: str,
     random_query_probability: float,
     random_seed: int,
@@ -203,12 +302,14 @@ def _policy_frames(
     rng = np.random.default_rng(np.random.SeedSequence([int(random_seed), 20260809, len(predictions)]))
     random_call = rng.random(len(predictions)) < random_query_probability
     current_call = predictions[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
+    time_only_call = time_only_predictions[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
     policy_specs = (
         ("sbs_skip_reference", "baseline", np.zeros(len(predictions), dtype=bool)),
         ("no_query", "baseline", np.zeros(len(predictions), dtype=bool)),
         ("always_query", "baseline", np.ones(len(predictions), dtype=bool)),
         ("traditional_aas", "baseline", np.ones(len(predictions), dtype=bool)),
         (f"random_query_p{int(round(random_query_probability * 100)):02d}", "baseline", random_call),
+        ("time_only_controller", "learned_baseline", time_only_call),
         ("current_controller", "controller", current_call),
     )
     frames = []
@@ -223,7 +324,9 @@ def _policy_frames(
             "FE",
             "FE_ratio",
             "default_algorithm",
+            "no_query_algorithm",
             "selected_algorithm",
+            "handoff_type",
             "label_source",
             TARGET_COLUMN,
         ]
@@ -298,7 +401,7 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
 
 def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
     overall = policy_summary[policy_summary["layer"] == "overall"].copy()
-    baselines = overall[overall["policy_category"] == "baseline"][
+    baselines = overall[overall["policy_category"].isin({"baseline", "learned_baseline"})][
         [
             "policy_name",
             "utility_mean",
@@ -477,6 +580,7 @@ def _markdown_report(
         "## 摘要",
         "",
         f"- 当前 controller：`{model_name}`，阈值口径为 `{threshold_mode}`。",
+        f"- Time-only controller 使用同一模型 `{model_name}`，输入固定为 `X={{FE_ratio}}`（实现列 `bf_fe_ratio`）。",
         f"- Random Analysis baseline 使用 `p={random_query_probability:.3f}`，随机流由显式 `SeedSequence` 生成。",
         f"- Random Analysis 额外报告 `{random_repetitions}` 个独立随机流的均值、标准差和范围。",
         f"- 指标在 `{expected_split}` 上计算，口径是当前 materialized dataset 中的 `U_query`。",
@@ -501,6 +605,7 @@ def _markdown_report(
         "## 解释",
         "",
         "当 controller 的 mean utility 大于 0 时，它优于 `sbs_skip_reference` 和 `no_query`。"
+        "与 `time_only_controller` 的比较用于判断主 Controller 是否提供了阶段信息之外的增量预测价值。"
         "与 `always_query` 的比较用于判断选择性调用固定 query 是否减少了无效调用。"
         "`traditional_aas` 复用 `always_query` 的固定 query + Selector 运行结果，不重复执行等价 continuation。"
         "Random Analysis 用于检查当前结果是否只是由调用频率变化带来的随机效应。",
@@ -535,6 +640,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Compare the current phase1 controller with fixed-query baselines.")
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--predictions", type=Path, default=None)
+    parser.add_argument("--time-only-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
@@ -549,6 +655,8 @@ def main() -> None:
         query_id=args.query_id,
         predictions_path=args.predictions
         or query_root / "feature_group_ablation/primary_with_maturity/validation_predictions.parquet",
+        time_only_predictions_path=args.time_only_predictions
+        or query_root / "feature_group_ablation/time_only/validation_predictions.parquet",
         output_dir=args.output_dir or query_root / "controller_baseline_comparison",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

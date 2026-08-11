@@ -439,22 +439,21 @@ Utility Prediction Comparison
 
 # 7. 关键评价指标
 
-## Correlation
+## 主选择
 
--   Pearson
+-   nested function-family OOF decision mean utility
+
+## 辅助分数指标
+
+-   AUROC
+-   Average Precision
 -   Spearman
 
-## Prediction
+## 连续 Utility 回归
 
--   MAE
--   RMSE
--   R2
+-   Ridge RMSE
 
-## Decision
-
--   Accuracy
--   F1
--   AUROC
+分类分数不与连续 Utility 直接计算 RMSE。
 
 ## End-to-end
 

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_COLUMNS, BEHAVIOR_FEATURE_COLUMNS, BEHAVIOR_METADATA_COLUMNS, extract_behavior_rows
+from behavior.features import (
+    BEHAVIOR_COLUMNS,
+    BEHAVIOR_FEATURE_COLUMNS,
+    BEHAVIOR_METADATA_COLUMNS,
+    BEHAVIOR_WINDOW_METADATA_COLUMNS,
+    extract_behavior_rows,
+)
 from trajectory.validation import validate_trajectory_file
 
 
@@ -76,6 +82,35 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
             raise ValueError("bf_fe_ratio must match FE_ratio")
         if behavior_row["bf_diversity_mean_pairwise"] < 0.0:
             raise ValueError("bf_diversity_mean_pairwise must be non-negative")
+
+        for suffix in ("w02", "w05", "w10"):
+            ratio_column = f"effective_window_ratio_{suffix}"
+            fe_column = f"effective_window_fe_{suffix}"
+            updates_column = f"effective_native_updates_{suffix}"
+            values = (behavior_row[ratio_column], behavior_row[fe_column], behavior_row[updates_column])
+            if any(value is None for value in values):
+                if not all(value is None for value in values):
+                    raise ValueError(f"effective {suffix} window metadata must be all null or all present")
+            else:
+                ratio, fe, native_updates = values
+                if float(ratio) <= 0.0 or int(fe) <= 0 or int(native_updates) < 0:
+                    raise ValueError(f"effective {suffix} window metadata is out of range")
+                if not isclose(
+                    float(ratio),
+                    int(fe) / int(trajectory_row["FE_total"]),
+                    rel_tol=0.0,
+                    abs_tol=1e-15,
+                ):
+                    raise ValueError(f"effective {suffix} window ratio must equal FE span / FE_total")
+
+        for column in BEHAVIOR_WINDOW_METADATA_COLUMNS:
+            value = behavior_row[column]
+            expected = expected_row[column]
+            if value is None or expected is None:
+                if value is not None or expected is not None:
+                    raise ValueError(f"{column} does not match the current trajectory; regenerate behavior")
+            elif value != expected:
+                raise ValueError(f"{column} does not match the current trajectory; regenerate behavior")
 
         for column in NON_NEGATIVE_FEATURE_COLUMNS:
             value = behavior_row[column]

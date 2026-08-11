@@ -516,7 +516,7 @@ Selection Reference 的质量直接影响 $p_{query}$ 和 $U_{query}$，但它�
 
 第一篇论文主 probe/default 固定为训练集 SBS：No-query 原生继续当前 SBS，Query 后 statewise selector 从唯一动作集合中选择，选择 `continue_current` 时继续同一完整状态，选择其他算法时执行一次 population transfer。其他 prefix algorithm 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不得混入主结果。
 
-正式输出必须保存 `selected_equals_default`、`selected_equals_prefix`、`skip_switches_from_prefix`、`best_observed_algorithm`、`best_observed_loss` 与 `selector_regret_raw`。`same_algorithm` / `changed_algorithm` 只作为 selected-vs-default 报告分层；多 prefix 数据中的实际行动变化以 `selected_equals_prefix` 为准。正式报告同时给出 SBS、静态 VBS、逐状态 best observed action 与现实 selector 的性能差；选择一致率不能替代 observed utility。
+正式输出必须保存 `selected_equals_default`、`selected_equals_prefix`、`skip_switches_from_prefix`、`no_query_algorithm`、`handoff_type`、`best_observed_algorithm`、`best_observed_loss` 与 `selector_regret_raw`。`no_query_algorithm=default_algorithm`；`handoff_type=query_transition_mode`，描述 Query-selected action 使用原生 continuation 还是 Population Transfer。`same_algorithm` / `changed_algorithm` 只作为 selected-vs-default 报告分层；多 prefix 数据中的实际行动变化以 `selected_equals_prefix` 为准。正式报告同时给出 SBS、静态 VBS、逐状态 best observed action 与现实 selector 的性能差；选择一致率不能替代 observed utility。
 
 preliminary selector 的覆盖和 bucket 不连续问题已归入 `docs/archive/min_support/`，不得作为正式 phase1 数值来源。
 

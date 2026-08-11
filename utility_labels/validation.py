@@ -40,6 +40,8 @@ def _validate_row(row: dict) -> None:
     expected_selected_equals_default = str(row["selected_algorithm"]) == str(row["default_algorithm"])
     expected_selected_equals_prefix = str(row["selected_algorithm"]) == str(row["prefix_algorithm"])
     expected_skip_switch = str(row["default_algorithm"]) != str(row["prefix_algorithm"])
+    if str(row["no_query_algorithm"]) != str(row["default_algorithm"]):
+        raise ValueError("no_query_algorithm must equal default_algorithm")
     if bool(row["selected_equals_default"]) != expected_selected_equals_default:
         raise ValueError("selected_equals_default is inconsistent")
     if bool(row["selected_equals_prefix"]) != expected_selected_equals_prefix:
@@ -56,6 +58,8 @@ def _validate_row(row: dict) -> None:
         raise ValueError("no_query_transition_mode is inconsistent")
     if str(row["query_transition_mode"]) != expected_query_mode:
         raise ValueError("query_transition_mode is inconsistent")
+    if str(row["handoff_type"]) != expected_query_mode:
+        raise ValueError("handoff_type must equal query_transition_mode")
     if not isclose(float(row["p_query"]), float(row["selected_action_loss"]), rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("p_query must equal selected_action_loss")
     p_skip = float(row["p_skip"])

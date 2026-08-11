@@ -46,7 +46,7 @@ Offline Utility Label。
 
 在生成 Utility 前，必须先对每个共享状态完整运行唯一候选动作集合：`continue_current` 加其余三个 portfolio algorithms。动作表保存 raw loss、逐状态 normalized action loss、transition mode、best observed action 和 action runtime；随后只用 BBOB train states 拟合连续预算 Selector。
 
-Trajectory Parquet 继续只保存可观察的 population、fitness、best-so-far 和 `optimizer_state_mode`，不把大型内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个 checkpoint 对 population、fitness 与 best-so-far 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一 checkpoint 不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
+Trajectory Parquet 保存可观察的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates` 和 `optimizer_state_mode`，不把 RNG、velocity、evolution path、archive 等大型内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个 checkpoint 对 population、fitness、best-so-far 与 `native_updates` 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一 checkpoint 不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
 
 ## Strategy A: No-query
 
@@ -293,9 +293,13 @@ prefix_algorithm = default_algorithm = train-derived SBS
 selected_equals_default = (selected_algorithm == default_algorithm)
 selected_equals_prefix = (selected_algorithm == prefix_algorithm)
 skip_switches_from_prefix = (default_algorithm != prefix_algorithm)
+no_query_algorithm = default_algorithm
+handoff_type = query_transition_mode
 ```
 
 `same_algorithm` 只作为 `selected_equals_default` 的报告分层名。只有在主协议 `prefix=default` 的条件下，它才同时表示 Query 后选择当前算法。
+
+`no_query_algorithm` 是 No-query 实际使用算法的显式兼容字段；`handoff_type` 是 Query-selected action transition 的显式兼容字段，并与 `query_transition_mode` 逐行相等。二者均不进入 Decision 输入。
 
 在线部署的初始 default optimizer 仍由训练集 SBS 确定。若在线 query 未触发，SBS 的同一个完整状态持续推进；若 query 后 Selector 选择其他算法，才执行 population transfer。固定 CMA-ES 或 DE 只作为部署默认算法敏感性分析。
 

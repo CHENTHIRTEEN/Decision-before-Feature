@@ -136,7 +136,11 @@ U_query =
 selected_equals_default = (selected_algorithm == default_algorithm)
 selected_equals_prefix = (selected_algorithm == prefix_algorithm)
 skip_switches_from_prefix = (default_algorithm != prefix_algorithm)
+no_query_algorithm = default_algorithm
+handoff_type = query_transition_mode
 ```
+
+`handoff_type` 描述 Query-selected action 的 transition；No-query 分支仍由 `no_query_transition_mode` 独立描述。两个兼容字段只用于清楚记录实际策略关系，不进入 Decision 输入。
 
 `label_source` 仅作为 selected-vs-default 报告分层：
 
@@ -224,18 +228,18 @@ Precision 只能由 observed utility label 计算；不再接受 nearest-bucket 
 
 Decision Model 训练：
 
-- 主回归 target 使用 `u_query_lamT_1`；
-- 主二分类派生指标使用 `u_query_lamT_1 > 0`；
+- 活动候选只包括 LDA、Logistic Regression 与 Ridge；
+- Ridge target 使用 `u_query_lamT_1`；
+- LDA 与 Logistic Regression target 使用 `u_query_lamT_1 > 0`；
 - 其他 lambda 只作为敏感性分析；
 - 输入列只允许算法无关 behavior features。
 
 Threshold calibration：
 
-- 可使用 train-derived threshold；
-- 可使用 score quantile；
-- 可使用 FE stage；
-- 可使用 behavior bucket 或 search-maturity bucket；
+- 主 threshold 只使用完整 BBOB-train family-OOF score 与 Utility，模式名为 `oof_utility`；
+- score quantile、FE stage、behavior bucket 或 search-maturity bucket 只能从 BBOB-train OOF 信息拟合并作为预定义稳健性分析；
 - 不得使用 held-out family-stage 作为可部署 threshold key。
+- BBOB-validation 不得参与模型或 threshold 选择。
 
 Pareto 评估必须同时报告：
 

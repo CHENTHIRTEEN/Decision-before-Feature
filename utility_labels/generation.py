@@ -67,6 +67,9 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
 
     prefix_algorithm = str(row["prefix_algorithm"])
     default_algorithm = str(row["default_algorithm"])
+    no_query_algorithm = str(row["no_query_algorithm"])
+    if no_query_algorithm != default_algorithm:
+        raise ValueError("no_query_algorithm must equal default_algorithm")
     selected_algorithm = str(row["selected_algorithm"])
     selected_equals_default = selected_algorithm == default_algorithm
     selected_equals_prefix = selected_algorithm == prefix_algorithm
@@ -84,6 +87,9 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         raise ValueError("no-query transition mode is inconsistent")
     if str(row["selected_transition_mode"]) != query_transition_mode:
         raise ValueError("query transition mode is inconsistent")
+    handoff_type = str(row["handoff_type"])
+    if handoff_type != query_transition_mode:
+        raise ValueError("handoff_type must equal the query transition mode")
 
     p_skip = float(row["p_skip"])
     p_query = float(row["selected_action_loss"])
@@ -132,6 +138,7 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "FE_no_query_optimization": int(row["FE_no_query_optimization"]),
         "FE_query_optimization": int(row["FE_query_optimization"]),
         "default_algorithm": default_algorithm,
+        "no_query_algorithm": no_query_algorithm,
         "selection_reference_default_algorithm": default_algorithm,
         "selection_reference_protocol": str(row["selection_reference_protocol"]),
         "selector_prediction_source": str(row["selector_prediction_source"]),
@@ -142,6 +149,7 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "skip_switches_from_prefix": skip_switches_from_prefix,
         "no_query_transition_mode": no_query_transition_mode,
         "query_transition_mode": query_transition_mode,
+        "handoff_type": handoff_type,
         "p_skip": p_skip,
         "p_query": p_query,
         "selected_action_loss": p_query,
@@ -193,6 +201,7 @@ def utility_schema() -> pa.Schema:
         ("FE_no_query_optimization", pa.int64()),
         ("FE_query_optimization", pa.int64()),
         ("default_algorithm", pa.string()),
+        ("no_query_algorithm", pa.string()),
         ("selection_reference_default_algorithm", pa.string()),
         ("selection_reference_protocol", pa.string()),
         ("selector_prediction_source", pa.string()),
@@ -203,6 +212,7 @@ def utility_schema() -> pa.Schema:
         ("skip_switches_from_prefix", pa.bool_()),
         ("no_query_transition_mode", pa.string()),
         ("query_transition_mode", pa.string()),
+        ("handoff_type", pa.string()),
         ("p_skip", pa.float64()),
         ("p_query", pa.float64()),
         ("selected_action_loss", pa.float64()),

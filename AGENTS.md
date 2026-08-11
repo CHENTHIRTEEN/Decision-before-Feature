@@ -145,6 +145,20 @@ Agent 必须：
 
 ---
 
+# 0.5 用户观点核查与命令执行顺序
+
+收到用户命令后，Agent 必须先识别其中是否包含可核查的事实判断、实验假设、因果解释或预期结论，并基于当前项目文档、配置、代码、数据和可复现检查独立判断其是否成立，然后再执行命令。
+
+- 观点与当前证据一致时，在用户授权范围内继续执行；
+- 观点仅部分成立时，必须说明成立范围与不成立部分，并在不改变用户目标和实验协议的前提下按修正后的理解执行；
+- 观点与当前证据或实验协议冲突时，必须先给出具体依据，不得为了服从命令而把该观点写入代码、文档或实验结论；若不同处理方案会实质改变研究问题、数据、成本、风险或不可逆操作，则先请求用户决定；
+- 当前项目内缺少足够证据时，必须明确标记为“尚无法验证”，不得将推测表述为已证实事实；可在授权范围内先执行不会依赖该观点成立的安全部分；
+- 文件命名、排版、接口风格等偏好性要求，以及用户明确授权的安全操作，不属于需要证明真假的“观点”，不得据此增加不必要的执行阻塞。
+
+该规则属于 Agent 的推理与沟通顺序，不得实现为源码中的审批门、receipt、manifest、authorization、执行解锁或其他被第 0.2 节禁止的工程机制。只有判断会影响执行方案或研究结论时，才需要在对话中显式报告核查结果。
+
+---
+
 # 1. 项目研究目标
 
 本项目研究：
@@ -213,6 +227,14 @@ Decision输入：
 - Function ID；
 - Algorithm ID。
 
+Decision Model 活动候选固定为：
+
+- LDA；
+- Logistic Regression；
+- Ridge。
+
+模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。不得继续增加 Random Forest、XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
+
 ---
 
 # 3. 实验协议规范
@@ -263,6 +285,7 @@ $$
 - Traditional AAS；
 - SBS；
 - VBS。
+- Time-only Controller：$X=\{FE\_ratio\}$，用于检验 Controller 是否只学习调用阶段。
 
 ---
 

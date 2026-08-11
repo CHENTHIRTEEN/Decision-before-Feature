@@ -134,12 +134,16 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         raise ValueError("selection reference contains duplicate shared-state keys")
     if set(reference["selected_algorithm"].astype(str)).difference(portfolio):
         raise ValueError("selection reference selected an algorithm outside the portfolio")
+    if not (reference["no_query_algorithm"].astype(str) == reference["default_algorithm"].astype(str)).all():
+        raise ValueError("selection reference no_query_algorithm must equal default_algorithm")
     expected_action = reference["selected_algorithm"].astype(str).where(
         reference["selected_algorithm"].astype(str) != reference["prefix_algorithm"].astype(str),
         "continue_current",
     )
     if not bool((reference["selected_action"].astype(str) == expected_action).all()):
         raise ValueError("selected_action does not match selected_algorithm and prefix_algorithm")
+    if not bool((reference["handoff_type"].astype(str) == reference["selected_transition_mode"].astype(str)).all()):
+        raise ValueError("handoff_type must equal selected_transition_mode")
     regret = reference["selected_action_loss"].astype(float) - reference["best_observed_loss"].astype(float)
     if bool((regret < -1e-12).any()):
         raise ValueError("selector regret cannot be smaller than zero")

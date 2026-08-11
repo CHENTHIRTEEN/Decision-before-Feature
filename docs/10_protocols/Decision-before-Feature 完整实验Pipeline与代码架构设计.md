@@ -251,16 +251,22 @@ Optimizer:
 
     seed,
 
+    FE,
+
     FE_ratio,
 
-    iteration,
+    FE_total,
+
+    native_updates,
 
 
     population,
 
     fitness,
 
-    best_fitness
+    best_fitness,
+
+    optimizer_state_mode
     }
 
 ------------------------------------------------------------------------
@@ -466,21 +472,15 @@ metadata：
 
 behavior features
 
-输出：
+输出：连续 Utility 预测或 `U_query>0` 分类分数。
 
-$$ \hat U_{query} $$
+活动模型候选：
 
-模型：
+-   LDA；
+-   Logistic Regression；
+-   Ridge。
 
-Baseline:
-
--   Logistic Regression
--   Random Forest
-
-Main:
-
--   XGBoost
--   LightGBM
+按 BBOB-train nested function-family OOF decision utility 选择候选，完整 train family-OOF 冻结 `oof_utility` threshold；BBOB-validation 只作评价。
 
 ------------------------------------------------------------------------
 
@@ -535,9 +535,11 @@ Behavior prediction
 
 输出：
 
--   MAE
--   R2
+-   nested OOF decision utility
+-   AUROC
+-   Average Precision
 -   Spearman
+-   Ridge RMSE
 
 ------------------------------------------------------------------------
 

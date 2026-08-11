@@ -306,8 +306,12 @@ uv run phase1-plan-shards --config configs/phase1_bbob_validation.yaml
 - 不在 trajectory 中增加 individual ID 或 ancestry；DE、PSO、SHADE 的稳定行序也不作为统一输入协议的前提。
 - population 跨窗口变化使用等权经验 Wasserstein-1、centroid shift、centroid/Wasserstein coherence 和当前协方差谱集中度。
 - fitness 跨窗口变化使用排序后的经验分位数，计算改善分位数比例、平均分布改善率和一维 Wasserstein 变化率。
-- 所有变化量按实际 `FE_ratio_t-FE_ratio_anchor` 归一化；空间距离同时除以 `sqrt(dimension)`。
+- 所有变化量按实际 `(FE_t-FE_anchor)/FE_total` 归一化；空间距离同时除以 `sqrt(dimension)`。
 - CMA-ES 每代样本不存在稳定个体身份，因此不得使用 row-wise displacement、row-wise fitness improvement 或由其派生的方向统计。
+- w02、w05、w10 先按名义 checkpoint ratio 选择不晚于目标位置的最近已记录 anchor，但实际跨度必须按 `(FE_t-FE_anchor)/FE_total` 计算，不能把名义2%、5%、10%当作实际跨度。
+- trajectory 必须保存 `FE_total` 与已完成的 `native_updates`。behavior 对每个窗口分别保存 `effective_window_ratio_w02/w05/w10`、`effective_window_fe_w02/w05/w10` 与 `effective_native_updates_w02/w05/w10`；无可用 anchor 时三项同时为空。
+- 上述9个窗口字段是计算来源 metadata，不属于 `BEHAVIOR_FEATURE_COLUMNS`，不得进入 Decision Model 或 Selector 输入。
+- directional entropy 及其 direction bins 已由 permutation-invariant 集合分布变化指标替代；活动实现不得重新引入依赖 individual ID、ancestry 或跨 checkpoint 行对应关系的方向统计。
 - 旧 behavior、utility labels、Decision dataset、模型和评价结果不得与新集合特征混用。
 
 ---
@@ -500,6 +504,8 @@ Maturity-aware Model
 
 - 不预设 Search Maturity 一定有效。
 - `M_t = ES_t(1 - XS_t)` 是本文启发式定义，必须通过消融和 OOD 结果验证。
+- Decision feature-group 消融必须包含 `time_only` baseline，数学输入固定为 `X={FE_ratio}`，代码使用逐行等于 `FE_ratio` 的 `bf_fe_ratio`。它与完整行为组使用相同模型、split、train-only preprocessing、threshold 和评价指标，用于判断 Controller 是否只学习了调用阶段。
+- 若完整行为组没有在 held-out families 与外部 benchmark 上稳定优于 `time_only`，不得声称算法无关搜索行为提供了超出阶段信息的预测价值。
 
 ---
 
@@ -550,13 +556,27 @@ audit
 
 ---
 
+## 16.2 Decision Model 三候选与嵌套 OOF 口径
+
+裁决：
+
+- 活动候选固定为 LDA、Logistic Regression 和 Ridge，不继续搜索 Random Forest、XGBoost、LightGBM、MLP 或其超参数变体。
+- 三个候选的 preprocessing 与估计器参数均预先固定；imputer 和 scaler 必须在每个 OOF fit fold 内独立拟合。
+- 模型主选择指标固定为 BBOB-train 上的 nested function-family OOF decision mean utility：外层 family fold 评价候选，外层阈值只从对应内层 family-OOF 分数及 Utility 拟合。
+- 选定模型前不得读取 BBOB-validation 指标。完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold，随后才在完整 BBOB-train 上重拟合模型并评价 BBOB-validation。
+- AUROC、Average Precision 和 Spearman 是辅助指标；连续 Utility RMSE 只对 Ridge 定义。LDA 与 Logistic Regression 的分类分数不得直接与连续 Utility 计算 RMSE。
+- `primary_with_maturity` 决定主 Controller 的模型名；Time-only 与其他 feature-group 比较必须读取同名候选的预测，不能各自改选更有利的模型。
+- 分阶段阈值只能使用 BBOB-train OOF 信息预先拟合并作为稳健性分析；BBOB-validation 不得用于阈值网格选择。
+- 旧 LDA/Ridge/复杂模型数值继续保留在撤回结果说明中，但不得据此预设重生成后的赢家或把 Utility 解释为已证实的分类边界构念。
+
+---
+
 ## 17. 当前仍需单独冻结的实验细节
 
 当前仍需确定：
 
 - CEC2022 与工程问题的具体函数范围、维度、预算和重复次数。
 - 主 `lambda_time`、`lambda_memory` 及其敏感性分析取值。
-- LDA 主 controller 的最终导出格式和外部评价加载路径。
 - 论文级分层统计、不确定性区间和多重比较口径。
 
 CEC2017 已由 `configs/phase1_cec2017_test.yaml` 冻结为 29 个函数、10D / 30D / 50D、30 seeds 和 `FE_total=1000D`；在修改该配置前必须先说明研究问题、数据泄漏风险和结果保存方式。
@@ -575,3 +595,4 @@ CEC2017 已由 `configs/phase1_cec2017_test.yaml` 冻结为 29 个函数、10D /
 - 主协议因 `prefix_algorithm == default_algorithm`，此时 `selected_equals_default == selected_equals_prefix`，语义才可合并。
 - Selection Reference / query-conditioned selection pipeline 是固定下游组件，不作为本文方法贡献点。
 - 算法切换后的主初始化口径为 Population Transfer；query 采样点不复用到后续优化。
+- Decision Model 候选、nested family-OOF 选择、`oof_utility` threshold 冻结和外部评价自动加载所选模型的接口已经冻结。

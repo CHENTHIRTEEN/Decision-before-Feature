@@ -2,6 +2,8 @@
 
 > 2026-08-11 方法修正：本页数值来自 population-only 重建式 continuation、把 population 行号当作跨代个体身份的旧 behavior、problem 级静态标签与 nearest performance bucket 的旧 Selection Reference，以及被笼统称为 ELA 的 16 维自定义描述符。前三项分别造成内部状态丢失、非 permutation-invariant 行为表示和在线共享状态动作标签失配；第四项造成 landscape representation 构念越界。因此旧 behavior、landscape features、selection reference、utility labels、Decision Model 与下游评价不得作为论文证据。完成 native optimizer-state trajectory、集合级 behavior、三档 query、逐状态 action losses、连续预算 selector、labels 和模型的全链路重生成后，必须用新结果替换本页。
 
+> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train nested function-family OOF decision utility 选择，并由完整 train family-OOF 分数冻结 `oof_utility` threshold。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
+
 旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和旧模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
 
 ## 1. 文档定位
@@ -115,5 +117,5 @@ CEC2017 正式配置已经冻结：29 个函数、10D/30D/50D、30 seeds、等�
 
 1. 覆盖生成 BBOB train/validation trajectory shards，并通过完整状态与 checkpoint 一致性检查。
 2. 重提取 behavior，重新生成 Selection Reference、utility labels 和 Decision dataset。
-3. 重新执行模型比较、train-only threshold、baseline、feature ablation 和成本—性能评价，不预设 LDA 胜出。
+3. 对 LDA、Logistic Regression 与 Ridge 重新执行 nested family-OOF 选择、完整 train OOF threshold 冻结、baseline、feature ablation 和成本—性能评价，不预设任一候选胜出。
 4. 内部链路完成后，按完整 CEC2017 配置执行外部评价，再扩展 CEC2022 和工程问题。

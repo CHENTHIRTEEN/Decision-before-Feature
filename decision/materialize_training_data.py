@@ -41,6 +41,7 @@ METADATA_COLUMNS = (
     "query_protocol",
     "sample_design_id",
     "default_algorithm",
+    "no_query_algorithm",
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
@@ -55,6 +56,7 @@ METADATA_COLUMNS = (
     "skip_switches_from_prefix",
     "no_query_transition_mode",
     "query_transition_mode",
+    "handoff_type",
     "label_source",
 )
 DATASET_COLUMNS = METADATA_COLUMNS + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN) + BEHAVIOR_FEATURE_COLUMNS
@@ -73,6 +75,7 @@ FORBIDDEN_INPUT_COLUMNS = {
     "query_feature_columns",
     "sample_design_id",
     "default_algorithm",
+    "no_query_algorithm",
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
@@ -83,6 +86,7 @@ FORBIDDEN_INPUT_COLUMNS = {
     "skip_switches_from_prefix",
     "no_query_transition_mode",
     "query_transition_mode",
+    "handoff_type",
     "label_source",
     "FE_total",
     "FE_prefix",
@@ -330,6 +334,7 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         "query_protocol",
         "sample_design_id",
         "default_algorithm",
+        "no_query_algorithm",
         "selection_reference_default_algorithm",
         "selection_reference_protocol",
         "selector_prediction_source",
@@ -344,6 +349,7 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         "skip_switches_from_prefix",
         "no_query_transition_mode",
         "query_transition_mode",
+        "handoff_type",
         TARGET_COLUMN,
         AUXILIARY_LABEL_COLUMN,
     }
@@ -385,6 +391,7 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "query_protocol",
             "sample_design_id",
             "default_algorithm",
+            "no_query_algorithm",
             "selection_reference_default_algorithm",
             "selection_reference_protocol",
             "selector_prediction_source",
@@ -399,6 +406,7 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "skip_switches_from_prefix",
             "no_query_transition_mode",
             "query_transition_mode",
+            "handoff_type",
             TARGET_COLUMN,
             AUXILIARY_LABEL_COLUMN,
             *[f"{column}_behavior" for column in BEHAVIOR_FEATURE_COLUMNS],
@@ -431,6 +439,11 @@ def _check_targets(dataset: pd.DataFrame) -> None:
 
 
 def _check_feature_values(dataset: pd.DataFrame) -> None:
+    if not np.array_equal(
+        dataset["bf_fe_ratio"].to_numpy(dtype=float),
+        dataset["FE_ratio"].to_numpy(dtype=float),
+    ):
+        raise ValueError("bf_fe_ratio must equal FE_ratio row by row for the time-only baseline")
     invalid = []
     for column in BEHAVIOR_FEATURE_COLUMNS:
         values = pd.to_numeric(dataset[column], errors="coerce")
@@ -444,6 +457,8 @@ def _check_feature_values(dataset: pd.DataFrame) -> None:
 
 
 def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
+    if not (dataset["no_query_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)).all():
+        raise ValueError("no_query_algorithm must equal default_algorithm")
     if not (
         dataset["selection_reference_default_algorithm"].astype(str)
         == dataset["default_algorithm"].astype(str)
@@ -478,6 +493,8 @@ def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
     )
     if not np.array_equal(dataset["query_transition_mode"].to_numpy(dtype=str), expected_query_transition):
         raise ValueError("query transition mode must distinguish native continuation from population transfer")
+    if not np.array_equal(dataset["handoff_type"].to_numpy(dtype=str), expected_query_transition):
+        raise ValueError("handoff_type must equal query_transition_mode")
     expected_label_source = np.where(
         selected_equals_default,
         "same_algorithm",

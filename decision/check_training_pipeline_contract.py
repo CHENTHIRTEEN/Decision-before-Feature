@@ -33,6 +33,7 @@ METADATA_COLUMNS = (
     "query_protocol",
     "sample_design_id",
     "default_algorithm",
+    "no_query_algorithm",
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
@@ -47,6 +48,7 @@ METADATA_COLUMNS = (
     "skip_switches_from_prefix",
     "no_query_transition_mode",
     "query_transition_mode",
+    "handoff_type",
     "label_source",
 )
 FORBIDDEN_X_COLUMNS = {

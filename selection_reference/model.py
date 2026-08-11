@@ -122,6 +122,7 @@ def prepare_state_matrix(
         "runtime_no_query_optimization",
         "no_query_transition_mode",
         "default_algorithm",
+        "no_query_algorithm",
         "action",
         "target_algorithm",
         "transition_mode",
@@ -167,6 +168,10 @@ def prepare_state_matrix(
     )
     if not np.array_equal(action_losses["transition_mode"].astype(str).to_numpy(), expected_transition):
         raise ValueError("transition_mode does not match target_algorithm and prefix_algorithm")
+    if not bool(
+        (action_losses["no_query_algorithm"].astype(str) == action_losses["default_algorithm"].astype(str)).all()
+    ):
+        raise ValueError("no_query_algorithm must equal default_algorithm")
 
     metadata_columns = [
         *key,
@@ -182,6 +187,7 @@ def prepare_state_matrix(
         "runtime_no_query_optimization",
         "no_query_transition_mode",
         "default_algorithm",
+        "no_query_algorithm",
         "best_observed_algorithm",
         "best_observed_loss",
     ]
@@ -318,6 +324,7 @@ def selection_rows(
             "feature_status",
             "feature_failure",
             "default_algorithm",
+            "no_query_algorithm",
             "best_observed_algorithm",
             "best_observed_loss",
         ]
@@ -352,6 +359,7 @@ def selection_rows(
         "native_optimizer_state",
         "population_transfer_initialization",
     )
+    output["handoff_type"] = output["selected_transition_mode"].astype(str)
     output["selected_action_loss"] = selected_losses
     output["runtime_selected_action_optimization"] = selected_runtimes
     output["selected_predicted_loss_norm"] = selected_scores

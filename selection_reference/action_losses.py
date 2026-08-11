@@ -250,6 +250,7 @@ def _evaluate_shard(
                 "dimension": dimension,
                 "prefix_algorithm": prefix_algorithm,
                 "default_algorithm": default_algorithm,
+                "no_query_algorithm": default_algorithm,
                 "seed": seed,
                 "FE": checkpoint_fe,
                 "FE_ratio": float(trajectory_row["FE_ratio"]),
@@ -310,6 +311,8 @@ def _validate_replayed_checkpoint(state: OptimizerState, trajectory_row: dict) -
         raise ValueError("trajectory fitness does not match replayed native optimizer state; regenerate trajectories")
     if float(state.best_fitness) != float(trajectory_row["best_fitness"]):
         raise ValueError("trajectory best_fitness does not match replayed native optimizer state; regenerate trajectories")
+    if int(state.generation) != int(trajectory_row["native_updates"]):
+        raise ValueError("trajectory native_updates does not match replayed optimizer generation; regenerate trajectories")
 
 
 def _parse_problem_id(problem_id: str, *, suite: str) -> tuple[int, int, int]:
@@ -336,6 +339,7 @@ def _schema() -> pa.Schema:
         ("dimension", pa.int32()),
         ("prefix_algorithm", pa.string()),
         ("default_algorithm", pa.string()),
+        ("no_query_algorithm", pa.string()),
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),

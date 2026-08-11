@@ -11,12 +11,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.compare_controller_baselines import validate_time_only_training_summary
+from decision.model_protocol import FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.query_contract import decision_query_root, validate_query_frame
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_MODEL_NAME = "ridge_regression"
-DEFAULT_THRESHOLD_MODE = "train_utility"
+DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
+DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 TARGET_COLUMN = "u_query_lamT_1"
 EPS = 1e-12
 IDENTITY_COLUMNS = [
@@ -29,7 +31,9 @@ IDENTITY_COLUMNS = [
     "FE",
     "FE_ratio",
     "default_algorithm",
+    "no_query_algorithm",
     "selected_algorithm",
+    "handoff_type",
 ]
 PREDICTION_IDENTITY_COLUMNS = [*IDENTITY_COLUMNS, "label_source"]
 GROUP_LAYERS = {
@@ -85,7 +89,9 @@ def run_controller_cost_performance_pareto(
     query_id: str,
     utility_root: Path,
     predictions_path: Path,
+    time_only_predictions_path: Path,
     model_fit_summary_path: Path,
+    time_only_model_fit_summary_path: Path,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
@@ -96,13 +102,27 @@ def run_controller_cost_performance_pareto(
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
     labels = _read_validation_labels(utility_root, query_id)
+    model_name = _resolve_prediction_model_name(predictions_path, model_name)
     predictions = _read_predictions(predictions_path, model_name, threshold_mode, query_id)
+    validate_time_only_training_summary(time_only_predictions_path, query_id)
+    time_only_predictions = _read_predictions(
+        time_only_predictions_path,
+        model_name,
+        threshold_mode,
+        query_id,
+    )
     prediction_seconds_per_row = _prediction_seconds_per_row(model_fit_summary_path, model_name)
+    time_only_prediction_seconds_per_row = _prediction_seconds_per_row(
+        time_only_model_fit_summary_path,
+        model_name,
+    )
     frame = _join_labels_and_predictions(labels, predictions)
+    frame = _join_time_only_predictions(frame, time_only_predictions, threshold_mode)
     policy_rows = _policy_rows(
         frame=frame,
         threshold_mode=threshold_mode,
         prediction_seconds_per_row=prediction_seconds_per_row,
+        time_only_prediction_seconds_per_row=time_only_prediction_seconds_per_row,
         random_query_probability=random_query_probability,
         random_seed=random_seed,
     )
@@ -138,15 +158,19 @@ def run_controller_cost_performance_pareto(
         "query_protocol": get_query_spec(query_id).protocol,
         "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
-            "How do the current controller, SBS/No-query, Always Query, and Random Analysis compare on the "
-            "validation cost-performance Pareto frontier, and how do their selector action ratios differ?"
+            "How do the current controller, time-only controller, SBS/No-query, Always Query, and Random Analysis "
+            "compare on the validation cost-performance Pareto frontier, and how do their selector action ratios differ?"
         ),
         "utility_root": str(utility_root),
         "predictions_path": str(predictions_path),
+        "time_only_predictions_path": str(time_only_predictions_path),
         "model_fit_summary_path": str(model_fit_summary_path),
+        "time_only_model_fit_summary_path": str(time_only_model_fit_summary_path),
         "model_name": model_name,
+        "time_only_model_name": model_name,
         "threshold_mode": threshold_mode,
         "prediction_seconds_per_row": prediction_seconds_per_row,
+        "time_only_prediction_seconds_per_row": time_only_prediction_seconds_per_row,
         "random_query_probability": random_query_probability,
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
@@ -168,6 +192,7 @@ def run_controller_cost_performance_pareto(
             "validation_labels_used_for_controller_fit_or_threshold": False,
             "decision_input_uses_query_features": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
+            "time_only_input_is_bf_fe_ratio_only": True,
         },
         "metric_direction": {
             "final_performance_mean": "lower_is_better",
@@ -182,10 +207,10 @@ def run_controller_cost_performance_pareto(
         },
         "pareto_axis_sets": PARETO_AXIS_SETS,
         "scope_notes": [
-            "SBS/No-query is represented by the current default skip path; in phase1 the default algorithm is CMA-ES, "
-            "matching the selection_reference SBS algorithm.",
+            "SBS/No-query is represented by the train-derived SBS default skip path.",
             "Final performance is averaged in the current label scale and should be read with family-split context.",
-            "Controller runtime includes the measured ridge validation prediction overhead per row.",
+            "Controller runtimes include the measured validation prediction overhead per row for the requested "
+            "main and time-only models.",
         ],
     }
     report_path.write_text(
@@ -198,6 +223,7 @@ def run_controller_cost_performance_pareto(
             model_name=model_name,
             threshold_mode=threshold_mode,
             prediction_seconds_per_row=prediction_seconds_per_row,
+            time_only_prediction_seconds_per_row=time_only_prediction_seconds_per_row,
         ),
         encoding="utf-8",
     )
@@ -287,6 +313,19 @@ def _read_predictions(path: Path, model_name: str, threshold_mode: str, query_id
     return frame[[*PREDICTION_IDENTITY_COLUMNS, f"decision_run_query_{threshold_mode}"]].reset_index(drop=True)
 
 
+def _resolve_prediction_model_name(path: Path, requested_model_name: str) -> str:
+    if requested_model_name != SELECTED_MODEL_ALIAS:
+        return requested_model_name
+    if not path.exists():
+        raise FileNotFoundError(path)
+    frame = pq.read_table(path, columns=["model_name", "selected_by_nested_oof"]).to_pandas()
+    selected = frame[frame["selected_by_nested_oof"].astype(bool)]
+    names = selected["model_name"].astype(str).unique().tolist()
+    if len(names) != 1:
+        raise ValueError("prediction table must identify exactly one nested-OOF selected model")
+    return names[0]
+
+
 def _prediction_seconds_per_row(path: Path, model_name: str) -> float:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -307,11 +346,34 @@ def _join_labels_and_predictions(labels: pd.DataFrame, predictions: pd.DataFrame
     return result
 
 
+def _join_time_only_predictions(
+    frame: pd.DataFrame,
+    predictions: pd.DataFrame,
+    threshold_mode: str,
+) -> pd.DataFrame:
+    source_column = f"decision_run_query_{threshold_mode}"
+    time_only_column = "decision_run_query_time_only"
+    time_only = predictions.rename(columns={source_column: time_only_column})
+    result = frame.merge(
+        time_only[[*PREDICTION_IDENTITY_COLUMNS, time_only_column]],
+        on=PREDICTION_IDENTITY_COLUMNS,
+        how="left",
+        validate="one_to_one",
+    )
+    missing = result[time_only_column].isna()
+    if bool(missing.any()):
+        raise ValueError(f"missing time-only predictions for {int(missing.sum())} utility-label rows")
+    if len(result) != len(frame):
+        raise ValueError("time-only prediction join changed row count")
+    return result
+
+
 def _policy_rows(
     *,
     frame: pd.DataFrame,
     threshold_mode: str,
     prediction_seconds_per_row: float,
+    time_only_prediction_seconds_per_row: float,
     random_query_probability: float,
     random_seed: int,
 ) -> pd.DataFrame:
@@ -320,11 +382,13 @@ def _policy_rows(
     rng = np.random.default_rng(np.random.SeedSequence([int(random_seed), 20260811, len(frame)]))
     random_call = rng.random(len(frame)) < random_query_probability
     controller_call = frame[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
+    time_only_call = frame["decision_run_query_time_only"].to_numpy(dtype=bool)
     policy_specs = (
         ("sbs_skip_reference", "baseline", np.zeros(len(frame), dtype=bool), 0.0),
         ("always_query", "baseline", np.ones(len(frame), dtype=bool), 0.0),
         ("traditional_aas", "baseline", np.ones(len(frame), dtype=bool), 0.0),
         (f"random_query_p{int(round(random_query_probability * 100)):02d}", "baseline", random_call, 0.0),
+        ("time_only_controller", "learned_baseline", time_only_call, time_only_prediction_seconds_per_row),
         ("current_controller", "controller", controller_call, prediction_seconds_per_row),
     )
     frames = []
@@ -421,6 +485,7 @@ def _pareto_points(policy_summary: pd.DataFrame) -> pd.DataFrame:
             "always_query": "Always Query",
             "traditional_aas": "Traditional AAS",
             "random_query_p50": "Random Query p=0.5",
+            "time_only_controller": "Time-only controller",
             "current_controller": "Current controller",
         }
     ).fillna(points["policy_name"])
@@ -481,7 +546,11 @@ def _non_dominated(
 
 
 def _selector_selection_ratio(policies: pd.DataFrame) -> pd.DataFrame:
-    focus = policies[policies["policy_name"].isin(["current_controller", "always_query", "random_query_p50"])].copy()
+    focus = policies[
+        policies["policy_name"].isin(
+            ["current_controller", "time_only_controller", "always_query", "random_query_p50"]
+        )
+    ].copy()
     rows = []
     for policy_name, policy_frame in focus.groupby("policy_name", sort=True):
         all_counts = policy_frame["policy_selected_algorithm"].value_counts(dropna=False).sort_index()
@@ -603,10 +672,12 @@ def _draw_axis_set_plot(
         axes = [axes]
     color = {
         "baseline": "#4C78A8",
+        "learned_baseline": "#54A24B",
         "controller": "#F58518",
     }
     marker = {
         "baseline": "o",
+        "learned_baseline": "^",
         "controller": "s",
     }
     for ax, (cost_column, quality_column, x_label, y_label, quality_direction) in zip(axes, panels, strict=True):
@@ -666,6 +737,7 @@ def _markdown_report(
     model_name: str,
     threshold_mode: str,
     prediction_seconds_per_row: float,
+    time_only_prediction_seconds_per_row: float,
 ) -> str:
     point_columns = [
         "policy_name",
@@ -717,9 +789,11 @@ def _markdown_report(
         "## 摘要",
         "",
         f"- 当前 controller：`{model_name}`，阈值口径 `{threshold_mode}`。",
+        f"- Time-only controller 使用同一模型 `{model_name}`，输入固定为 `X={{FE_ratio}}`（实现列 `bf_fe_ratio`）。",
         f"- controller 每行预测开销：`{prediction_seconds_per_row:.9f}` 秒，已计入 runtime。",
+        f"- Time-only controller 每行预测开销：`{time_only_prediction_seconds_per_row:.9f}` 秒，已计入 runtime。",
         "- final performance 与 runtime 都按越小越好解释；utility 按越大越好解释。",
-        "- SBS/No-query 使用当前 default skip path；phase1 中 default algorithm 为 CMA-ES，与 selection reference 的 SBS 一致。",
+        "- SBS/No-query 使用训练集确定的 SBS default skip path。",
         "",
         "## Pareto Points",
         "",
@@ -738,6 +812,7 @@ def _markdown_report(
         "",
         "Pareto frontier 按 axis-set 分别计算。每个 panel 使用一个成本轴和一个质量轴：成本轴总是越低越好；质量轴根据 `quality_direction` 解释。"
         "如果一个策略在指定成本轴不更高、质量轴不更差，并且至少一个指标更优，则被比较策略不在该 panel 的 frontier 上。"
+        "Time-only controller 用于判断主 Controller 的成本—性能关系是否提供阶段信息之外的增量。"
         "selector 比例中，`called_rows` 只统计实际执行固定 query 的行，`all_rows` 将未执行 query 记为 `skip_query`。",
     ]
     return "\n".join(report) + "\n"
@@ -782,7 +857,9 @@ def main() -> None:
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--utility-root", type=Path, default=None)
     parser.add_argument("--predictions", type=Path, default=None)
+    parser.add_argument("--time-only-predictions", type=Path, default=None)
     parser.add_argument("--model-fit-summary", type=Path, default=None)
+    parser.add_argument("--time-only-model-fit-summary", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
@@ -793,11 +870,15 @@ def main() -> None:
     args = parser.parse_args()
     query_root = decision_query_root(args.query_id)
     feature_group_root = query_root / "feature_group_ablation/primary_with_maturity"
+    time_only_root = query_root / "feature_group_ablation/time_only"
     run_controller_cost_performance_pareto(
         query_id=args.query_id,
         utility_root=args.utility_root or Path("results/utility_labels") / args.query_id,
         predictions_path=args.predictions or feature_group_root / "validation_predictions.parquet",
+        time_only_predictions_path=args.time_only_predictions or time_only_root / "validation_predictions.parquet",
         model_fit_summary_path=args.model_fit_summary or feature_group_root / "model_fit_summary.parquet",
+        time_only_model_fit_summary_path=args.time_only_model_fit_summary
+        or time_only_root / "model_fit_summary.parquet",
         output_dir=args.output_dir or query_root / "controller_cost_performance_pareto",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

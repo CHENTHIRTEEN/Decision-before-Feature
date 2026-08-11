@@ -419,7 +419,19 @@ dimension,
 
 algorithm,
 
+FE,
+
 FE_ratio,
+
+FE_total,
+
+native_updates,
+
+effective_window_ratio_w02/w05/w10,
+
+effective_window_fe_w02/w05/w10,
+
+effective_native_updates_w02/w05/w10,
 
 
 behavior:

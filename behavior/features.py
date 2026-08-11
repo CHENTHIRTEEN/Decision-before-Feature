@@ -27,6 +27,22 @@ BEHAVIOR_METADATA_COLUMNS = (
     "FE_ratio",
 )
 
+BEHAVIOR_WINDOW_METADATA_COLUMNS = (
+    "effective_window_ratio_w02",
+    "effective_window_fe_w02",
+    "effective_native_updates_w02",
+    "effective_window_ratio_w05",
+    "effective_window_fe_w05",
+    "effective_native_updates_w05",
+    "effective_window_ratio_w10",
+    "effective_window_fe_w10",
+    "effective_native_updates_w10",
+)
+
+TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS = (
+    "bf_fe_ratio",
+)
+
 BASE_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_fe_ratio",
     "bf_improvement_rate_w02",
@@ -72,13 +88,14 @@ BEHAVIOR_FEATURE_COLUMNS = (
 )
 
 BEHAVIOR_FEATURE_GROUPS = {
+    "time_only": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
     "base": BASE_BEHAVIOR_FEATURE_COLUMNS,
     "primary": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "all_candidates": BEHAVIOR_FEATURE_COLUMNS,
 }
 
-BEHAVIOR_COLUMNS = BEHAVIOR_METADATA_COLUMNS + BEHAVIOR_FEATURE_COLUMNS
+BEHAVIOR_COLUMNS = BEHAVIOR_METADATA_COLUMNS + BEHAVIOR_WINDOW_METADATA_COLUMNS + BEHAVIOR_FEATURE_COLUMNS
 
 BEHAVIOR_SCHEMA = pa.schema(
     [
@@ -89,6 +106,15 @@ BEHAVIOR_SCHEMA = pa.schema(
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
+        ("effective_window_ratio_w02", pa.float64()),
+        ("effective_window_fe_w02", pa.int64()),
+        ("effective_native_updates_w02", pa.int64()),
+        ("effective_window_ratio_w05", pa.float64()),
+        ("effective_window_fe_w05", pa.int64()),
+        ("effective_native_updates_w05", pa.int64()),
+        ("effective_window_ratio_w10", pa.float64()),
+        ("effective_window_fe_w10", pa.int64()),
+        ("effective_native_updates_w10", pa.int64()),
         *((column, pa.float64()) for column in BEHAVIOR_FEATURE_COLUMNS),
     ]
 )
@@ -114,11 +140,11 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
         for index, row in enumerate(ordered):
             row["_behavior_index"] = index
         stats = [_checkpoint_stats(row) for row in ordered]
-        last_improvement_ratio = float(ordered[0]["FE_ratio"])
+        last_improvement_fe = int(ordered[0]["FE"])
 
         for index, row in enumerate(ordered):
             if index > 0 and _strict_improvement(ordered[index - 1]["best_fitness"], row["best_fitness"]):
-                last_improvement_ratio = float(row["FE_ratio"])
+                last_improvement_fe = int(row["FE"])
 
             short_anchor = _find_anchor(ordered, index, WINDOW_SHORT)
             medium_anchor = _find_anchor(ordered, index, WINDOW_MEDIUM)
@@ -126,6 +152,11 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
 
             metadata = {column: row[column] for column in BEHAVIOR_METADATA_COLUMNS}
             current_ratio = float(row["FE_ratio"])
+            window_metadata = {
+                **_effective_window_metadata(row, short_anchor, "w02"),
+                **_effective_window_metadata(row, medium_anchor, "w05"),
+                **_effective_window_metadata(row, long_anchor, "w10"),
+            }
             population_change = _population_set_change_stats(row, medium_anchor)
             fitness_change = _fitness_distribution_change_stats(row, short_anchor)
             features = {
@@ -142,7 +173,11 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                     stats[index]["distance_to_best"],
                     _anchor_stat(stats, long_anchor, "distance_to_best"),
                 ),
-                "bf_stagnation_w10": min(max(current_ratio - last_improvement_ratio, 0.0), WINDOW_LONG) / WINDOW_LONG,
+                "bf_stagnation_w10": min(
+                    max((int(row["FE"]) - last_improvement_fe) / int(row["FE_total"]), 0.0),
+                    WINDOW_LONG,
+                )
+                / WINDOW_LONG,
                 "bf_convergence_rate_w10": _convergence_rate(
                     row,
                     long_anchor,
@@ -164,7 +199,9 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                 "bf_best_distance_fitness_corr": _best_distance_fitness_corr(row),
             }
             features.update(_maturity_features(features))
-            behavior_rows.append({"_source_position": row["_source_position"], **metadata, **features})
+            behavior_rows.append(
+                {"_source_position": row["_source_position"], **metadata, **window_metadata, **features}
+            )
 
     ordered_behavior = sorted(behavior_rows, key=lambda item: item["_source_position"])
     return [{column: row[column] for column in BEHAVIOR_COLUMNS} for row in ordered_behavior]
@@ -254,6 +291,39 @@ def _find_anchor(rows: list[dict], current_index: int, window: float) -> dict | 
     return anchor
 
 
+def _effective_window_metadata(current: dict, anchor: dict | None, suffix: str) -> dict[str, float | int | None]:
+    keys = (
+        f"effective_window_ratio_{suffix}",
+        f"effective_window_fe_{suffix}",
+        f"effective_native_updates_{suffix}",
+    )
+    if anchor is None:
+        return dict.fromkeys(keys)
+    fe_total = int(current["FE_total"])
+    if fe_total <= 0 or int(anchor["FE_total"]) != fe_total:
+        raise ValueError("window endpoints must share one positive FE_total")
+    fe_delta = int(current["FE"]) - int(anchor["FE"])
+    native_update_delta = int(current["native_updates"]) - int(anchor["native_updates"])
+    if fe_delta <= 0 or native_update_delta < 0:
+        raise ValueError("window FE must increase and native_updates must not decrease")
+    return {
+        keys[0]: float(fe_delta / fe_total),
+        keys[1]: fe_delta,
+        keys[2]: native_update_delta,
+    }
+
+
+def _actual_fe_ratio(row: dict) -> float:
+    fe_total = int(row["FE_total"])
+    if fe_total <= 0:
+        raise ValueError("FE_total must be positive")
+    return float(int(row["FE"]) / fe_total)
+
+
+def _effective_ratio_delta(current: dict, anchor: dict) -> float:
+    return float(_actual_fe_ratio(current) - _actual_fe_ratio(anchor))
+
+
 def _strict_improvement(previous_best: float, current_best: float) -> bool:
     threshold = EPS * max(1.0, abs(float(previous_best)))
     return float(previous_best) - float(current_best) > threshold
@@ -262,7 +332,7 @@ def _strict_improvement(previous_best: float, current_best: float) -> bool:
 def _improvement_rate(current: dict, anchor: dict | None) -> float | None:
     if anchor is None:
         return None
-    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    ratio_delta = _effective_ratio_delta(current, anchor)
     if ratio_delta <= 0.0:
         return None
     scale = max(abs(float(anchor["best_fitness"])), EPS)
@@ -318,7 +388,7 @@ def _population_set_change_stats(current: dict, anchor: dict | None) -> dict[str
     anchor_population = _population(anchor)
     if current_population.shape != anchor_population.shape or current_population.shape[0] == 0:
         return missing
-    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    ratio_delta = _effective_ratio_delta(current, anchor)
     if ratio_delta <= 0.0:
         return missing
 
@@ -351,7 +421,7 @@ def _fitness_distribution_change_stats(current: dict, anchor: dict | None) -> di
     anchor_fitness = _fitness(anchor)
     if current_fitness.shape != anchor_fitness.shape or current_fitness.size == 0:
         return missing
-    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    ratio_delta = _effective_ratio_delta(current, anchor)
     if ratio_delta <= 0.0:
         return missing
 
@@ -399,7 +469,7 @@ def _window_slope(rows: list[dict], stats: list[dict[str, float]], current_index
     anchor_index = int(anchor["_behavior_index"])
     if current_index <= anchor_index:
         return None
-    ratios = np.asarray([float(row["FE_ratio"]) for row in rows[anchor_index : current_index + 1]], dtype=float)
+    ratios = np.asarray([_actual_fe_ratio(row) for row in rows[anchor_index : current_index + 1]], dtype=float)
     if np.unique(ratios).size < 2:
         return None
     if name == "best_fitness":
@@ -540,7 +610,7 @@ def _convergence_rate(
 ) -> float | None:
     if anchor is None or anchor_stats is None:
         return None
-    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    ratio_delta = _effective_ratio_delta(current, anchor)
     if ratio_delta <= 0.0:
         return None
     return float((anchor_stats["diversity"] - current_stats["diversity"]) / max(anchor_stats["diversity"], EPS) / ratio_delta)

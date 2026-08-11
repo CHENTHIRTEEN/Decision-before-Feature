@@ -17,6 +17,12 @@ import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
 from benchmarks import make_problem
+from decision.model_protocol import (
+    FROZEN_THRESHOLD_MODE,
+    SELECTED_MODEL_ALIAS,
+    decision_scores,
+    resolve_model_name,
+)
 from experiments.phase1_batch_common import family_name
 from experiments.phase1_batch_common import as_int_list, fe_total_for_dimension, load_config, selected_dimensions, selected_functions
 from landscape_queries.batch_features import FEATURE_METADATA_COLUMNS
@@ -34,8 +40,8 @@ from trajectory.records import TrajectoryRecord
 
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
 DEFAULT_TRAIN_CONFIG_PATH = Path("configs/phase1_bbob_train.yaml")
-DEFAULT_MODEL_NAME = "ridge_regression"
-DEFAULT_THRESHOLD_MODE = "train_utility"
+DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
+DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_RANDOM_QUERY_PROBABILITY = 0.5
 DEFAULT_RANDOM_REPETITIONS = 30
 DEFAULT_RANDOM_SEED = 1701
@@ -140,6 +146,7 @@ def evaluate_online_controller(
     dimensions = selected_dimensions(config, only_dimensions)
     seeds = _selected_seeds(config, only_seeds)
     controller = _load_controller(training_summary_path, model_name, threshold_mode)
+    model_name = controller.model_name
     query_spec = get_query_spec(query_id)
     if controller.query_id != query_id or controller.query_protocol != query_spec.protocol:
         raise ValueError("Decision controller query protocol does not match the requested online evaluation")
@@ -681,6 +688,7 @@ def _load_controller(training_summary_path: Path, model_name: str, threshold_mod
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
     if not feature_columns or not set(feature_columns).issubset(BEHAVIOR_FEATURE_COLUMNS):
         raise ValueError("controller feature columns must be a non-empty subset of behavior features")
+    model_name = resolve_model_name(summary, model_name)
     model_path = _model_path(summary, model_name)
     threshold = _threshold(summary, model_name, threshold_mode)
     model_family = _model_family(summary, model_name)
@@ -1024,6 +1032,7 @@ def _run_threshold_policy(
             seed=seed,
             fe=current_fe,
             fe_total=fe_total,
+            native_updates=int(current_state.generation),
             population=current_state.population,
             fitness=current_state.fitness,
             best_fitness=current_state.best_fitness,
@@ -1105,12 +1114,14 @@ def _run_threshold_policy(
         "random_repetition": repetition,
         "prefix_algorithm": prefix_algorithm,
         "default_algorithm": default_algorithm,
+        "no_query_algorithm": default_algorithm,
         "selected_algorithm": selected_algorithm,
         "selected_equals_default": bool(selected_algorithm == default_algorithm),
         "selected_equals_prefix": bool(selected_algorithm == prefix_algorithm),
         "skip_switches_from_prefix": bool(default_algorithm != prefix_algorithm),
         "selector_status": selector_status,
         "optimizer_transition_mode": transition_mode,
+        "handoff_type": transition_mode,
         "selector_remaining_budget_ratio": selector_remaining_budget_ratio,
         "query_called": bool(triggered),
         "query_id": selector.model.query_id,
@@ -1156,7 +1167,7 @@ def _should_trigger(
         if controller is None:
             raise ValueError("controller trigger mode requires a fitted Decision controller model")
         frame = pd.DataFrame([{column: behavior_row[column] for column in controller.feature_columns}])
-        score = float(controller.model.predict(frame)[0])
+        score = float(decision_scores(controller.model, frame)[0])
         return bool(score > controller.threshold), score
     if trigger_mode == "random":
         rng = np.random.default_rng(
@@ -1394,7 +1405,12 @@ def main() -> None:
     split = _split_name(config)
     query_features = args.query_features or Path("results/landscape_queries/features") / args.query_id / split / "features.parquet"
     selector_model = args.selector_model or Path("results/selection_reference") / args.query_id / "statewise_selector.joblib"
-    training_summary = args.training_summary or Path("results/decision") / args.query_id / "full_training/full_decision_model_training_summary.json"
+    training_summary = (
+        args.training_summary
+        or Path("results/decision")
+        / args.query_id
+        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json"
+    )
     output_dir = args.output_dir or Path("results/decision") / args.query_id / split / "online_controller_evaluation"
 
     evaluate_online_controller(

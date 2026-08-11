@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 
 from behavior.features import extract_behavior_rows
 from benchmarks import make_problem
+from decision.model_protocol import FROZEN_THRESHOLD_MODE, decision_scores, resolve_model_name
 from decision.query_contract import decision_query_root, validate_query_payload
 from decision.online_controller_evaluate import (
     DEFAULT_CONFIG_PATH,
@@ -127,7 +128,7 @@ def diagnose_online_score_distribution(
         "config": str(config_path),
         "train_config": str(train_config_path),
         "training_summary": str(training_summary_path),
-        "model_name": model_name,
+        "model_name": controller["model_name"],
         "model_family": controller["model_family"],
         "sampling_protocol": sampling_protocol,
         "decision_check_frequency": decision_check_frequency,
@@ -135,7 +136,7 @@ def diagnose_online_score_distribution(
         "default_algorithm": default_algorithm,
         "thresholds": {
             "zero": 0.0,
-            "train_utility": float(controller["train_utility_threshold"]),
+            FROZEN_THRESHOLD_MODE: float(controller["oof_utility_threshold"]),
             "near_zero": near_zero_threshold,
         },
         "rows": int(len(score_rows)),
@@ -202,6 +203,7 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 def _load_score_controller(training_summary_path: Path, model_name: str, query_id: str) -> dict[str, Any]:
     summary = json.loads(training_summary_path.read_text(encoding="utf-8"))
     validate_query_payload(summary, query_id=query_id, artifact="Decision training summary")
+    model_name = resolve_model_name(summary, model_name)
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
     if not feature_columns:
         raise ValueError("training summary does not define feature_columns")
@@ -213,7 +215,7 @@ def _load_score_controller(training_summary_path: Path, model_name: str, query_i
         "feature_columns": feature_columns,
         "model_path": model_path,
         "zero_threshold": 0.0,
-        "train_utility_threshold": _threshold(summary, model_name, "train_utility"),
+        "oof_utility_threshold": _threshold(summary, model_name, FROZEN_THRESHOLD_MODE),
         "query_id": str(summary["query_id"]),
         "query_protocol": str(summary["query_protocol"]),
         "sample_design_id": str(summary["sample_design_id"]),
@@ -275,6 +277,7 @@ def _score_one_run(
                 seed=seed,
                 fe=current_fe,
                 fe_total=fe_total,
+                native_updates=int(current_state.generation),
                 population=current_state.population,
                 fitness=current_state.fitness,
                 best_fitness=current_state.best_fitness,
@@ -302,9 +305,9 @@ def _score_one_run(
                     "best_fitness": float(current_state.best_fitness),
                     "decision_score": float(score),
                     "score_margin_to_zero": float(score),
-                    "score_margin_to_train_utility": float(score - controller["train_utility_threshold"]),
+                    "score_margin_to_oof_utility": float(score - controller["oof_utility_threshold"]),
                     "score_ge_zero": bool(score > 0.0),
-                    "score_ge_train_utility": bool(score > controller["train_utility_threshold"]),
+                    "score_ge_oof_utility": bool(score > controller["oof_utility_threshold"]),
                     "sampling_protocol": sampling_protocol,
                     "decision_check_frequency": decision_check_frequency,
                     "checkpoint_index": int(len(trajectory_rows)),
@@ -319,7 +322,7 @@ def _score_one_run(
 
 def _score_behavior(controller: dict[str, Any], behavior_row: dict[str, Any]) -> float:
     frame = pd.DataFrame([{column: behavior_row[column] for column in controller["feature_columns"]}])
-    score = float(controller["model"].predict(frame)[0])
+    score = float(decision_scores(controller["model"], frame)[0])
     if not np.isfinite(score):
         raise ValueError("controller produced non-finite score")
     return score
@@ -369,8 +372,8 @@ def _summary_row(frame: pd.DataFrame, layer: str, group: dict[str, Any]) -> dict
         "score_ge_near_zero_rate": float(frame["score_ge_near_zero"].mean()),
         "score_ge_zero_rows": int(frame["score_ge_zero"].sum()),
         "score_ge_zero_rate": float(frame["score_ge_zero"].mean()),
-        "score_ge_train_utility_rows": int(frame["score_ge_train_utility"].sum()),
-        "score_ge_train_utility_rate": float(frame["score_ge_train_utility"].mean()),
+        "score_ge_oof_utility_rows": int(frame["score_ge_oof_utility"].sum()),
+        "score_ge_oof_utility_rate": float(frame["score_ge_oof_utility"].mean()),
     }
 
 
@@ -400,7 +403,7 @@ def _markdown_report(
         "FE",
         "decision_score",
         "score_ge_zero",
-        "score_ge_train_utility",
+        "score_ge_oof_utility",
         "best_fitness",
     ]
     return "\n".join(
@@ -412,7 +415,7 @@ def _markdown_report(
             "- Scores are computed along the online default-probe trajectory at each decision-check checkpoint.",
             "- Fixed-query and selection-reference branches are not executed.",
             f"- Near-zero threshold: `{summary['thresholds']['near_zero']}`.",
-            f"- Train-derived threshold: `{summary['thresholds']['train_utility']}`.",
+            f"- Frozen train-OOF threshold: `{summary['thresholds'][FROZEN_THRESHOLD_MODE]}`.",
             "",
             "## Overall",
             "",
@@ -430,7 +433,7 @@ def _markdown_report(
                         "score_q95",
                         "score_ge_near_zero_rows",
                         "score_ge_zero_rows",
-                        "score_ge_train_utility_rows",
+                        "score_ge_oof_utility_rows",
                     ]
                 ]
             ),
@@ -447,7 +450,7 @@ def _markdown_report(
                         "score_q95",
                         "score_ge_near_zero_rows",
                         "score_ge_zero_rows",
-                        "score_ge_train_utility_rows",
+                        "score_ge_oof_utility_rows",
                     ]
                 ].head(40)
             ),
@@ -524,7 +527,8 @@ def main() -> None:
         config_path=args.config,
         train_config_path=args.train_config,
         training_summary_path=args.training_summary
-        or query_root / "full_training/full_decision_model_training_summary.json",
+        or query_root
+        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json",
         output_dir=args.output_dir or query_root / split / "online_score_distribution",
         model_name=args.model_name,
         sampling_protocol=args.sampling_protocol,

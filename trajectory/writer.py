@@ -17,6 +17,8 @@ TRAJECTORY_SCHEMA = pa.schema(
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
+        ("FE_total", pa.int64()),
+        ("native_updates", pa.int64()),
         ("population", pa.list_(pa.list_(pa.float64()))),
         ("fitness", pa.list_(pa.float64())),
         ("best_fitness", pa.float64()),

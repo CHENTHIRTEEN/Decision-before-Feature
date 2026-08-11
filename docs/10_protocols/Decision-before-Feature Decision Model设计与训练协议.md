@@ -1,6 +1,6 @@
 # Decision-before-Feature Decision Model设计与训练协议
 
-> 实现同步（2026-08-11）：旧 18 模型比较依赖重建式 continuation 标签，已撤回正式证据资格。完整状态 trajectory 与 utility labels 重生成后，必须重新执行模型比较和 train-only threshold 选择；不得预设 LDA 仍为主模型。
+> 实现同步（2026-08-11）：旧 18 模型比较依赖重建式 continuation 标签，已撤回正式证据资格。活动候选现固定为 LDA、Logistic Regression 与 Ridge；完整状态 trajectory 与 utility labels 重生成后，按 nested function-family OOF decision utility 重新选择，不预设任一候选胜出。BBOB-validation 只作冻结评价。
 
 ## 1. 文档定位
 
@@ -52,21 +52,7 @@ Analysis Selection Controller。
 
     Decision
 
-输出：
-
-$$ \hat U_{query} $$
-
-规则：
-
-如果：
-
-$$ \hat U_{query}>0 $$
-
-执行固定 query。
-
-否则：
-
-不执行 query。
+输出是连续 Utility 预测或 `U_query>0` 分类分数，统一记为 decision score $s(x)$。部署规则固定为 $s(x)>\theta_{OOF}$ 时执行 query，其中 $\theta_{OOF}$ 只由 BBOB-train family-OOF 分数拟合。
 
 ------------------------------------------------------------------------
 
@@ -135,7 +121,7 @@ Search Maturity。
 
 # 4. 模型目标设计
 
-## 4.1 Regression形式（推荐）
+## 4.1 Regression形式
 
 预测：
 
@@ -151,7 +137,7 @@ $$ L= (U_{query}-\hat U)^2 $$
 
 ------------------------------------------------------------------------
 
-## 4.2 Classification形式（辅助）
+## 4.2 Classification形式
 
 标签：
 
@@ -166,55 +152,19 @@ $$
 
 $$ P(U>0) $$
 
-缺点：
-
-损失收益信息。
+分类目标不直接拟合 Utility 大小，成本差异由 OOF decision-utility threshold 选择体现。分类分数不得直接与连续 Utility 计算 RMSE。
 
 ------------------------------------------------------------------------
 
-# 5. 推荐模型体系
+# 5. 固定模型体系
 
-## Baseline Model
+活动候选严格为：
 
-### Logistic Regression
+1. LDA classifier：`LinearDiscriminantAnalysis()`；
+2. Logistic Regression classifier：`C=1.0`、`class_weight="balanced"`；
+3. Ridge regression：`alpha=1.0`。
 
-目的：
-
-线性可分性分析。
-
-------------------------------------------------------------------------
-
-### Random Forest
-
-优势：
-
--   稳定
--   可解释
--   SHAP支持
-
-------------------------------------------------------------------------
-
-## Main Model
-
-### XGBoost / LightGBM
-
-原因：
-
-适合：
-
--   tabular behavior data
--   非线性关系
--   小中规模数据
-
-------------------------------------------------------------------------
-
-## Advanced Model
-
-### MLP
-
-用于验证：
-
-神经网络是否进一步提升。
+三个候选均使用 Pipeline 内的 BBOB-train median imputation 与 standard scaling；每个 OOF fit fold 独立拟合 preprocessing。Random Forest、XGBoost、LightGBM、MLP、SVM、核近似和额外特征工程不进入活动 Decision 候选或超参数搜索。Selection Reference 的 Random Forest action-loss regression 是固定下游组件，不属于 Decision Model 候选。
 
 ------------------------------------------------------------------------
 
@@ -299,10 +249,12 @@ BBOB：
 
 ## 验证集
 
-用于：
+只用于冻结后的内部性能评价，不参与：
 
--   hyperparameter tuning
--   threshold selection
+- preprocessing 拟合；
+- 模型或候选选择；
+- threshold 拟合；
+- feature-group、checkpoint 或 query 配置改选。
 
 ------------------------------------------------------------------------
 
@@ -346,58 +298,53 @@ BBOB：
 
 ------------------------------------------------------------------------
 
-# 10. Threshold设计
+# 10. 模型选择与 Threshold 设计
 
-不能简单固定：
+## 10.1 嵌套 function-family OOF 模型选择
 
-$$ 0 $$
+- 外层：BBOB-train families 的 5-fold GroupKFold，用于评价每个候选的 decision utility；
+- 内层：每个外层 fit 部分再做 4-fold family OOF，只用内层 OOF score 与 Utility 拟合该外层 threshold；
+- 主选择指标：拼接全部外层 holdout 决策后的 mean decision utility；
+- 指标相同时按预先固定候选顺序 LDA、Logistic Regression、Ridge 决定，不读取 validation。
 
-需要验证。
+## 10.2 冻结部署 threshold
 
-------------------------------------------------------------------------
+选模之外，对完整 BBOB-train 做 5-fold family OOF，使用每行仅由其他 train families 拟合的 score 选择：
 
-方法1：
+$$
+\theta_{OOF}=\arg\max_{\theta}\sum_i \mathbf{1}[s_i^{OOF}>\theta]U_i.
+$$
 
-Utility threshold
+Utility 和相同时选择调用行更少的 threshold。随后在完整 BBOB-train 上重拟合估计器，冻结 $\theta_{OOF}$，再评价 BBOB-validation 与外部 benchmark。`theta=0` 只作为固定参考，不参与主选择。
 
-$$ \theta=0 $$
-
-理论方案。
-
-------------------------------------------------------------------------
-
-方法2：
-
-Validation tuning
-
-在validation集：
-
-选择：
-
-$$ \theta $$
-
-使：
-
-Cost-performance最优。
+分阶段 threshold 只能从 BBOB-train OOF 信息拟合并作为预先定义的稳健性分析；不得在 validation threshold grid 上选择。
 
 ------------------------------------------------------------------------
 
 # 11. 评价指标
 
-## Utility Prediction
+## 主选择
 
--   MAE
--   RMSE
--   R2
--   Spearman
+- nested function-family OOF decision mean utility。
 
-------------------------------------------------------------------------
+## 辅助分数指标
 
-## Decision
+- AUROC；
+- Average Precision；
+- Spearman。
 
--   Accuracy
--   F1
--   AUROC
+## 连续 Utility 回归
+
+- Ridge RMSE。
+
+LDA 与 Logistic Regression 的分类分数不报告连续 Utility RMSE。
+
+## 决策策略
+
+- query call rate；
+- utility capture；
+- precision under calls；
+- mean decision utility。
 
 ------------------------------------------------------------------------
 
@@ -412,6 +359,44 @@ Cost-performance最优。
 ------------------------------------------------------------------------
 
 # 12. Ablation设计
+
+## Time-only baseline（必须报告）
+
+定义：
+
+$$
+X_{time}=\{FE\_ratio\}.
+$$
+
+实现列固定为 `bf_fe_ratio`。behavior 数据质量检查与 Decision materialization 必须保证：
+
+$$
+bf\_fe\_ratio = FE\_ratio
+$$
+
+逐行成立。使用 `bf_fe_ratio` 是为了保持活动模型输入来自 `BEHAVIOR_FEATURE_GROUPS`，不表示额外引入行为信息。
+
+`time_only` 必须与 `base`、`primary`、`primary_with_maturity`、`all_candidates` 使用：
+
+- 完全相同的 materialized Decision dataset；
+- 完全相同的 BBOB train 与 held-out function-family validation；
+- 完全相同的三个固定模型候选和随机 seed；
+- 完全相同的 nested family-OOF 过程；
+- `primary_with_maturity` 选择出的同名模型；
+- 仅由 train family-OOF 分数拟合的 decision threshold；
+- 完全相同的 Utility prediction、调用率、效用捕获和最终性能指标。
+
+该 baseline 回答：
+
+> Controller 是否只是学会在哪个优化阶段调用固定 landscape-analysis query？
+
+解释规则：
+
+- 若完整行为模型在 held-out families 和外部 benchmark 上没有稳定优于 `time_only`，不能声称搜索行为提供了超出阶段信息的预测价值；
+- 若完整行为模型优于 `time_only`，只能说明所测行为变量提供了阶段之外的增量预测信息，仍需报告配对效应量与区间；
+- 不得依据 validation 上 `time_only` 的结果改变 checkpoint ratios、主 query 或调用预算。
+
+------------------------------------------------------------------------
 
 ## Ablation A
 
@@ -502,7 +487,13 @@ $$ \hat U_{query} $$
 
             v
 
-    Validation Threshold
+    Nested Train-family OOF Model Selection
+
+            |
+
+            v
+
+    Full-train OOF Threshold Freeze
 
             |
 
@@ -520,17 +511,11 @@ $$ \hat U_{query} $$
 
 # 15. 最终冻结方案
 
-第一篇论文推荐：
+第一篇论文冻结：
 
-模型：
+模型候选：LDA、Logistic Regression、Ridge。
 
--   Random Forest
--   XGBoost
--   LightGBM
-
-任务：
-
-Regression预测Query Utility。
+任务：分类 `U_query>0` 或回归连续 Query Utility，由 nested family-OOF decision utility 统一选择。
 
 输入：
 
@@ -538,11 +523,11 @@ Algorithm-agnostic Behavior。
 
 输出：
 
-Expected Query Utility。
+Decision score；Ridge 分数解释为预测 Utility，分类分数解释为正 Utility 排序分数。
 
 决策：
 
-Utility-aware threshold。
+完整 BBOB-train family-OOF 冻结的 `oof_utility` threshold。
 
 目标：
 

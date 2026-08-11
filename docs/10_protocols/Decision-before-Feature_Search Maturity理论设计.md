@@ -369,23 +369,9 @@ $$ M_t $$
 
 ------------------------------------------------------------------------
 
-## 方法B：Latent Representation
+## 方法B：Latent Representation（本轮不实现）
 
-利用：
-
-Autoencoder
-
-或者
-
-MLP
-
-学习：
-
-$$ z_t=g(s_t) $$
-
-其中：
-
-z表示潜在成熟状态。
+学习式潜在表示会改变 Decision Model 构念、训练成本和候选范围，不进入第一篇论文的活动协议。当前只使用显式、算法无关且 permutation-invariant 的 behavior 与 Search Maturity 派生字段；如后续单独研究 latent representation，必须另设研究问题与预定义比较，不得与本轮 LDA、Logistic Regression、Ridge 结果混报。
 
 ------------------------------------------------------------------------
 

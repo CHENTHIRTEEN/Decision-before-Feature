@@ -8,7 +8,6 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "coco-experiment>=2.8.2",
-    "lightgbm>=4.0",
     "numpy>=2.5.1",
     "opfunu>=1.0.4",
     "pandas>=3.0.5",
@@ -17,7 +16,6 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "scipy>=1.18.0",
     "setuptools<81",
-    "xgboost>=2.0",
 ]
 
 [project.scripts]
@@ -28,6 +26,7 @@ phase1-check-config = "experiments.phase1_check_config:main"
 phase1-plan-shards = "experiments.phase1_plan_shards:main"
 phase1-check-trajectory-shards = "experiments.phase1_check_trajectory_shards:main"
 optimizer-state-check = "experiments.optimizer_state_consistency:main"
+behavior-permutation-check = "experiments.behavior_permutation_consistency:main"
 selection-reference-check = "experiments.selection_reference_consistency:main"
 behavior-extract = "behavior.extraction:main"
 behavior-extract-batch = "behavior.batch_extraction:main"
@@ -45,9 +44,7 @@ decision-changed-same-learnability = "decision.changed_same_learnability_diagnos
 decision-algorithm-partition-stacking-diagnostic = "decision.algorithm_partition_stacking_diagnostic:main"
 decision-train-full = "decision.train_full_decision_model:main"
 decision-compare-feature-groups = "decision.compare_feature_group_training:main"
-decision-interpret-full-training = "decision.interpret_full_training_results:main"
-decision-model-benchmark = "decision.model_benchmark_comparison:main"
-decision-classifier-tune = "decision.classifier_feature_engineering_tuning:main"
+decision-check-model-protocol = "decision.check_model_protocol:main"
 decision-threshold-sweep = "decision.threshold_sweep:main"
 decision-compare-controller-baselines = "decision.compare_controller_baselines:main"
 decision-controller-cost-performance = "decision.controller_cost_performance_pareto:main"

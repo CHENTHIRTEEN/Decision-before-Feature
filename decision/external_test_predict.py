@@ -13,13 +13,19 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from decision.model_protocol import (
+    FROZEN_THRESHOLD_MODE,
+    SELECTED_MODEL_ALIAS,
+    decision_scores,
+    resolve_model_name,
+)
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from decision.train_full_decision_model import AUXILIARY_LABEL_COLUMN, METADATA_COLUMNS, TARGET_COLUMN
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_MODEL_NAME = "ridge_regression"
-DEFAULT_THRESHOLD_MODE = "train_utility"
+DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
+DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_EXPECTED_SPLIT = "cec2017_test"
 FORBIDDEN_INPUT_NAME_FRAGMENTS = (
     "query",
@@ -47,6 +53,7 @@ def predict_external_test(
     _check_output_paths(output_dir, overwrite)
     training_summary = json.loads(training_summary_path.read_text(encoding="utf-8"))
     validate_query_payload(training_summary, query_id=query_id, artifact="Decision training summary")
+    model_name = resolve_model_name(training_summary, model_name)
     feature_columns = _feature_columns(training_summary)
     model_path = _model_path(training_summary, model_name)
     threshold = _threshold(training_summary, model_name, threshold_mode)
@@ -57,7 +64,7 @@ def predict_external_test(
 
     model = joblib.load(model_path)
     started = perf_counter()
-    scores = np.asarray(model.predict(dataset[feature_columns]), dtype=float)
+    scores = decision_scores(model, dataset[feature_columns])
     prediction_seconds = perf_counter() - started
     if not np.isfinite(scores).all():
         raise ValueError("external test prediction produced non-finite scores")
@@ -304,7 +311,8 @@ def main() -> None:
         query_id=args.query_id,
         dataset_path=args.dataset or external_root / "materialized_test_data/decision_dataset.parquet",
         training_summary_path=args.training_summary
-        or query_root / "full_training/full_decision_model_training_summary.json",
+        or query_root
+        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json",
         output_dir=args.output_dir or external_root / "external_test_prediction",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,
