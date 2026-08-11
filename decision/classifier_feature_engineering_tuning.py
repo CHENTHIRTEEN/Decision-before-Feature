@@ -22,6 +22,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 
 from behavior.features import BEHAVIOR_FEATURE_GROUPS
+from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from decision.model_benchmark_comparison import (
     _decision_summary,
     _finite_binary_metric,
@@ -32,22 +33,17 @@ from decision.model_benchmark_comparison import (
 )
 from decision.train_full_decision_model import (
     AUXILIARY_LABEL_COLUMN,
-    DEFAULT_DATASET_PATH,
-    DEFAULT_READINESS_SUMMARY_PATH,
-    DEFAULT_SCHEMA_PATH,
     METADATA_COLUMNS,
     TARGET_COLUMN,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
     _check_dataset,
     _check_family_split,
-    _check_readiness,
     _feature_columns,
-    _read_readiness_summary,
 )
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/classifier_feature_engineering_tuning")
 FEATURE_GROUP = "primary_with_maturity"
 TARGET_MODELS = ("lda_classifier", "softmax_logistic_classifier", "linear_svm_classifier")
 FEATURE_SCHEMES = (
@@ -132,9 +128,9 @@ class BehaviorFeatureEngineer(BaseEstimator, TransformerMixin):
 
 def run_classifier_feature_engineering_tuning(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
-    readiness_summary_path: Path,
     output_dir: Path,
     overwrite: bool,
     random_seed: int,
@@ -142,10 +138,10 @@ def run_classifier_feature_engineering_tuning(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    readiness = _read_readiness_summary(readiness_summary_path)
+    validate_query_payload(schema, query_id=query_id, artifact="Decision schema")
+    validate_query_frame(dataset, query_id=query_id, artifact="Decision dataset")
     feature_columns = _feature_columns(schema, FEATURE_GROUP)
     _check_dataset(dataset, feature_columns)
-    _check_readiness(readiness, dataset_path)
 
     train = dataset[dataset["split"] == TRAIN_SPLIT].copy()
     validation = dataset[dataset["split"] == VALIDATION_SPLIT].copy()
@@ -326,9 +322,11 @@ def run_classifier_feature_engineering_tuning(
 
     summary = {
         "experiment": "phase1_refined_sampling_classifier_feature_engineering_tuning",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "dataset": str(dataset_path),
         "schema": str(schema_path),
-        "readiness_summary": str(readiness_summary_path),
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
         "feature_group": FEATURE_GROUP,
@@ -360,7 +358,7 @@ def run_classifier_feature_engineering_tuning(
             "decision_input_uses_only_primary_with_maturity_behavior_features_and_train_fit_derivatives": True,
             "metadata_used_as_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
-            "ela_features_used_as_input": False,
+            "query_features_used_as_input": False,
             "validation_rows_used_for_feature_selection_model_or_threshold_fit": 0,
         },
     }
@@ -595,7 +593,7 @@ def _candidate_summary_row(
     observed = prediction[TARGET_COLUMN].to_numpy(dtype=float)
     scores = prediction["decision_score"].to_numpy(dtype=float)
     binary = observed > 0.0
-    calls = prediction["decision_run_ela_train_utility"].to_numpy(dtype=bool)
+    calls = prediction["decision_run_query_train_utility"].to_numpy(dtype=bool)
     captured_positive = binary & calls
     unhelpful_calls = (~binary) & calls
     positive_utility_sum = float(np.sum(observed[binary]))
@@ -620,7 +618,7 @@ def _candidate_summary_row(
         "roc_auc_u_gt_zero": _finite_binary_metric(lambda: roc_auc_score(binary, scores), binary),
         "average_precision_u_gt_zero": _finite_binary_metric(lambda: average_precision_score(binary, scores), binary),
         "threshold": threshold,
-        "decision_ela_call_rate": float(np.mean(calls)),
+        "decision_query_call_rate": float(np.mean(calls)),
         "decision_mean_utility": float(np.mean(np.where(calls, observed, 0.0))),
         "utility_capture_rate": (
             captured_positive_utility_sum / positive_utility_sum if positive_utility_sum > 0.0 else 0.0
@@ -661,7 +659,7 @@ def _skipped_candidate_rows(
                 "roc_auc_u_gt_zero": None,
                 "average_precision_u_gt_zero": None,
                 "threshold": None,
-                "decision_ela_call_rate": None,
+                "decision_query_call_rate": None,
                 "decision_mean_utility": None,
                 "utility_capture_rate": None,
                 "precision_u_gt_zero_under_calls": None,
@@ -843,7 +841,7 @@ def _markdown_report(
         "base_model_name",
         "role",
         "feature_scheme",
-        "decision_ela_call_rate",
+        "decision_query_call_rate",
         "decision_mean_utility",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
@@ -933,18 +931,20 @@ def _markdown_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Tune selected classifier Decision models with behavior feature engineering.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--readiness-summary", type=Path, default=DEFAULT_READINESS_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    materialized = query_root / "materialized_training_data"
     run_classifier_feature_engineering_tuning(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        readiness_summary_path=args.readiness_summary,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or materialized / "decision_dataset.parquet",
+        schema_path=args.schema or materialized / "decision_dataset_schema.json",
+        output_dir=args.output_dir or query_root / "classifier_feature_engineering_tuning",
         overwrite=args.overwrite,
         random_seed=args.random_seed,
     )

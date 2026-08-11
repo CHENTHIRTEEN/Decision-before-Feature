@@ -1,5 +1,7 @@
 # Decision-before-Feature 维度与泛化实验设计
 
+> 状态同步（2026-08-11）：主 BBOB 仍为 10D/20D/40D；CEC2017 外部配置已冻结为 10D/30D/50D，但完整外部结果尚未生成。CEC2022 与工程问题维度仍待单独冻结。
+
 状态说明：
 
 本文档作为维度泛化扩展实验笔记保留，不定义当前主协议。
@@ -19,7 +21,7 @@
 -   搜索难度
 -   行为分布
 -   收敛速度
--   ELA价值
+-   固定 query 的效用
 
 因此需要合理设计训练和测试维度。
 
@@ -29,7 +31,7 @@
 
 Decision-before-Feature学习：
 
-$$ Behavior \rightarrow ELA Utility $$
+$$ Behavior \rightarrow Query\ Utility $$
 
 不是：
 
@@ -240,7 +242,7 @@ Testing:
 -   function ID
 -   dimension
 -   algorithm parameter
--   ELA feature
+-   query feature
 
 ------------------------------------------------------------------------
 

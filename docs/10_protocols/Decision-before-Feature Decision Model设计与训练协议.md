@@ -1,18 +1,20 @@
 # Decision-before-Feature Decision Model设计与训练协议
 
+> 实现同步（2026-08-11）：旧 18 模型比较依赖重建式 continuation 标签，已撤回正式证据资格。完整状态 trajectory 与 utility labels 重生成后，必须重新执行模型比较和 train-only threshold 选择；不得预设 LDA 仍为主模型。
+
 ## 1. 文档定位
 
 本文档定义 Decision-before-Feature 框架中的 Decision Model。
 
 目标：
 
-根据低成本搜索行为状态，在不执行ELA之前预测：
+根据低成本搜索行为状态，在执行固定 query 之前预测：
 
-$$ U_{ELA} $$
+$$ U_{query} $$
 
 从而决定：
 
-是否执行Landscape Analysis。
+是否执行所评估的固定 landscape-analysis query。
 
 核心：
 
@@ -42,7 +44,7 @@ Analysis Selection Controller。
 
             v
 
-    ELA Utility Prediction
+    Query Utility Prediction
 
             |
 
@@ -52,19 +54,19 @@ Analysis Selection Controller。
 
 输出：
 
-$$ \hat U_{ELA} $$
+$$ \hat U_{query} $$
 
 规则：
 
 如果：
 
-$$ \hat U_{ELA}>0 $$
+$$ \hat U_{query}>0 $$
 
-执行ELA。
+执行固定 query。
 
 否则：
 
-跳过ELA。
+不执行 query。
 
 ------------------------------------------------------------------------
 
@@ -78,7 +80,7 @@ Optimization Trajectory。
 
 不允许：
 
--   ELA feature
+-   query feature
 -   Function ID
 -   Algorithm parameter
 
@@ -109,7 +111,15 @@ $$ x_t $$
 
 ## Exploration
 
--   directional entropy
+-   population Wasserstein change rate
+-   centroid shift coherence
+-   covariance spectral concentration
+
+## Fitness Distribution
+
+-   quantile improvement fraction
+-   mean distribution improvement rate
+-   fitness Wasserstein rate
 
 ## Exploitation
 
@@ -133,7 +143,7 @@ $$ \hat U=f_\theta(x) $$
 
 训练目标：
 
-$$ L= (U_{ELA}-\hat U)^2 $$
+$$ L= (U_{query}-\hat U)^2 $$
 
 优势：
 
@@ -147,7 +157,7 @@ $$ L= (U_{ELA}-\hat U)^2 $$
 
 $$ y=
 \begin{cases}
-1,&U_{ELA}>0\\
+1,&U_{query}>0\\
 0,&otherwise
 \end{cases}
 $$
@@ -224,7 +234,7 @@ $$ P(U>0) $$
 
             ↓
 
-    U_ELA
+    U_query
 
 ------------------------------------------------------------------------
 
@@ -242,7 +252,7 @@ $$ P(U>0) $$
 
             ↓
 
-    U_ELA
+    U_query
 
 比较：
 
@@ -263,13 +273,17 @@ $$ P(U>0) $$
     dimension,
     FE_ratio,
     behavior_state,
-    U_ELA)
+    U_query)
 
 其中：
 
 algorithm只用于分析。
 
 不进入模型。
+
+第一篇论文主训练表只保留 `prefix_algorithm == default_algorithm ==` 训练集 SBS 且 `skip_switches_from_prefix == false` 的状态。完整多 prefix 表单独用于 cross-probe robustness、leave-one-probe-out 和 algorithm-agnostic 泛化，不进入主模型拟合、主 threshold 选择或主结果汇总。
+
+`selected_equals_default`、`selected_equals_prefix` 与 `skip_switches_from_prefix` 只用于数据范围检查和分层报告，同样不进入模型输入。
 
 ------------------------------------------------------------------------
 
@@ -324,7 +338,7 @@ BBOB：
 
 学习算法。
 
-### ELA Feature
+### Query Feature
 
 否则：
 
@@ -453,17 +467,18 @@ SHAP。
 
 哪些行为指标影响：
 
-$$ \hat U_{ELA} $$
+$$ \hat U_{query} $$
 
 例如：
 
 发现：
 
 -   高停滞
--   中等entropy
+-   较低population Wasserstein变化率
+-   较高covariance spectral concentration
 -   稳定下降diversity
 
-更可能需要ELA。
+更可能值得执行固定 query。
 
 ------------------------------------------------------------------------
 
@@ -515,7 +530,7 @@ $$ \hat U_{ELA} $$
 
 任务：
 
-Regression预测ELA Utility。
+Regression预测Query Utility。
 
 输入：
 
@@ -523,7 +538,7 @@ Algorithm-agnostic Behavior。
 
 输出：
 
-Expected ELA Utility。
+Expected Query Utility。
 
 决策：
 
@@ -533,4 +548,4 @@ Utility-aware threshold。
 
 证明：
 
-搜索行为可以支持资源感知Landscape Analysis决策。
+算法无关搜索行为可以支持是否执行所评估固定 landscape-analysis query 的资源决策。

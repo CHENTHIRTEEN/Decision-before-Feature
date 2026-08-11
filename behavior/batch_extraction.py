@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from behavior.extraction import extract_behavior_file
+from behavior.validation import validate_behavior_file
 from experiments.phase1_batch_common import load_config, make_shards
 
 
@@ -37,6 +38,7 @@ def extract_behavior_shards(
                 skipped_missing_count += 1
                 continue
             if output_path.exists() and not overwrite:
+                validate_behavior_file(trajectory_path, output_path)
                 print(f"skip existing behavior shard {output_path}")
                 skipped_existing_count += 1
                 continue

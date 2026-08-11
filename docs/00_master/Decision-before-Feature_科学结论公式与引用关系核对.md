@@ -27,13 +27,13 @@
 
 - Analysis Selection Problem；
 - Decision-before-Feature 框架；
-- ELA Utility 的具体定义；
+- Query Utility 的具体定义；
 - 共享前缀配对续跑离线效用标签；
 - Search Maturity；
 - $M_t=ES_t(1-XS_t)$；
-- “多数早期状态不需要 ELA”；
+- “多数所评估状态不需要主 `descriptor_cheap` query”；
 - “Decision Model 开销可以忽略”；
-- “Behavior-only 可以预测 ELA Utility”；
+- “Behavior-only 可以预测 Query Utility”；
 - “BBOB 上训练的模型可以泛化到 CEC”。
 
 ---
@@ -79,7 +79,7 @@ flowchart TD
     GATE --> OOD
 ```
 
-左侧文献提供背景、方法和实验规范；右侧的 Analysis Selection、ELA Utility、Search Maturity 和 Decision Gate 是本项目要建立的新层次。
+左侧文献提供背景、方法和实验规范；右侧的 Analysis Selection、Query Utility、Search Maturity 和 Decision Gate 是本项目要建立的新层次。
 
 ---
 
@@ -93,8 +93,8 @@ flowchart TD
 | C2   | ELA 通过数值特征描述连续黑盒问题，并可支持算法选择            |        D | [R2], [R5], [R6], [R7] | 可直接用于定义 ELA 及其用途                                                    |
 | C3   | 典型 ELA-based AAS 流程为“特征提取 → 选择器 → 优化算法”   |        D | [R3], [R5], [R5a]      | 支持基本流程，但不代表所有方法都必须如此                                       |
 | C4   | 特征获取成本和算法运行成本可以纳入成本敏感选择                |    D / I | [R3]                   | Bischl 等支持成本敏感选择；本项目进一步决定“是否获取特征”                    |
-| C5   | 应先判断 ELA 是否值得执行，再决定是否进入 ELA-based selection |        O | [R1]–[R5] 仅作背景    | 这是本文提出的 Analysis Selection Problem                                      |
-| C6   | ELA 的有效成本取决于采样、特征组、实现方式以及样本能否复用    |    D / M | [R5], [R8], [R9]       | 不能无条件写成“ELA 天然昂贵”                                                 |
+| C5   | 应先判断所评估固定 query 是否值得执行，再决定是否进入 feature-based selection |        O | [R1]–[R5] 仅作背景    | 这是本文提出的 Analysis Selection Problem                                      |
+| C6   | 固定 query 的有效成本取决于采样、特征组和实现方式    |    D / M | [R5], [R8], [R9]       | 不能把当前配置成本外推为“ELA 天然昂贵”                                                 |
 
 ### 推荐论文表述
 
@@ -104,17 +104,19 @@ flowchart TD
 
 ---
 
-## 3.2 ELA Utility 与 Offline Utility Label
+## 3.2 Query Utility 与 Offline Utility Label
 
 | 编号 | 当前结论或公式                                            | 证据等级 | 推荐引用           | 引用关系与限制                                                             |
 | ---- | --------------------------------------------------------- | -------: | ------------------ | -------------------------------------------------------------------------- |
-| C7   | ELA 价值应通过执行与跳过两条路径的结果差异评估            |    O / I | [R3], [R10], [R11] | 成本敏感选择和黑盒基准评估提供基础；两分支定义属于本项目                   |
+| C7   | 固定 query 的效用应通过执行与跳过两条路径的结果差异评估            |    O / I | [R3], [R10], [R11] | 成本敏感选择和黑盒基准评估提供基础；两分支定义属于本项目                   |
 | C8   | 两条路径应共享相同前缀状态并采用配对随机流                |    M / O | [R29]              | Common Random Numbers 支持配对比较和方差降低；semantic RNG fork 是项目协议 |
 | C9   | 所有策略应共享相同总函数评价预算                          |    D / M | [R10], [R11]       | COCO 将函数评价数作为核心黑盒成本                                          |
-| C10  | $U_{\mathrm{ELA}}$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 连续效用是本文建模选择                                                     |
-| C11  | ELA 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
-| C12  | ELA 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
+| C10  | $U_{query}$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 连续效用是本文建模选择                                                     |
+| C11  | Query 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
+| C12  | Query 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
 | C12a | 当前 `selection_reference` 是固定下游组件，不是本文贡献点 |    M / O | [R3], [R5], [R5a]  | 文献支持 ELA-based selector 范式；当前实现质量和泛化风险必须由本文诊断报告 |
+| C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、cross-family predictions 和 best-observed-action 分解属于本项目协议 |
+| C12c | 逐状态最小已观测 action loss 不能称为 oracle，也不能在实测 loss 外再次扣除 Population Transfer 影响 | O | 无需外部引用 | 这是术语与代数一致性要求；handoff 已进入 observed action loss，query FE 已进入等总预算路径 |
 
 ---
 
@@ -124,14 +126,14 @@ flowchart TD
 | ---- | -------------------------------------------------------- | -------: | --------------------- | ------------------------------------------------------ |
 | C13  | 元启发式搜索行为可以通过一组指标进行量化和比较           |        D | [R12], [R13]          | 支持行为分析的可行性                                   |
 | C14  | 输入应尽量采用算法无关行为，而不是算法专属参数           |    I / O | [R12], [R13]          | 文献提供跨算法行为表征动机；严格排除算法参数是本文协议 |
-| C15  | 改进率、多样性、停滞和方向熵可描述不同搜索状态           |    I / O | [R12], [R14], [R15]   | 各指标有基础，但能否预测 ELA Utility 尚待验证          |
-| C16  | Search Maturity 是连接行为与 ELA Utility 的中间状态      |        O | [R12]–[R15] 仅作灵感 | 尚无文献定义同一概念                                   |
+| C15  | 改进率、多样性、停滞和集合分布变化可描述不同搜索状态     |    I / O | [R12], [R14]          | 行为分析提供动机；本文集合统计及其预测价值仍需验证      |
+| C16  | Search Maturity 是连接行为与 Query Utility 的中间状态      |        O | [R12]–[R15] 仅作灵感 | 尚无文献定义同一概念                                   |
 | C17  | $M_t=ES_t(1-XS_t)$ 可以刻画搜索成熟度                  |        O | 无直接支持            | 必须通过消融和 OOD 实验验证                            |
-| C18  | ELA Utility 与 Search Maturity 可能呈非单调或倒 U 型关系 |        O | 无直接支持            | 属于研究假设，不是已知事实                             |
+| C18  | Query Utility 与 Search Maturity 可能呈非单调或倒 U 型关系 |        O | 无直接支持            | 属于研究假设，不是已知事实                             |
 
 ---
 
-## 3.4 “不需要 ELA”与统计推断
+## 3.4 “不需要主 query”与统计推断
 
 | 编号 | 当前结论或公式                                                 | 证据等级 | 推荐引用     | 引用关系与限制                                 |
 | ---- | -------------------------------------------------------------- | -------: | ------------ | ---------------------------------------------- |
@@ -139,7 +141,7 @@ flowchart TD
 | C20  | 等价边界或最小实际效应阈值应预先确定                           |    D / M | [R16]        | 具体$\delta$ 必须由本研究冻结                |
 | C21  | Bootstrap 可估计 Utility 或比例的不确定性                      |    D / M | [R17]        | 分层重采样单位由数据依赖结构决定               |
 | C22  | 多算法、多问题比较应考虑非参数检验和多重比较校正               |    D / M | [R18], [R19] | 具体检验必须匹配配对层级                       |
-| C23  | “多数状态不需要 ELA”可用比例置信下界大于$0.5$ 作为证据规则 |    O / M | [R17]        | 区间估计有文献基础；判据是本文预设规则         |
+| C23  | “多数状态不需要主 query”可用比例置信下界大于$0.5$ 作为证据规则 |    O / M | [R17]        | 区间估计有文献基础；判据是本文预设规则         |
 | C24  | 同一轨迹上的多个 checkpoint 不能视为完全独立样本               |        M | [R17]        | 应以轨迹、种子、函数实例或函数族作为重采样层级 |
 
 ---
@@ -150,7 +152,7 @@ flowchart TD
 | ---- | --------------------------------------------------- | -------------: | --------------------------- | ----------------------------------------------- |
 | C25  | RF、XGBoost、LightGBM 可作为表格型控制器候选        |          D / M | [R20], [R21], [R22]         | 文献支持模型本身，不证明它们在本任务上最佳      |
 | C26  | SHAP 可解释模型预测贡献                             |              D | [R23]                       | SHAP 不是因果分析，也不能单独证明特征“不需要” |
-| C27  | Decision Model 开销远小于 ELA                       |              O | 无外部文献可替代            | 必须实际测量时间、内存和 FE                     |
+| C27  | Decision Model 开销相对固定 query 足够小                       |              O | 无外部文献可替代            | 必须实际测量时间、内存和 FE                     |
 | C28  | 若行为特征只读取已有轨迹，则决策阶段可做到零额外 FE | O / 条件性结论 | [R10], [R11] 仅支持 FE 记账 | 只有实现确实不调用目标函数时才成立              |
 | C29  | Offline 训练成本与 Online 决策成本应分开报告        |          M / O | [R4], [R10]                 | 具体成本边界由本文定义                          |
 | C30  | 更复杂模型是否值得，应通过性能—成本消融判断        |              O | [R20]–[R23] 仅作模型来源   | 不能预设树模型一定足够或神经模型一定过重        |
@@ -204,8 +206,8 @@ $$
 $$
 d_t=
 \begin{cases}
-1, & \text{执行 ELA},\\
-0, & \text{跳过 ELA}.
+1, & \text{执行固定 query},\\
+0, & \text{不执行 query}.
 \end{cases}
 $$
 
@@ -217,12 +219,12 @@ $$
 
 ---
 
-## 4.3 共享前缀下的 ELA 性能增益
+## 4.3 共享前缀下的 Query 路径性能差
 
 若损失指标 $L$ 越小越好，则：
 
 $$
-G_i=L_{\mathrm{skip},i}-L_{\mathrm{ELA},i}.
+G_i=L_{\mathrm{skip},i}-L_{\mathrm{query},i}.
 $$
 
 因此：
@@ -231,7 +233,7 @@ $$
 G_i>0
 $$
 
-表示执行 ELA 后取得了更小损失。
+表示执行固定 query 后取得了更小损失。
 
 引用关系：
 
@@ -244,22 +246,22 @@ Common Random Numbers 并不自动保证方差下降。其效果依赖两条路�
 
 ---
 
-## 4.4 ELA 净效用
+## 4.4 Query 净效用
 
-若两条路径共享相同总 FE，ELA 消耗的函数评价已经通过“剩余优化预算减少”体现，则建议定义：
+若两条路径共享相同总 FE，query 消耗的函数评价已经通过“剩余优化预算减少”体现，则定义：
 
 $$
-U_{\mathrm{ELA},i}
+U_{query,i}
 =
 G_i
 -\lambda_T C_{T,i}
 -\lambda_M C_{M,i}.
 $$
 
-若协议允许 ELA 使用额外函数评价，则可写为：
+若另设协议允许 query 使用额外函数评价，则可写为：
 
 $$
-U_{\mathrm{ELA},i}
+U_{query,i}
 =
 G_i
 -\lambda_{\mathrm{FE}}C_{\mathrm{FE},i}
@@ -283,7 +285,7 @@ $$
 
 ### 双重计费警告
 
-若 $FE_{\mathrm{ELA}}$ 已从后续优化预算中扣除，就不能在 Utility 中再次扣除同一笔 FE。科研成本账本虽然不归税务局管，也不应一笔钱收两遍。
+若 $FE_{\mathrm{query}}$ 已从后续优化预算中扣除，就不能在 Utility 中再次扣除同一笔 FE。
 
 ---
 
@@ -292,14 +294,14 @@ $$
 $$
 d_i=
 \mathbb I\left(
-\widehat U_{\mathrm{ELA},i}>\delta
+\widehat U_{query,i}>\delta
 \right),
 $$
 
 其中 $\delta$ 是预先冻结的最小实际收益阈值。
 
 - $\delta=0$：只要求正净收益；
-- $\delta>0$：只有超过最小实际意义的收益才执行 ELA。
+- $\delta>0$：只有超过最小实际意义的收益才执行固定 query。
 
 预设最小效应和等价边界的方法依据：[R16]。具体 $\delta$ 是本文协议，不能看完测试结果再挑。
 
@@ -347,13 +349,13 @@ TOST 和置信区间判定应预先指定一个作为主分析，另一个作为
 
 ---
 
-## 4.8 “多数状态不需要 ELA”
+## 4.8 “多数状态不需要主 query”
 
 $$
 \pi_{\mathrm{not}}
 =
 P\left(
-U_{\mathrm{ELA}}\le\delta
+U_{cheap}\le\delta
 \right).
 $$
 
@@ -471,29 +473,13 @@ $$
 
 ---
 
-## 4.13 方向熵
+## 4.13 集合分布变化
 
-将位移方向划分为 $B$ 个箱，记频率为 $p_b$：
+跨checkpoint的population不得默认按行建立个体对应关系。本文使用等权经验Wasserstein-1、centroid shift及其coherence描述空间分布变化，并使用协方差谱集中度描述当前集合形状。
 
-$$
-H_t
-=
--\frac{1}{\log B}
-\sum_{b=1}^{B}
-p_b\log p_b.
-$$
+fitness变化通过排序后的经验分位数计算改善比例、平均改善率和一维Wasserstein变化率。上述定义对checkpoint内行排列不变，不表示真实个体运动、亲子关系或因果迁移路径。
 
-- 熵的数学基础：[R15]；
-- 将熵用于搜索位移方向：本文行为特征设计；
-- 行为分析动机：[R12]。
-
-必须写清：
-
-- 位移向量如何归一化；
-- 零位移如何处理；
-- 高维方向如何离散；
-- $B$ 如何确定；
-- 稀疏频数如何平滑。
+行为分析动机可引用[R12]、[R14]；具体集合统计公式和用于Query Utility预测的解释属于本文方法，必须由消融、跨算法分层结果和外部评价验证。
 
 ---
 
@@ -534,7 +520,7 @@ $$
 2. 是否优于加权和、比值或学习型潜变量；
 3. 是否只是 FE ratio 的替代品；
 4. 是否跨算法、跨维度和跨函数族稳定；
-5. 与 $U_{\mathrm{ELA}}$ 是否确实存在非单调关系。
+5. 与当前 `query_id` 的 $U_{query}$ 是否确实存在非单调关系。
 
 推荐写法：
 
@@ -549,7 +535,7 @@ $$
 ## 4.16 Utility 预测模型
 
 $$
-\widehat U_{\mathrm{ELA},i}
+\widehat U_{query,i}
 =
 f_\theta(s_i).
 $$
@@ -562,7 +548,7 @@ $$
 w_i\,
 \ell\left(
 f_\theta(s_i),
-U_{\mathrm{ELA},i}
+U_{query,i}
 \right),
 $$
 
@@ -589,7 +575,7 @@ C_{\mathrm{DBF}}
 C_{\mathrm{probe}}
 +C_{\mathrm{behavior}}
 +C_{\mathrm{model}}
-+\mathbb I(d=1)C_{\mathrm{ELA}}
++\mathbb I(d=1)C_{\mathrm{query}}
 +C_{\mathrm{selection}}
 +C_{\mathrm{optimization}}.
 $$
@@ -608,7 +594,7 @@ $$
 $$
 \rho_{\mathrm{gate}}
 =
-\frac{C_{\mathrm{gate}}}{C_{\mathrm{ELA}}}.
+\frac{C_{\mathrm{gate}}}{C_{\mathrm{query}}}.
 $$
 
 成本意识背景：[R3]；FE 与 wall-time 评价：[R10], [R11]。具体公式是本文记账定义。
@@ -627,56 +613,45 @@ $$
 FE_{\mathrm{total}}
 =
 FE_{\mathrm{prefix}}
-+FE_{\mathrm{analysis}}
++FE_{\mathrm{query}}
 +FE_{\mathrm{optimization}}.
 $$
 
-跳过 ELA：
+不执行 query：
 
 $$
-FE_{\mathrm{analysis}}=0.
+FE_{\mathrm{query}}=0.
 $$
 
-执行 ELA：
+执行 query：
 
 $$
 FE_{\mathrm{optimization}}
 =
 FE_{\mathrm{total}}
 -FE_{\mathrm{prefix}}
--FE_{\mathrm{analysis}}.
+-FE_{\mathrm{query}}.
 $$
 
 黑盒函数评价成本的依据：[R10], [R11]；具体预算恒等式是本文协议。
 
 ---
 
-## 4.19 Compact ELA
+## 4.19 三档预定义 Landscape Query 的表示依赖性
 
-成本感知的紧凑特征集可定义为：
-
-$$
-\mathcal F^*
-=
-\arg\min_{\mathcal S\subseteq\mathcal F}
-C(\mathcal S)
-$$
-
-满足：
+当前实验不从 validation 结果搜索紧凑特征子集。三档 query 在实验前固定，分别估计：
 
 $$
-Q(\mathcal S)
-\ge
-Q(\mathcal F)-\epsilon.
+U_{cheap},\quad U_{standard},\quad U_{broad}.
 $$
 
 引用关系：
 
-- ELA 工具与特征集合：[R6], [R7]；
+- pflacco 工具与特征集合：[R6], [R7]；
 - 采样与稳定性：[R8], [R9]；
-- 约束形式：本文扩展。
+- 三档配置与解释边界：本文协议。
 
-只有在训练集选择 $\mathcal F^*$、冻结后在未见函数族或跨 benchmark 测试，并通过等价性分析，才能写“对当前决策任务，完整 ELA 特征集存在冗余”。
+如果三档结论一致，只能写为“在三个预定义 query 配置上具有稳健性”；如果不一致，则报告 representation dependence。不得把当前 16 维自定义描述符称为 Full ELA，也不得把结果外推到全部 pflacco、NeurELA、Deep-ELA 或任意 landscape representation。
 
 ---
 
@@ -693,7 +668,7 @@ $$
 
 不要在引言中提前宣称：
 
-- 大多数 ELA 调用无效；
+- 大多数主 query 调用无效；
 - gate 开销可以忽略；
 - Search Maturity 与 Utility 呈倒 U 型；
 - BBOB 训练必然能泛化到 CEC。
@@ -724,9 +699,9 @@ $$
 - Analysis Selection Problem；
 - $d_t$；
 - $G_i$；
-- $U_{\mathrm{ELA},i}$；
+- $U_{query,i}$；
 - $\delta$；
-- shared-prefix oracle。
+- shared-prefix paired continuation utility label generator。
 
 段首可引用 [R1], [R3], [R5]，FE 记账引用 [R10], [R11]。公式后可以明确写 `defined in this work`。
 
@@ -775,14 +750,14 @@ $$
 | 当前文档                                                                 | 主要参考文献                           | 仍属于项目原创或待验证的部分                   |
 | ------------------------------------------------------------------------ | -------------------------------------- | ---------------------------------------------- |
 | `Decision-before-Feature Master Research Specification.md`             | [R1]–[R5], [R10]–[R14]               | 总体框架、Analysis Selection、核心 RQ          |
-| `Decision-before-Feature_数学定义与方法章节.md`                        | [R1]–[R5], [R10], [R11]               | $U_{\mathrm{ELA}}$、$d_t$、$M_t$         |
+| `Decision-before-Feature_数学定义与方法章节.md`                        | [R1]–[R5], [R10], [R11]               | $U_{query}$、$d_t$、$M_t$         |
 | `docs/10_protocols/Decision-before-Feature_Offline Utility Label构建协议.md` | [R3], [R5], [R8]–[R11], [R29]         | 共享前缀配对续跑、标签聚合                    |
 | `Decision-before-Feature_Search Maturity理论设计.md`                   | [R12]–[R15]                           | Search Maturity 和倒 U 假设                    |
 | `Decision-before-Feature Behavior Feature Taxonomy与指标选择协议.md`   | [R12]–[R15]                           | 特征集合、窗口和归一化                         |
 | `docs/10_protocols/Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md` | [R1], [R3], [R4], [R5], [R5a], [R24]–[R28] | 四算法组合、固定下游 selector 实现和其泛化诊断 |
 | `Decision-before-Feature Baseline与公平比较协议.md`                    | [R4], [R5], [R10], [R11], [R16]–[R19] | Never/Always/Random gate 协议                  |
 | `Decision-before-Feature_维度与泛化实验设计.md`                        | [R8]–[R11], [R30], [R31]              | BBOB→CEC 与多层 OOD                           |
-| `Decision-before-Feature_特征信息必要性与ELA信息价值验证设计.md`       | [R8], [R9], [R16], [R17]               | “多数不需要”规则、Compact ELA                |
+| `Decision-before-Feature_特征信息必要性与ELA信息价值验证设计.md`       | [R8], [R9], [R16], [R17]               | 固定 query 效用、三档表示依赖性                |
 | `Decision-before-Feature_Decision_Model计算成本与资源开销分析设计.md`  | [R3], [R10], [R11], [R20]–[R23]       | $C_{\mathrm{DBF}}$、开销比例、零额外 FE 假设 |
 | `AGENTS.md`                                                            | 不需要学术引用                         | 工程和实验隔离规范，不进入论文参考文献         |
 
@@ -811,9 +786,9 @@ ELA 成本取决于：
 
 ---
 
-## 7.2 “行为特征已经被证明能预测 ELA Utility”
+## 7.2 “行为特征已经被证明能预测 Query Utility”
 
-[R12] 等文献支持行为可以被量化，但没有研究 ELA Utility。
+[R12] 等文献支持行为可以被量化，但没有研究 Query Utility。
 
 推荐：
 
@@ -852,8 +827,8 @@ SHAP [R23] 解释的是模型预测贡献，不直接证明：
 
 - behavior extraction；
 - model inference；
-- ELA sampling；
-- ELA feature computation；
+- query sampling；
+- query feature computation；
 - selector；
 - peak RSS；
 - wall-time。
@@ -886,11 +861,11 @@ CEC 技术报告 [R30], [R31] 只定义 benchmark。论文仍需说明：
 
 ## 8.3 采样与成本
 
-> ELA feature values depend on the sampling strategy and sample size used for their approximation [R8, R9]. Moreover, the practical cost of ELA depends on whether sampled points can be reused by the subsequent optimization process [R5]. We therefore maintain separate accounting for objective evaluations, feature-computation time, model inference, memory, and wall-clock time.
+> Query feature values depend on the sampling strategy and sample size used for their approximation [R8, R9]. The practical cost of a fixed query also depends on its sample budget and feature groups. We therefore maintain separate accounting for objective evaluations, feature-computation time, model inference, memory, and wall-clock time; query samples are not reused as the optimizer population in this protocol.
 
 ## 8.4 行为特征
 
-> Previous work has shown that search behavior can be characterized through computationally inexpensive behavioral descriptors and compared across metaheuristics [R12, R13]. Based on this observation, we test whether progress, diversity, directional entropy, and stagnation observed from optimization trajectories contain predictive information about the marginal utility of ELA.
+> Previous work has shown that search behavior can be characterized through computationally inexpensive behavioral descriptors and compared across metaheuristics [R12, R13]. Based on this observation, we test whether progress, diversity, permutation-invariant population and fitness distribution changes, and stagnation observed from optimization trajectories contain predictive information about the marginal utility of the evaluated fixed query.
 
 ## 8.5 等价性分析
 
@@ -902,7 +877,7 @@ CEC 技术报告 [R30], [R31] 只定义 benchmark。论文仍需说明：
 
 ## 8.7 决策开销
 
-> Because model complexity does not itself imply negligible deployment cost, we measure behavior extraction and model inference separately from ELA sampling and feature computation. The proposed gate is considered resource-efficient only if its measured overhead remains small relative to the analysis cost it avoids.
+> Because model complexity does not itself imply negligible deployment cost, we measure behavior extraction and model inference separately from query sampling and feature computation. The proposed gate is considered resource-efficient only if its measured overhead remains small relative to the evaluated query cost it avoids.
 
 最后一段主要由本文实验支持，不应让 RF 或 XGBoost 原始论文替它担保。
 
@@ -1019,12 +994,12 @@ glasserman1992crn
 
 以下结论没有现成文献可以直接担保，必须由本文实验建立：
 
-1. 多数早期搜索状态满足 $U_{\mathrm{ELA}}\le\delta$；
-2. Behavior-only 可以预测 ELA Utility；
+1. 多数所评估状态满足主配置 $U_{cheap}\le\delta$；
+2. Behavior-only 可以预测 Query Utility；
 3. Search Maturity 是稳定且可泛化的中间表征；
 4. $M_t=ES_t(1-XS_t)$ 优于直接的 Behavior $\rightarrow$ Utility；
-5. Decision gate 的开销相对被避免的 ELA 成本足够小；
-6. Compact ELA 在 OOD 条件下与 Full ELA 实际等价；
+5. Decision gate 的开销相对被避免的固定 query 成本足够小；
+6. 结论在 `descriptor_cheap`、`pflacco_standard` 与 `pflacco_broad` 三个预定义配置间是否一致，或表现出 representation dependence；
 7. BBOB 上训练的决策模型能够泛化到 CEC2017/CEC2022；
 8. 跨算法模型学习的是行为规律，而非算法身份。
 

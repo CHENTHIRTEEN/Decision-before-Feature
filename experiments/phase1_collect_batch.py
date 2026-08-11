@@ -104,7 +104,7 @@ def _collect_and_write_shard(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect Phase 1 BBOB trajectories in batch.")
-    parser.add_argument("--config", default="configs/phase1_bbob_mve.yaml")
+    parser.add_argument("--config", default="configs/phase1_bbob_train.yaml")
     parser.add_argument("--output", default=None)
     parser.add_argument("--sharded", action="store_true")
     parser.add_argument("--only-function", type=int, action="append", default=None)

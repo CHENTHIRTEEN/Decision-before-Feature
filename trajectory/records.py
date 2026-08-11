@@ -5,6 +5,9 @@ from dataclasses import dataclass
 import numpy as np
 
 
+OPTIMIZER_STATE_MODE = "native_optimizer_state"
+
+
 @dataclass(frozen=True)
 class TrajectoryRecord:
     problem_id: str
@@ -17,6 +20,7 @@ class TrajectoryRecord:
     population: list[list[float]]
     fitness: list[float]
     best_fitness: float
+    optimizer_state_mode: str
 
     @classmethod
     def from_arrays(
@@ -51,4 +55,5 @@ class TrajectoryRecord:
             population=pop.tolist(),
             fitness=fit.tolist(),
             best_fitness=float(best_fitness),
+            optimizer_state_mode=OPTIMIZER_STATE_MODE,
         )

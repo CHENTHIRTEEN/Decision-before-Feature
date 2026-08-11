@@ -1,253 +1,179 @@
 from __future__ import annotations
 
 import argparse
-import re
+from math import isfinite
 from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
-from behavior.validation import validate_behavior_file
-from benchmarks import make_problem
-from experiments.phase1_batch_common import fe_total_for_dimension, load_config, make_shards
-from optimizers import OptimizerSettings
-from optimizers.continuation import run_population_continuation
-from utility_labels.fields import NEED_ELA_COLUMNS, UTILITY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
+from experiments.phase1_batch_common import load_config, selected_dimensions, selected_functions, split_name
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL
+from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
 
 
 EPS = 1e-12
-MIN_LABEL_RATIO = 0.12
-FE_ANALYSIS_RATIO = 0.05
 
 
 def generate_utility_labels(
     *,
+    query_id: str,
     config_path: Path,
-    behavior_root: Path,
-    ela_root: Path,
     selection_reference_path: Path,
     output_path: Path,
     only_functions: list[int] | None,
     only_dimensions: list[int] | None,
     max_labels: int | None,
+    overwrite: bool = False,
 ) -> dict[str, int | str]:
+    spec = get_query_spec(query_id)
     config = load_config(config_path)
-    split = _split_name(config)
-    suite = str(config["suite"]).lower()
-    selection = _read_selection_reference(selection_reference_path)
-    ela_features = _read_ela_features(ela_root / split / "features.parquet")
-    settings = OptimizerSettings(population_size=int(config["population_size"]), checkpoint_ratios=(1.0,))
+    split = split_name(config)
+    functions = set(selected_functions(config, only_functions))
+    dimensions = set(selected_dimensions(config, only_dimensions))
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(f"utility label output already exists; pass --overwrite: {output_path}")
+    reference = pq.read_table(selection_reference_path).to_pylist()
     rows = []
-    problem_cache = {}
-
-    try:
-        for shard in make_shards(config, only_functions, only_dimensions):
-            trajectory_path = behavior_root / split / shard.family / f"dimension_{shard.dimension}" / "trajectories.parquet"
-            behavior_path = trajectory_path.with_name("behavior.parquet")
-            if not trajectory_path.exists():
-                raise FileNotFoundError(f"missing trajectory shard: {trajectory_path}")
-            if not behavior_path.exists():
-                raise FileNotFoundError(f"missing behavior shard: {behavior_path}")
-            validate_behavior_file(trajectory_path, behavior_path)
-            trajectory_rows = pq.read_table(trajectory_path).to_pylist()
-            behavior_rows = pq.read_table(behavior_path).to_pylist()
-            for trajectory_row, behavior_row in zip(trajectory_rows, behavior_rows, strict=True):
-                if not _eligible_for_label(trajectory_row, config):
-                    continue
-                label = _generate_one_label(
-                    split=split,
-                    suite=suite,
-                    config=config,
-                    trajectory_row=trajectory_row,
-                    behavior_row=behavior_row,
-                    selection=selection,
-                    ela_features=ela_features,
-                    settings=settings,
-                    problem_cache=problem_cache,
-                )
-                rows.append(label)
-                if max_labels is not None and len(rows) >= max_labels:
-                    break
-            if max_labels is not None and len(rows) >= max_labels:
-                break
-    finally:
-        for problem in problem_cache.values():
-            problem.close()
-
+    for row in reference:
+        if str(row["split"]) != split or int(row["dimension"]) not in dimensions:
+            continue
+        function = _function_from_family(str(row["family"]))
+        if function not in functions:
+            continue
+        rows.append(_utility_row(row=row, query_id=query_id))
+        if max_labels is not None and len(rows) >= max_labels:
+            break
+    if not rows:
+        raise ValueError(f"selection reference contains no rows for {query_id} split={split}")
+    if any(str(row["query_protocol"]) != spec.protocol for row in rows):
+        raise ValueError("utility labels do not match the frozen query protocol")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.Table.from_pylist(rows, schema=_schema()), output_path)
-    print(f"wrote {len(rows)} utility label rows to {output_path}")
-    return {"rows": len(rows), "output": str(output_path)}
+    pq.write_table(pa.Table.from_pylist(rows, schema=utility_schema()), output_path)
+    print(f"wrote {len(rows)} {query_id} utility label rows to {output_path}")
+    return {"query_id": query_id, "rows": len(rows), "output": str(output_path)}
 
 
-def _read_selection_reference(path: Path) -> dict[tuple[str, str, int, float], dict]:
-    if not path.exists():
-        raise FileNotFoundError(f"missing selection reference: {path}")
-    rows = pq.read_table(path).to_pylist()
-    result = {}
-    for row in rows:
-        key = (str(row["split"]), str(row["problem_id"]), int(row["dimension"]), round(float(row["remaining_budget_ratio"]), 6))
-        result[key] = row
-    return result
+def _utility_row(*, row: dict, query_id: str) -> dict:
+    spec = get_query_spec(query_id)
+    if row.get("selection_reference_protocol") != SELECTION_REFERENCE_PROTOCOL:
+        raise ValueError("selection reference uses an unsupported protocol")
+    if str(row.get("query_id")) != query_id or str(row.get("query_protocol")) != spec.protocol:
+        raise ValueError("selection reference query identity does not match the requested utility target")
+    if str(row.get("sample_design_id")) != spec.sample_design_id:
+        raise ValueError("selection reference and query spec use different query-FE budgets")
 
-
-def _read_ela_features(path: Path) -> dict[str, dict]:
-    if not path.exists():
-        raise FileNotFoundError(f"missing ELA feature file: {path}")
-    return {str(row["problem_id"]): row for row in pq.read_table(path).to_pylist()}
-
-
-def _eligible_for_label(row: dict, config: dict) -> bool:
-    dimension = int(row["dimension"])
-    fe_total = fe_total_for_dimension(config, dimension)
-    fe_prefix = int(row["FE"])
-    fe_analysis = int(FE_ANALYSIS_RATIO * fe_total)
-    ratio = float(row["FE_ratio"])
-    return ratio >= MIN_LABEL_RATIO and ratio < 1.0 and fe_prefix + fe_analysis < fe_total
-
-
-def _generate_one_label(
-    *,
-    split: str,
-    suite: str,
-    config: dict,
-    trajectory_row: dict,
-    behavior_row: dict,
-    selection: dict[tuple[str, str, int, float], dict],
-    ela_features: dict[str, dict],
-    settings: OptimizerSettings,
-    problem_cache: dict[tuple[int, int, int], object],
-) -> dict:
-    function, instance, dimension = _parse_problem_id(str(trajectory_row["problem_id"]), suite=suite)
-    fe_total = fe_total_for_dimension(config, dimension)
-    fe_prefix = int(trajectory_row["FE"])
-    fe_analysis = int(FE_ANALYSIS_RATIO * fe_total)
-    fe_skip = fe_total - fe_prefix
-    fe_ela = fe_total - fe_prefix - fe_analysis
-    remaining_ratio = round(fe_ela / fe_total, 6)
-    selection_row = selection.get((split, str(trajectory_row["problem_id"]), dimension, remaining_ratio))
-    if selection_row is None:
-        raise ValueError(
-            "missing selection reference row for "
-            f"split={split}, problem_id={trajectory_row['problem_id']}, remaining_ratio={remaining_ratio}"
-        )
-    ela_row = ela_features.get(str(trajectory_row["problem_id"]))
-    if ela_row is None:
-        raise ValueError(f"missing ELA feature row for {trajectory_row['problem_id']}")
-
-    population = np.asarray(trajectory_row["population"], dtype=float)
-    fitness = np.asarray(trajectory_row["fitness"], dtype=float)
-    best_fitness = float(trajectory_row["best_fitness"])
-    problem_key = (function, instance, dimension)
-    if problem_key not in problem_cache:
-        problem_cache[problem_key] = make_problem(
-            {
-                "suite": suite,
-                "function": function,
-                "instance": instance,
-                "dimension": dimension,
-            }
-        )
-    problem = problem_cache[problem_key]
-    generation = max(1, fe_prefix // int(config["population_size"]))
-    # Both branches use population transfer from the same checkpoint state; ELA samples are not reused here.
-    skip = run_population_continuation(
-        algorithm=str(selection_row["default_algorithm"]),
-        problem=problem,
-        seed=int(trajectory_row["seed"]),
-        function=function,
-        instance=instance,
-        generation=generation,
-        event=1,
-        fe_budget=fe_skip,
-        population=population,
-        fitness=fitness,
-        best_fitness=best_fitness,
-        settings=settings,
+    prefix_algorithm = str(row["prefix_algorithm"])
+    default_algorithm = str(row["default_algorithm"])
+    selected_algorithm = str(row["selected_algorithm"])
+    selected_equals_default = selected_algorithm == default_algorithm
+    selected_equals_prefix = selected_algorithm == prefix_algorithm
+    skip_switches_from_prefix = default_algorithm != prefix_algorithm
+    expected_action = "continue_current" if selected_equals_prefix else selected_algorithm
+    if str(row["selected_action"]) != expected_action:
+        raise ValueError("selection reference selected_action is inconsistent")
+    no_query_transition_mode = (
+        "population_transfer_initialization" if skip_switches_from_prefix else "native_optimizer_state"
     )
-    ela = run_population_continuation(
-        algorithm=str(selection_row["selected_algorithm"]),
-        problem=problem,
-        seed=int(trajectory_row["seed"]),
-        function=function,
-        instance=instance,
-        generation=generation,
-        event=2,
-        fe_budget=fe_ela,
-        population=population,
-        fitness=fitness,
-        best_fitness=best_fitness,
-        settings=settings,
+    query_transition_mode = (
+        "native_optimizer_state" if selected_equals_prefix else "population_transfer_initialization"
     )
+    if str(row["no_query_transition_mode"]) != no_query_transition_mode:
+        raise ValueError("no-query transition mode is inconsistent")
+    if str(row["selected_transition_mode"]) != query_transition_mode:
+        raise ValueError("query transition mode is inconsistent")
 
-    p_skip = float(skip.best_fitness)
-    p_ela = float(ela.best_fitness)
-    performance_gain_raw = p_skip - p_ela
-    performance_gain_norm = performance_gain_raw / max(abs(p_skip), abs(p_ela), EPS)
-    runtime_analysis = float(ela_row["runtime_analysis"])
-    runtime_selection = float(selection_row["runtime_selection"])
-    time_cost_norm = (runtime_analysis + runtime_selection) / max(float(skip.runtime_seconds), EPS)
-    memory_cost_norm = 0.0
+    p_skip = float(row["p_skip"])
+    p_query = float(row["selected_action_loss"])
+    best_observed_loss = float(row["best_observed_loss"])
+    potential_gain_raw = p_skip - best_observed_loss
+    selector_regret_raw = p_query - best_observed_loss
+    performance_gain_raw = p_skip - p_query
+    if not np.isclose(performance_gain_raw, potential_gain_raw - selector_regret_raw, rtol=0.0, atol=EPS):
+        raise ValueError("performance gain decomposition is inconsistent")
+    scale = max(abs(p_skip), abs(p_query), EPS)
+    performance_gain_norm = performance_gain_raw / scale
+    potential_gain_norm = potential_gain_raw / scale
+    selector_regret_norm = selector_regret_raw / scale
+    runtime_query = float(row["runtime_query"])
+    runtime_selection = float(row["runtime_selection"])
+    runtime_skip = float(row["runtime_no_query_optimization"])
+    runtime_selected = float(row["runtime_selected_action_optimization"])
+    runtimes = (runtime_query, runtime_selection, runtime_skip, runtime_selected)
+    if any(not isfinite(value) or value < 0.0 for value in runtimes):
+        raise ValueError("query and optimization runtimes must be finite and non-negative")
+    time_cost_norm = (runtime_query + runtime_selection) / max(runtime_skip, EPS)
     utility_values = {
         column: performance_gain_norm - weight * time_cost_norm
         for column, weight in zip(UTILITY_VALUE_COLUMNS, UTILITY_LAMBDAS, strict=True)
     }
     need_values = {
         column: bool(utility_values[utility_column] > 0.0)
-        for column, utility_column in zip(NEED_ELA_COLUMNS, UTILITY_VALUE_COLUMNS, strict=True)
+        for column, utility_column in zip(NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS, strict=True)
     }
-
     return {
-        "split": split,
-        "problem_id": str(trajectory_row["problem_id"]),
-        "family": str(trajectory_row["family"]),
-        "dimension": dimension,
-        "prefix_algorithm": str(trajectory_row["algorithm"]),
-        "seed": int(trajectory_row["seed"]),
-        "FE": int(trajectory_row["FE"]),
-        "FE_ratio": float(trajectory_row["FE_ratio"]),
-        "FE_total": int(fe_total),
-        "FE_prefix": int(fe_prefix),
-        "FE_analysis": int(fe_analysis),
-        "FE_skip_optimization": int(fe_skip),
-        "FE_ela_optimization": int(fe_ela),
-        "default_algorithm": str(selection_row["default_algorithm"]),
-        "selected_algorithm": str(selection_row["selected_algorithm"]),
+        "split": str(row["split"]),
+        "problem_id": str(row["problem_id"]),
+        "family": str(row["family"]),
+        "dimension": int(row["dimension"]),
+        "prefix_algorithm": prefix_algorithm,
+        "seed": int(row["seed"]),
+        "FE": int(row["FE"]),
+        "FE_ratio": float(row["FE_ratio"]),
+        "query_id": query_id,
+        "query_protocol": spec.protocol,
+        "query_feature_columns": str(row["query_feature_columns"]),
+        "sample_design_id": spec.sample_design_id,
+        "FE_total": int(row["FE_total"]),
+        "FE_prefix": int(row["FE"]),
+        "FE_query": int(row["FE_query"]),
+        "FE_no_query_optimization": int(row["FE_no_query_optimization"]),
+        "FE_query_optimization": int(row["FE_query_optimization"]),
+        "default_algorithm": default_algorithm,
+        "selection_reference_default_algorithm": default_algorithm,
+        "selection_reference_protocol": str(row["selection_reference_protocol"]),
+        "selector_prediction_source": str(row["selector_prediction_source"]),
+        "selected_algorithm": selected_algorithm,
+        "selected_action": str(row["selected_action"]),
+        "selected_equals_default": selected_equals_default,
+        "selected_equals_prefix": selected_equals_prefix,
+        "skip_switches_from_prefix": skip_switches_from_prefix,
+        "no_query_transition_mode": no_query_transition_mode,
+        "query_transition_mode": query_transition_mode,
         "p_skip": p_skip,
-        "p_ela": p_ela,
+        "p_query": p_query,
+        "selected_action_loss": p_query,
+        "best_observed_algorithm": str(row["best_observed_algorithm"]),
+        "best_observed_loss": best_observed_loss,
+        "selected_matches_best_observed": bool(selected_algorithm == str(row["best_observed_algorithm"])),
+        "potential_gain_raw": float(potential_gain_raw),
+        "selector_regret_raw": float(selector_regret_raw),
+        "performance_norm_scale": float(scale),
+        "potential_gain_norm": float(potential_gain_norm),
+        "selector_regret_decomposition_norm": float(selector_regret_norm),
         "performance_gain_raw": float(performance_gain_raw),
         "performance_gain_norm": float(performance_gain_norm),
-        "runtime_analysis": runtime_analysis,
+        "runtime_query": runtime_query,
         "runtime_selection": runtime_selection,
-        "runtime_skip_optimization": float(skip.runtime_seconds),
-        "runtime_ela_optimization": float(ela.runtime_seconds),
+        "runtime_no_query_optimization": runtime_skip,
+        "runtime_query_optimization": runtime_selected,
         "time_cost_norm": float(time_cost_norm),
-        "memory_cost_norm": memory_cost_norm,
+        "memory_cost_norm": 0.0,
         **utility_values,
         **need_values,
-        **{column: behavior_row[column] for column in BEHAVIOR_FEATURE_COLUMNS},
     }
 
 
-def _parse_problem_id(problem_id: str, *, suite: str) -> tuple[int, int, int]:
-    suite_name = str(suite).lower()
-    if suite_name == "bbob":
-        match = re.match(r"^bbob_f(\d{3})_i(\d+)_d(\d+)$", problem_id)
-        if match is None:
-            raise ValueError(f"invalid BBOB problem_id: {problem_id}")
-        return tuple(int(value) for value in match.groups())
-    if suite_name in {"cec2017", "cec2022"}:
-        match = re.match(rf"^{suite_name}_f(\d{{2}})_d(\d+)$", problem_id)
-        if match is None:
-            raise ValueError(f"invalid {suite_name.upper()} problem_id: {problem_id}")
-        function, dimension = (int(value) for value in match.groups())
-        return function, 1, dimension
-    raise ValueError(f"unsupported benchmark suite for utility label generation: {suite}")
+def _function_from_family(family: str) -> int:
+    try:
+        return int(family.rsplit("f", 1)[1])
+    except (IndexError, ValueError) as exc:
+        raise ValueError(f"cannot parse function number from family: {family}") from exc
 
 
-def _schema() -> pa.Schema:
+def utility_schema() -> pa.Schema:
     fields = [
         ("split", pa.string()),
         ("problem_id", pa.string()),
@@ -257,60 +183,71 @@ def _schema() -> pa.Schema:
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
+        ("query_id", pa.string()),
+        ("query_protocol", pa.string()),
+        ("query_feature_columns", pa.string()),
+        ("sample_design_id", pa.string()),
         ("FE_total", pa.int64()),
         ("FE_prefix", pa.int64()),
-        ("FE_analysis", pa.int64()),
-        ("FE_skip_optimization", pa.int64()),
-        ("FE_ela_optimization", pa.int64()),
+        ("FE_query", pa.int64()),
+        ("FE_no_query_optimization", pa.int64()),
+        ("FE_query_optimization", pa.int64()),
         ("default_algorithm", pa.string()),
+        ("selection_reference_default_algorithm", pa.string()),
+        ("selection_reference_protocol", pa.string()),
+        ("selector_prediction_source", pa.string()),
         ("selected_algorithm", pa.string()),
+        ("selected_action", pa.string()),
+        ("selected_equals_default", pa.bool_()),
+        ("selected_equals_prefix", pa.bool_()),
+        ("skip_switches_from_prefix", pa.bool_()),
+        ("no_query_transition_mode", pa.string()),
+        ("query_transition_mode", pa.string()),
         ("p_skip", pa.float64()),
-        ("p_ela", pa.float64()),
+        ("p_query", pa.float64()),
+        ("selected_action_loss", pa.float64()),
+        ("best_observed_algorithm", pa.string()),
+        ("best_observed_loss", pa.float64()),
+        ("selected_matches_best_observed", pa.bool_()),
+        ("potential_gain_raw", pa.float64()),
+        ("selector_regret_raw", pa.float64()),
+        ("performance_norm_scale", pa.float64()),
+        ("potential_gain_norm", pa.float64()),
+        ("selector_regret_decomposition_norm", pa.float64()),
         ("performance_gain_raw", pa.float64()),
         ("performance_gain_norm", pa.float64()),
-        ("runtime_analysis", pa.float64()),
+        ("runtime_query", pa.float64()),
         ("runtime_selection", pa.float64()),
-        ("runtime_skip_optimization", pa.float64()),
-        ("runtime_ela_optimization", pa.float64()),
+        ("runtime_no_query_optimization", pa.float64()),
+        ("runtime_query_optimization", pa.float64()),
         ("time_cost_norm", pa.float64()),
         ("memory_cost_norm", pa.float64()),
     ]
     fields.extend((column, pa.float64()) for column in UTILITY_VALUE_COLUMNS)
-    fields.extend((column, pa.bool_()) for column in NEED_ELA_COLUMNS)
-    fields.extend((column, pa.float64()) for column in BEHAVIOR_FEATURE_COLUMNS)
+    fields.extend((column, pa.bool_()) for column in NEED_QUERY_COLUMNS)
     return pa.schema(fields)
 
 
-def _split_name(config: dict) -> str:
-    if "split" in config:
-        return str(config["split"])
-    return Path(config["output"]).stem.removesuffix("_trajectories")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate offline utility labels from dense Phase 1 checkpoints.")
+    parser = argparse.ArgumentParser(description="Generate query-specific offline utility labels.")
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--behavior-root", type=Path, default=Path("results/phase1"))
-    parser.add_argument("--ela-root", type=Path, default=Path("results/ela"))
-    parser.add_argument(
-        "--selection-reference",
-        type=Path,
-        default=Path("results/selection_reference/bbob_train/selection_reference.parquet"),
-    )
+    parser.add_argument("--selection-reference", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
     parser.add_argument("--max-labels", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     generate_utility_labels(
+        query_id=args.query_id,
         config_path=args.config,
-        behavior_root=args.behavior_root,
-        ela_root=args.ela_root,
         selection_reference_path=args.selection_reference,
         output_path=args.output,
         only_functions=args.only_function,
         only_dimensions=args.only_dimension,
         max_labels=args.max_labels,
+        overwrite=args.overwrite,
     )
 
 

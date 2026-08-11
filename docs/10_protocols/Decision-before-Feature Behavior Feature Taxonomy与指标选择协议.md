@@ -1,5 +1,7 @@
 # Decision-before-Feature Behavior Feature Taxonomy与指标选择协议
 
+> 实现同步（2026-08-11）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。旧 behavior 曾把 population 行号解释为跨代个体身份，已撤回并不得复用。
+
 ## 1. 文档定位
 
 本文档定义 Decision-before-Feature 框架中的 Behavior Feature 输入体系。
@@ -13,11 +15,11 @@
 
 用于预测：
 
-$$ U_{ELA} $$
+$$ U_{query} $$
 
 即：
 
-执行Landscape Analysis是否具有正收益。
+所评估固定 query 的 $U_{query}$ 是否大于 0。
 
 ------------------------------------------------------------------------
 
@@ -49,7 +51,7 @@ $$ Algorithm Parameter \rightarrow Decision $$
 
 ## Principle 2: Low-cost
 
-Feature计算成本必须远低于ELA。
+Behavior feature 计算成本必须相对所评估固定 query 足够小。
 
 允许：
 
@@ -220,69 +222,63 @@ $$
 
 -   variance
 -   coordinate range
--   centroid movement
+-   centroid shift
+-   covariance spectral concentration
 
 ------------------------------------------------------------------------
 
-# 6. Category C: Exploration Features
+# 6. Category C: Set-based Distribution Features
 
 目标：
 
-描述搜索空间探索能力。
+描述population与fitness经验分布的当前形状和跨窗口变化。
 
 ------------------------------------------------------------------------
 
-## 6.1 Directional Entropy
+## 6.1 Population Wasserstein Change
 
-来源：
+当前与anchor population均视为等权经验分布，不按行建立个体对应关系。当前实现使用 $w=0.05$ 的FE-ratio窗口，并通过最小费用一一匹配计算经验Wasserstein-1：
 
-exploration/exploitation行为分析。
+$$
+W_t^{(0.05)}=
+\frac{1}{r_t-r_a}
+\min_{\pi\in S_N}
+\frac{1}{N}\sum_i
+\frac{\lVert x_i^{(a)}-x_{\pi(i)}^{(t)}\rVert_2}{\sqrt d}.
+$$
 
-含义：
-
-搜索方向的不确定性。
-
-当前实现使用：
-
-$$ w=0.05 $$
-
-预算比例窗口，计算当前population相对于anchor population的位移方向，并基于位移方向与平均位移方向的夹角分箱计算归一化Shannon entropy。
-
-高：
-
-方向分散。
-
-低：
-
-方向一致。
+该数值表示种群空间分布每单位预算比例的变化幅度，不表示真实个体运动。
 
 ------------------------------------------------------------------------
 
-## 6.2 Search Radius
+## 6.2 Centroid Shift与Coherence
 
-描述：
+centroid shift rate定义为：
 
-当前搜索区域范围。
+$$
+G_t^{(0.05)}=
+\frac{\lVert \mu_t-\mu_a\rVert_2}{\sqrt d\,(r_t-r_a)}.
+$$
+
+coherence定义为未除预算跨度的centroid shift与Wasserstein distance之比。无集合变化时取0，其余裁剪到 $[0,1]$。该比值描述总体平移占集合分布变化的比例，不解释为个体方向一致性。
 
 ------------------------------------------------------------------------
 
-## 6.3 Exploration Rate
+## 6.3 Covariance与Fitness Distribution
 
-可定义：
+当前population的协方差谱集中度使用归一化Herfindahl concentration。令 $q=\min(d,N-1)$，协方差非负特征值为 $\lambda_j$：
 
-基于：
+$$
+C_t=\frac{q\frac{\sum_j\lambda_j^2}{(\sum_j\lambda_j)^2}-1}{q-1}.
+$$
 
--   diversity
--   movement
--   entropy
+退化协方差取0。fitness跨窗口变化先分别排序为经验分位数，令 $\delta_i=f_{(i)}^{(a)}-f_{(i)}^{(t)}$，再计算：
 
-综合形成。
+- 改善分位数比例；
+- $\operatorname{mean}(\delta_i)$ 经anchor平均绝对fitness和FE-ratio跨度归一化后的分布改善率；
+- $\operatorname{mean}(|\delta_i|)$ 经相同尺度归一化的一维Wasserstein变化率。
 
-注意：
-
-不作为最终决策标签。
-
-仅作为输入。
+这些字段只表示经验分布变化，不表示同一个体的success、improvement variance或best improvement share。
 
 ------------------------------------------------------------------------
 
@@ -415,7 +411,15 @@ $$
 
 ### Exploration
 
--   directional entropy
+-   population Wasserstein change rate
+-   centroid shift coherence
+-   covariance spectral concentration
+
+### Fitness Distribution
+
+-   quantile improvement fraction
+-   mean distribution improvement rate
+-   fitness Wasserstein rate
 
 ### Exploitation
 
@@ -437,13 +441,13 @@ $$
 
 当前任务是：
 
-$$ Search\ Behavior \rightarrow ELA\ Utility $$
+$$ Search\ Behavior \rightarrow Query\ Utility $$
 
 因此所有输入必须满足：
 
 -   algorithm-agnostic；
 -   low-cost；
--   不使用ELA feature；
+-   不使用query feature；
 -   不使用function identity；
 -   不依赖真实全局最优位置；
 -   可在不同维度、预算和优化器之间比较。
@@ -464,21 +468,21 @@ $$ Search\ Behavior \rightarrow ELA\ Utility $$
 
 ## 10.2 与 How do metaheuristics exploit? 的关系
 
-*How do metaheuristics exploit?* 使用 distance-to-reference decay、directional entropy 和 stagnation indicators 描述粒子级 exploitation dynamics，并用global-best在50-iteration sliding window内的relative improvement低于5%来划分late-stage exploitation phase。
+*How do metaheuristics exploit?* 使用 distance-to-reference decay、directional entropy 和 stagnation indicators 描述粒子级 exploitation dynamics，并用global-best在50-iteration sliding window内的relative improvement低于5%来划分late-stage exploitation phase。其方向统计要求agent displacement具有跨窗口身份语义，本文不直接采用。
 
 本项目与其关系如下。
 
 | 指标 | 原论文口径 | 本项目口径 | 使用方式 |
 |---|---|---|---|
 | improvement rate | 用global-best的relative improvement阈值辅助确定exploitation phase | 2% FE-ratio窗口内best-fitness相对改善，并除以预算比例跨度 | 启发，不是复现 |
-| directional entropy | 在短iteration窗口内统计agent displacement方向分布，刻画exploitation中的方向一致性或分散性 | 5% FE-ratio窗口内比较当前population与anchor population的位移方向，用归一化entropy表示方向分散程度 | 改写为预算归一化行为输入 |
+| population distribution change | 原论文的directional entropy依赖agent displacement | 使用经验Wasserstein、centroid shift/coherence和协方差谱集中度，不建立个体对应关系 | 只继承行为变化动机，不复现方向熵 |
 | distance decay | 跟踪agent到真实或估计reference optimum的距离衰减 | 跟踪population成员到当前population-best的平均距离衰减，不使用真实全局最优 | 启发并替换reference |
 | stagnation | 区分movement stagnation、personal-best stagnation和global stagnation | 使用最近一次best-fitness严格改善后的FE-ratio间隔，截断并归一化到10%预算窗口 | 改写为算法无关停滞状态 |
 
 关键区别：
 
 -   原论文的目标是分析和调节exploitation behavior；
--   本项目的目标是预测是否值得执行Landscape Analysis；
+-   本项目的目标是预测所评估固定 query 的 $U_{query}$ 是否大于 0；
 -   原论文可以使用已知benchmark optimum进行后验行为研究；
 -   本项目的decision输入不能使用真实全局最优或function identity；
 -   原论文以iteration窗口和phase划分为主；
@@ -486,7 +490,7 @@ $$ Search\ Behavior \rightarrow ELA\ Utility $$
 
 因此，论文中应写作：
 
-> The proposed features are inspired by exploitation-oriented behavioral diagnostics, but are not intended as a direct reproduction of those metrics. We adapt the underlying behavioral notions into budget-normalized, algorithm-agnostic state variables suitable for predicting the utility of landscape analysis before computing ELA features.
+> The proposed features are inspired by exploitation-oriented behavioral diagnostics, but are not intended as a direct reproduction of those metrics. We adapt the underlying behavioral notions into budget-normalized, algorithm-agnostic state variables suitable for predicting the utility of the evaluated fixed landscape query before computing its features.
 
 不建议写作：
 
@@ -506,7 +510,7 @@ Hayward and Engelbrecht提出20个behavioral characteristics，用于比较metah
 -   Communication；
 -   Evaluation Effort。
 
-该论文的核心方法是将整段搜索过程压缩成whole-run behavioral vector，并用聚类和frequency map比较算法行为相似性。本项目不采用whole-run similarity clustering，而是采用checkpoint-level behavior state预测ELA Utility。
+该论文的核心方法是将整段搜索过程压缩成whole-run behavioral vector，并用聚类和frequency map比较算法行为相似性。本项目不采用whole-run similarity clustering，而是采用checkpoint-level behavior state预测Query Utility。
 
 与本项目直接相关或启发关系如下。
 
@@ -524,7 +528,7 @@ Hayward and Engelbrecht提出20个behavioral characteristics，用于比较metah
 | ER | exploitation开始时到global optimum的distance，表示promising locality半径 | 启发 `bf_distance_decay_w10`，但本项目替换为到当前population-best的平均距离 |
 | nshared / ntotal / nend | 基于search trajectory network的locality指标 | 第一版不纳入；计算更重，并依赖trajectory discretization |
 | BSoI / IRoF / best-strength / nbest | 基于interaction network的communication指标 | 第一版不纳入；不同算法的显式communication定义不一致 |
-| number of function evaluations / ERT variants / %INFEASIBLE | evaluation effort指标 | 不作为主behavior输入；FE budget和ELA cost在资源口径中单独处理 |
+| number of function evaluations / ERT variants / %INFEASIBLE | evaluation effort指标 | 不作为主behavior输入；FE budget和query cost在资源口径中单独处理 |
 
 可直接引用的观点或明确启发的部分：
 
@@ -553,7 +557,7 @@ $$ Algorithm\ Similarity $$
 
 而本项目服务于：
 
-$$ ELA\ Utility\ Prediction $$
+$$ Query\ Utility\ Prediction $$
 
 两者的估计对象不同。
 
@@ -563,15 +567,15 @@ $$ ELA\ Utility\ Prediction $$
 
 可在方法章节使用：
 
-> Our behavior representation is motivated by prior behavioral analyses of metaheuristics, especially studies that characterize exploration, exploitation, diversity change, convergence, locality, and communication from optimization trajectories. However, our objective differs from whole-run algorithm similarity analysis and late-stage exploitation control. We therefore define checkpoint-level behavior states on a normalized evaluation-budget axis. Improvement rate, diversity change, directional entropy, distance decay, stagnation, and convergence rate are computed over fixed FE-ratio windows, so that the resulting variables are comparable across dimensions and optimizers and can be used before computing ELA features.
+> Our behavior representation is motivated by prior behavioral analyses of metaheuristics, especially studies that characterize exploration, exploitation, diversity change, convergence, locality, and communication from optimization trajectories. However, our objective differs from whole-run algorithm similarity analysis and late-stage exploitation control. We therefore define checkpoint-level behavior states on a normalized evaluation-budget axis. Improvement rate, diversity change, permutation-invariant population and fitness distribution changes, distance decay, stagnation, and convergence rate are computed over fixed FE-ratio windows, so that the resulting variables are comparable across dimensions and optimizers and can be used before computing query features.
 
 可在相关工作章节使用：
 
-> Hayward and Engelbrecht proposed a behavioral characteristic suite for determining metaheuristic similarity, including diversity-rate, accuracy-rate, convergence-rate, locality, communication, and evaluation-effort characteristics. We adopt this trajectory-based view of metaheuristic behavior, but do not use their whole-run footprinting, knee-point extraction, STN/IN metrics, or clustering protocol. Instead, we retain only low-cost and algorithm-agnostic behavioral notions and reformulate them as local budget-normalized state variables for predicting ELA Utility.
+> Hayward and Engelbrecht proposed a behavioral characteristic suite for determining metaheuristic similarity, including diversity-rate, accuracy-rate, convergence-rate, locality, communication, and evaluation-effort characteristics. We adopt this trajectory-based view of metaheuristic behavior, but do not use their whole-run footprinting, knee-point extraction, STN/IN metrics, or clustering protocol. Instead, we retain only low-cost and algorithm-agnostic behavioral notions and reformulate them as local budget-normalized state variables for predicting Query Utility.
 
 可在指标定义后使用：
 
-> The distance and stagnation variables should be interpreted as decision-oriented behavioral summaries rather than estimates of true distance to the global optimum. In particular, distance decay is computed relative to the current population-best solution, and stagnation is measured by elapsed FE ratio since the last strict best-fitness improvement. This avoids using problem identifiers, global optima, or ELA-derived landscape information in the decision input.
+> The distance and stagnation variables should be interpreted as decision-oriented behavioral summaries rather than estimates of true distance to the global optimum. In particular, distance decay is computed relative to the current population-best solution, and stagnation is measured by elapsed FE ratio since the last strict best-fitness improvement. This avoids using problem identifiers, global optima, or query-derived landscape information in the decision input.
 
 ------------------------------------------------------------------------
 
@@ -598,7 +602,7 @@ CMA:
 
 ------------------------------------------------------------------------
 
-## High-level ELA Features
+## High-level Query Features
 
 禁止：
 
@@ -610,7 +614,7 @@ CMA:
 
 这些属于Landscape Feature。
 
-而Decision-before-Feature需要在ELA之前决策。
+而 Decision-before-Feature 需要在固定 query 执行之前决策。
 
 ------------------------------------------------------------------------
 
@@ -720,7 +724,7 @@ Behavior Feature不是最终目标。
 
             v
 
-    ELA Utility Prediction
+    Query Utility Prediction
 
             |
 
@@ -734,7 +738,7 @@ Behavior Feature不是最终目标。
 
 H1:
 
-低成本行为指标能够预测ELA Utility。
+低成本行为指标能够预测Query Utility。
 
 H2:
 
@@ -748,9 +752,9 @@ H3:
 
 # 16. 当前实现中的正式Feature分类
 
-当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含25个算法无关行为特征。
+当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含25个permutation-invariant算法无关行为特征。
 
-这些特征只从已记录的 checkpoint population、fitness、best fitness、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用ELA feature，不使用function identity、algorithm identity 或优化器内部参数。
+这些特征只从已记录的 checkpoint population、fitness、best fitness、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。
 
 | 类别 | Feature | 实现列名 | 口径 | Feature group |
 |---|---|---|---|---|
@@ -762,18 +766,18 @@ H3:
 | Diversity | diversity slope | `bf_diversity_slope_w05` | 5% FE-ratio窗口内 diversity 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
 | Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差 | primary, primary_with_maturity, all_candidates |
 | Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | fitness标准差除以 `abs(mean fitness)+epsilon` | primary, primary_with_maturity, all_candidates |
-| Movement | movement magnitude | `bf_movement_magnitude` | 相邻 checkpoint 间个体平均位移，除以 `sqrt(dimension)` | primary, primary_with_maturity, all_candidates |
-| Movement | movement variance | `bf_movement_diversity` | 相邻 checkpoint 间个体位移的标准差，除以 `sqrt(dimension)` | primary, primary_with_maturity, all_candidates |
-| Movement | direction entropy | `bf_directional_entropy_w05` | 5% FE-ratio窗口内位移方向分布的归一化entropy | base, primary, primary_with_maturity, all_candidates |
-| Movement | direction consistency | `bf_direction_consistency_w05` | 5% FE-ratio窗口内单位位移向量均值的范数 | primary, primary_with_maturity, all_candidates |
-| Movement | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例 | all_candidates |
+| Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Set change | centroid shift coherence | `bf_centroid_shift_coherence_w05` | centroid shift占经验Wasserstein distance的比例 | primary, primary_with_maturity, all_candidates |
+| Set shape | covariance spectral concentration | `bf_covariance_spectral_concentration` | 当前population协方差特征值的归一化Herfindahl concentration | base, primary, primary_with_maturity, all_candidates |
+| Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例 | all_candidates |
 | Convergence | distance decay | `bf_distance_decay_w10` | 10% FE-ratio窗口内到当前population-best平均距离的相对下降 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |
-| Convergence | success rate | `bf_success_rate_w02` | 2% FE-ratio窗口内 row-wise fitness 改善个体比例 | primary, primary_with_maturity, all_candidates |
+| Fitness distribution | quantile improvement fraction | `bf_fitness_quantile_improvement_fraction_w02` | 2%窗口内改善的经验fitness分位数比例 | primary, primary_with_maturity, all_candidates |
 | Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Convergence | improvement variance | `bf_improvement_variance_w02` | 2% FE-ratio窗口内非负 row-wise fitness 改善量方差 | primary, primary_with_maturity, all_candidates |
-| Convergence | best improvement ratio | `bf_best_improvement_ratio_w02` | 最大个体改善量占总非负改善量的比例 | primary, primary_with_maturity, all_candidates |
+| Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor尺度与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor尺度与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
 | Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | primary, primary_with_maturity, all_candidates |
 | Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数 | all_candidates |
 | State | Search maturity | `bf_search_maturity` | `ES_t(1-XS_t)` 的可执行行为特征版本 | primary_with_maturity, all_candidates |
@@ -782,8 +786,8 @@ H3:
 
 其中：
 
-- `base` 保留原始9个行为特征，用作历史对照；
-- `primary` 加入截图中定义清楚、低成本、算法无关的行为特征；
+- `base` 使用9个紧凑、permutation-invariant行为特征；旧identity-dependent base不再保留为活动组；
+- `primary` 加入低成本的population与fitness集合变化特征；
 - `primary_with_maturity` 在 `primary` 基础上加入 Search Maturity 及其备选状态特征；
 - `all_candidates` 进一步加入 `bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr`，只作为消融和诊断口径，不作为主结论的单独证据。
 
@@ -807,7 +811,7 @@ Decision输入：
 
     Algorithm parameters
 
-    ELA features
+    query features
 
 目标：
 

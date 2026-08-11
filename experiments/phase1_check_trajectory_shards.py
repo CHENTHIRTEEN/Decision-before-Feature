@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from trajectory.records import OPTIMIZER_STATE_MODE
+
 from experiments.phase1_batch_common import (
     algorithms,
     as_int_list,
@@ -44,6 +46,8 @@ def _check_shard(config: dict, path: Path, function: int, dimension: int) -> dic
         raise ValueError(f"missing shard: {path}")
 
     table = pq.read_table(path)
+    if "optimizer_state_mode" not in table.column_names:
+        raise ValueError(f"{path}: missing optimizer_state_mode; regenerate this pre-native-continuation shard")
     rows = table.to_pylist()
     expected_algorithms = tuple(algorithms(config))
     expected_instances = tuple(as_int_list(config, "instances"))
@@ -86,6 +90,8 @@ def _check_shard(config: dict, path: Path, function: int, dimension: int) -> dic
 
     grouped: dict[tuple[str, str, int], list[dict]] = defaultdict(list)
     for row in rows:
+        if str(row["optimizer_state_mode"]) != OPTIMIZER_STATE_MODE:
+            raise ValueError(f"{path}: trajectory does not use native optimizer-state continuation")
         best_fitness = float(row["best_fitness"])
         if not isfinite(best_fitness):
             raise ValueError(f"{path}: best_fitness must be finite")

@@ -1,5 +1,7 @@
 # Decision-before-Feature Decision Model计算成本与资源开销分析设计
 
+> 实现同步（2026-08-11）：旧成本—性能报告依赖撤回的 trajectory、旧 landscape 构念与 Ridge controller，不是当前证据。三档 query 必须分别重跑本协议，见 `../30_results/phase1_current_results.md`。
+
 ## 1. 文档定位
 
 本文档补充 Decision-before-Feature 研究中的一个重要审稿风险：
@@ -14,8 +16,8 @@
 
 因此，需要证明：
 
-1.  Decision Module 本身成本远低于 ELA；
-2.  Decision 过程不会抵消跳过 ELA 带来的收益；
+1.  Decision Module 本身成本相对所评估固定 query 足够小；
+2.  Decision 过程不会抵消避免无效 query 调用带来的资源差；
 3.  方法优化的是总资源消耗，而不是单纯增加一个预测模型。
 
 ------------------------------------------------------------------------
@@ -28,7 +30,7 @@ Decision-before-Feature 的目标不是：
 
 而是：
 
-> 使用极低成本的信息判断是否值得调用高成本 Landscape Analysis。
+> 使用低成本行为信息判断是否值得调用所评估的固定 landscape-analysis query。
 
 传统流程：
 
@@ -36,7 +38,7 @@ Decision-before-Feature 的目标不是：
 
     ↓
 
-    ELA Feature Extraction
+    Query Feature Extraction
 
     ↓
 
@@ -45,7 +47,7 @@ Decision-before-Feature 的目标不是：
 成本：
 
 $$
-C_{traditional}=C_{ELA}+C_{selection}
+C_{traditional}=C_{query}+C_{selection}
 $$
 
 ------------------------------------------------------------------------
@@ -64,12 +66,12 @@ $$
 
     ↓
 
-    ELA / Skip
+    Run Query / No-query
 
 成本：
 
 $$
-C_{DBF}=C_{behavior}+C_{decision}+C_{optional\ ELA}
+C_{DBF}=C_{behavior}+C_{decision}+C_{optional\ query}
 $$
 
 核心目标：
@@ -77,7 +79,7 @@ $$
 证明：
 
 $$
-C_{behavior}+C_{decision}\ll C_{ELA}
+C_{behavior}+C_{decision}\ll C_{query}
 $$
 
 ------------------------------------------------------------------------
@@ -93,8 +95,8 @@ decision-check frequency
 含义：
 
 - 每个 checkpoint 都是 behavior observation 点；
-- 每个 checkpoint 也是 controller、Random Analysis 和 Always ELA 可以触发 ELA 的决策点；
-- Always ELA 在当前 sampling protocol 的第一个 checkpoint 后触发；
+- 每个 checkpoint 也是 controller、Random Analysis 和 Always Query 可以触发固定 query 的决策点；
+- Always Query 在当前 sampling protocol 的第一个 checkpoint 后触发；
 - Random Analysis 在每个 decision-check point 独立判断是否触发；
 - controller 在每个 decision-check point 使用 behavior features 预测是否触发。
 
@@ -111,7 +113,7 @@ decision-check frequency
 0.40, 0.425, 0.45, 0.475, 0.50, 0.525, 0.55, 0.575, 0.60
 ```
 
-密集采样不得解释为纯被动观测频率实验。当前 continuation adapter 会在 checkpoint 间分段续跑，因此该实验只报告决策检查频率敏感性，不替代主在线测评。
+在 query 尚未触发时，密集 checkpoint 只观察同一个连续 optimizer state，不改变同 seed 的原生优化轨迹。密集采样仍只作为决策检查频率敏感性分析，因为额外检查点会改变 controller、Random Analysis 和 Always Query 的触发机会；它不替代主在线测评。
 
 ------------------------------------------------------------------------
 
@@ -132,28 +134,30 @@ Decision Model不是：
 预测：
 
 $$
-\hat U_{ELA}
+\hat U_{query}
 $$
 
 其中：
 
 $$
-U_{ELA}=PerformanceGain-\lambda Cost
+U_{query}=PerformanceGain-\lambda_T TimeCost-\lambda_M MemoryCost
 $$
+
+等总 FE 条件下，query sampling FE 已通过减少 Query continuation budget 进入 PerformanceGain；Population Transfer 的影响也已进入 selected action loss，二者不得再次扣除。
 
 决策：
 
 如果：
 
 $$
-\hat U_{ELA}>0
+\hat U_{query}>0
 $$
 
-执行ELA。
+执行固定 query。
 
 否则：
 
-跳过ELA。
+不执行 query。
 
 ------------------------------------------------------------------------
 
@@ -167,7 +171,7 @@ $$
 
 可能产生：
 
-    为了减少ELA成本
+    为了减少固定 query 成本
 
     ↓
 
@@ -175,7 +179,7 @@ $$
 
     ↓
 
-    模型成本接近ELA
+    模型成本接近固定 query
 
 这违背研究目标。
 
@@ -252,12 +256,12 @@ Random Forest / XGBoost：
 
 比较：
 
-### Always ELA
+### Always Query
 
 包括：
 
--   ELA sampling；
--   ELA feature computation；
+-   query sampling；
+-   query feature computation；
 -   selector。
 
 ------------------------------------------------------------------------
@@ -268,13 +272,13 @@ Random Forest / XGBoost：
 
 -   behavior extraction；
 -   model inference；
--   被调用的ELA。
+-   被调用的固定 query。
 
 报告：
 
 $$
 Ratio=
-\frac{C_{decision}}{C_{ELA}}
+\frac{C_{decision}}{C_{query}}
 $$
 
 目标：
@@ -299,10 +303,10 @@ $$
 
 ------------------------------------------------------------------------
 
-## Always ELA
+## Always Query
 
 $$
-U_A=Performance_A-\lambda C_{ELA}
+U_A=Performance_A-\lambda C_{query}
 $$
 
 ------------------------------------------------------------------------
@@ -310,7 +314,7 @@ $$
 ## Decision-before-Feature
 
 $$
-U_D=Performance_D-\lambda(C_{decision}+C_{ELA\ executed})
+U_D=Performance_D-\lambda(C_{decision}+C_{query\ executed})
 $$
 
 目标：
@@ -327,10 +331,10 @@ $$
 
 黑盒优化中，FE是核心成本。
 
-## Always ELA
+## Always Query
 
 $$
-FE_A=FE_{ELA}+FE_{optimization}
+FE_A=FE_{query}+FE_{optimization}
 $$
 
 ------------------------------------------------------------------------
@@ -338,7 +342,7 @@ $$
 ## Decision-before-Feature
 
 $$
-FE_D=FE_{probe}+FE_{optional\ ELA}+FE_{optimization}
+FE_D=FE_{probe}+FE_{optional\ query}+FE_{optimization}
 $$
 
 需要证明：
@@ -356,7 +360,7 @@ Decision阶段：
 一次性成本：
 
 -   trajectory generation；
--   oracle generation；
+-   offline utility label generation；
 -   model training。
 
 ------------------------------------------------------------------------
@@ -382,7 +386,7 @@ Decision overhead comparison
 
 比较：
 
--   Always ELA；
+-   Always Query；
 -   Decision-before-Feature。
 
 指标：
@@ -428,8 +432,8 @@ $$
 
 比较：
 
--   Never ELA；
--   Always ELA；
+-   Never Query；
+-   Always Query；
 -   Proposed。
 
 ------------------------------------------------------------------------
@@ -438,7 +442,7 @@ $$
 
 不要写：
 
-> We use machine learning to decide whether ELA is needed.
+> We use machine learning to decide whether the evaluated fixed landscape query should be executed.
 
 推荐：
 
@@ -448,14 +452,14 @@ $$
 
 中文：
 
-> 决策模块仅利用优化过程中已有搜索状态，不引入额外函数评价，其计算开销远低于
-> Landscape Analysis。
+> 决策模块仅利用优化过程中已有搜索状态，不引入额外函数评价；其计算开销与所评估
+> 固定 query 的采样评价及特征计算时间分别报告。
 
 ------------------------------------------------------------------------
 
 # 12. 最终研究逻辑
 
-    昂贵Landscape Analysis
+    所评估的固定 landscape-analysis query
 
             ↑
 

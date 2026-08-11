@@ -1,5 +1,7 @@
 # Decision-before-Feature 完整实验Pipeline与代码架构设计
 
+> 实现同步（2026-08-11）：trajectory、behavior、三档 landscape query、selection reference、utility labels、Decision dataset、模型比较和内部评价模块均已实现。现有正式证据仍须从 trajectory 开始重生成；本文后续目录树中的细粒度文件名属于设计分解，当前实际模块和命令以项目根目录 `README.md` 为准。
+
 ## 1. 文档定位
 
 本文档定义 Decision-before-Feature 的完整实验工程架构。
@@ -47,6 +49,18 @@
                           v
 
                   Search State Dataset
+
+                          |
+
+                          v
+
+          Shared-state Candidate Action Losses
+
+                          |
+
+                          v
+
+       Continuous-budget Selection Reference
 
                           |
 
@@ -151,13 +165,19 @@
     │   └── selector.py
 
 
-    ├── oracle/
+    ├── selection_reference/
 
-    │   ├── generate_utility.py
+    │   ├── action_losses.py
 
-    │   ├── portfolio.py
+    │   ├── model.py
 
-    │   └── selector_training.py
+    │   └── build.py
+
+    ├── utility_labels/
+
+    │   ├── generation.py
+
+    │   └── batch_generation.py
 
 
     ├── decision/
@@ -255,23 +275,10 @@ Optimizer:
 
 FE ratio。
 
-例如：
+正式 phase1：
 
-    0.005
-
-    0.01
-
-    0.02
-
-    0.05
-
-    0.10
-
-    0.20
-
-    0.50
-
-    1.00
+    0.20, 0.25, 0.28, 0.30, 0.35,
+    0.40, 0.45, 0.50, 0.55, 0.60
 
 ------------------------------------------------------------------------
 
@@ -311,8 +318,10 @@ Behavior vector。
 
 计算：
 
--   directional entropy
--   movement range
+-   population Wasserstein change rate
+-   centroid shift rate and coherence
+-   covariance spectral concentration
+-   fitness distribution change
 
 ------------------------------------------------------------------------
 
@@ -334,22 +343,25 @@ Behavior vector。
 
 # 7. Offline Utility Label模块
 
-Skip ELA 与 Run ELA 必须从同一个共享 checkpoint state 生成。
+No-query 与 Run Query 必须从同一个共享完整 optimizer checkpoint state 生成。
 
 主实验采用 Population Transfer：
 
-- 使用 checkpoint population、fitness 和 best fitness 继续优化；
+- 第一篇论文主协议令 prefix/default 都为训练集 SBS，No-query 原生继续该完整内部状态与 RNG state；全 prefix 行只用于独立稳健性分析；
+- Run Query 选择同一算法时也原生继续完整状态；
 - 切换算法时只转移算法无关搜索状态；
 - 不使用 Best-so-far Warm Start；
-- 不复用 ELA 采样点。
+- 不复用 query 采样点。
 
-## 7.1 Skip ELA路径
+正式 Selection Reference 必须先对每个共享 state 运行 `continue_current` 与其余三个 portfolio actions，保存 observed action loss；随后用 query features、算法无关 behavior 和连续 remaining budget 训练 multi-output action-loss regressor。静态 problem label 和 nearest performance bucket 不再进入正式生成链。
+
+## 7.1 No-query 路径
 
     Problem
 
     ↓
 
-    Default optimizer
+    Prefix optimizer native state
 
     ↓
 
@@ -361,13 +373,13 @@ $$ P_{skip} $$
 
 ------------------------------------------------------------------------
 
-## 7.2 Run ELA路径
+## 7.2 Run Query 路径
 
     Problem
 
     ↓
 
-    ELA
+    Fixed Query
 
     ↓
 
@@ -383,7 +395,7 @@ $$ P_{skip} $$
 
 保存：
 
-$$ P_{ELA} $$
+$$ p_{query} $$
 
 ------------------------------------------------------------------------
 
@@ -391,17 +403,25 @@ $$ P_{ELA} $$
 
 生成：
 
-$$ U_{ELA} = (P_{skip}-P_{ELA}) - \lambda C_{ELA} $$
+$$ U_{query} = (P_{skip}-p_{query}) - \lambda_T C_T-\lambda_M C_M. $$
+
+Query sampling FE 已通过减少 Query continuation budget 计入 $p_{query}$；Population Transfer 的影响已进入 observed action loss，均不得重复扣除。另保存：
+
+```text
+potential_gain_raw = P_skip - P_best_observed
+selector_regret_raw = p_query - P_best_observed
+performance_gain_raw = potential_gain_raw - selector_regret_raw
+```
 
 保存：
 
-    oracle_dataset.parquet
+    utility_labels.parquet
 
 字段：
 
     behavior_state
 
-    U_ELA
+    U_query
 
     metadata
 
@@ -448,7 +468,7 @@ behavior features
 
 输出：
 
-$$ \hat U_{ELA} $$
+$$ \hat U_{query} $$
 
 模型：
 
@@ -484,7 +504,7 @@ Main:
 
     ↓
 
-    Run ELA / Skip ELA
+    Run Query / No-query
 
 ------------------------------------------------------------------------
 
@@ -492,7 +512,7 @@ Main:
 
 ## RQ1
 
-ELA Cost-benefit
+Fixed-query cost-benefit
 
 脚本：
 
@@ -531,8 +551,8 @@ End-to-end
 
 比较：
 
--   Never ELA
--   Always ELA
+-   Never Query
+-   Always Query
 -   Traditional AAS
 -   Proposed
 
@@ -633,7 +653,7 @@ Parquet。
 
 3.  使用test函数生成训练数据。
 
-4.  将ELA feature加入Decision输入。
+4.  将query feature加入Decision输入。
 
 5.  添加baseline但不记录原因。
 

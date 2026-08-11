@@ -11,22 +11,23 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_GROUPS
+from decision.query_contract import decision_query_root, validate_query_payload
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_INPUT_ROOT = Path("results/decision/phase1_refined_sampling/feature_group_ablation")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/feature_group_ablation_summary")
 FEATURE_GROUP_ORDER = ("base", "primary", "primary_with_maturity", "all_candidates")
 TOP_K_FRACTION = 0.10
 
 
 def compare_feature_group_training(
     *,
+    query_id: str,
     input_root: Path,
     output_dir: Path,
     overwrite: bool,
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
-    group_payloads = [_read_group_outputs(input_root, group) for group in FEATURE_GROUP_ORDER]
+    group_payloads = [_read_group_outputs(input_root, group, query_id) for group in FEATURE_GROUP_ORDER]
 
     regression = pd.concat([payload["regression"] for payload in group_payloads], ignore_index=True)
     decision = pd.concat([payload["decision"] for payload in group_payloads], ignore_index=True)
@@ -43,6 +44,9 @@ def compare_feature_group_training(
 
     summary = {
         "experiment": "phase1_refined_sampling_feature_group_ablation",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "input_root": str(input_root),
         "feature_groups": FEATURE_GROUP_ORDER,
         "top_k_fraction": TOP_K_FRACTION,
@@ -60,7 +64,7 @@ def compare_feature_group_training(
             "feature_groups_drawn_from_behavior_features_only": True,
             "metadata_used_as_input": False,
             "algorithm_identifier_used_as_input": False,
-            "ela_features_used_as_input": False,
+            "query_features_used_as_input": False,
         },
     }
     summary_path = output_dir / "feature_group_ablation_summary.json"
@@ -106,7 +110,7 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"feature group comparison outputs already exist; pass --overwrite: {existing[0]}")
 
 
-def _read_group_outputs(input_root: Path, group: str) -> dict[str, Any]:
+def _read_group_outputs(input_root: Path, group: str, query_id: str) -> dict[str, Any]:
     group_dir = input_root / group
     summary_path = group_dir / "full_decision_model_training_summary.json"
     regression_path = group_dir / "validation_regression_summary.parquet"
@@ -117,6 +121,7 @@ def _read_group_outputs(input_root: Path, group: str) -> dict[str, Any]:
             raise FileNotFoundError(path)
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    validate_query_payload(summary, query_id=query_id, artifact=f"{group} training summary")
     if summary.get("feature_group") != group:
         raise ValueError(f"training summary feature_group mismatch for {group}: {summary.get('feature_group')}")
     feature_columns = list(summary.get("feature_columns", []))
@@ -190,7 +195,7 @@ def _best_row(frame: pd.DataFrame, criterion: str, metric: str, *, ascending: bo
     }
     for optional in (
         "decision_mean_utility",
-        "decision_ela_call_rate",
+        "decision_query_call_rate",
         "positive_row_capture_rate",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
@@ -239,7 +244,7 @@ def _markdown_report(
                         "feature_group",
                         "feature_count",
                         "model_name",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "decision_mean_utility",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -268,7 +273,7 @@ def _markdown_report(
             "",
             "- All groups use the same materialized dataset and target column.",
             "- Feature groups are selected from `BEHAVIOR_FEATURE_GROUPS` only.",
-            "- Metadata, function identifiers, algorithm identifiers, optimizer internals, and ELA features are not used as Decision Model input.",
+            "- Metadata, function identifiers, algorithm identifiers, optimizer internals, and Query features are not used as Decision Model input.",
         ]
     ) + "\n"
 
@@ -296,11 +301,18 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare phase1 refined sampling feature group training outputs.")
-    parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--input-root", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    compare_feature_group_training(input_root=args.input_root, output_dir=args.output_dir, overwrite=args.overwrite)
+    query_root = decision_query_root(args.query_id)
+    compare_feature_group_training(
+        query_id=args.query_id,
+        input_root=args.input_root or query_root / "feature_group_ablation",
+        output_dir=args.output_dir or query_root / "feature_group_ablation_summary",
+        overwrite=args.overwrite,
+    )
 
 
 if __name__ == "__main__":

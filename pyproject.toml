@@ -1,21 +1,18 @@
 [project]
 name = "decision-before-feature"
 version = "0.1.0"
-description = "Optimizer trajectory collection for Decision-before-Feature experiments"
+description = "Offline trajectory, landscape-query utility, and decision-model experiments for Decision-before-Feature"
 authors = [
     { name = "BingChen", email = "1030339437@QQ.COM" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "cma>=4.4.4",
     "coco-experiment>=2.8.2",
     "lightgbm>=4.0",
     "numpy>=2.5.1",
     "opfunu>=1.0.4",
     "pandas>=3.0.5",
-    "pflacco>=0.4",
     "pyarrow>=25.0.0",
-    "pymoo>=0.6.2",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.9.0",
     "scipy>=1.18.0",
@@ -24,63 +21,43 @@ dependencies = [
 ]
 
 [project.scripts]
-phase1-collect = "experiments.phase1_collect:main"
 phase1-validate = "experiments.phase1_validate:main"
 benchmark-check = "experiments.benchmark_check:main"
 phase1-collect-batch = "experiments.phase1_collect_batch:main"
 phase1-check-config = "experiments.phase1_check_config:main"
 phase1-plan-shards = "experiments.phase1_plan_shards:main"
 phase1-check-trajectory-shards = "experiments.phase1_check_trajectory_shards:main"
+optimizer-state-check = "experiments.optimizer_state_consistency:main"
+selection-reference-check = "experiments.selection_reference_consistency:main"
 behavior-extract = "behavior.extraction:main"
 behavior-extract-batch = "behavior.batch_extraction:main"
-ela-extract-batch = "ela.batch_extraction:main"
+query-sample-batch = "landscape_queries.batch_sampling:main"
+query-extract-cheap = "landscape_queries.batch_features:main"
+query-consistency = "landscape_queries.consistency:main"
+selection-reference-evaluate-actions = "selection_reference.action_losses:main"
 selection-reference-build = "selection_reference.build:main"
 utility-labels-generate = "utility_labels.generation:main"
 utility-labels-generate-batch = "utility_labels.batch_generation:main"
 utility-labels-validate = "utility_labels.validation:main"
-decision-min-support-evaluate = "decision.min_support_evaluate:main"
-decision-min-support-diagnose = "decision.min_support_diagnostics:main"
-decision-min-support-label-source-check = "decision.min_support_label_source_check:main"
-decision-min-support-changed-algorithm-diagnose = "decision.min_support_changed_algorithm_diagnostics:main"
-decision-min-support-changed-aware-evaluate = "decision.min_support_changed_algorithm_aware_evaluate:main"
-decision-min-support-model-sensitivity = "decision.min_support_model_sensitivity:main"
-decision-min-support-model-score-ranking = "decision.min_support_model_score_ranking:main"
-decision-min-support-train-score-ranking = "decision.min_support_train_score_ranking:main"
-decision-min-support-score-generalization = "decision.min_support_score_generalization:main"
-decision-min-support-feature-shift = "decision.min_support_feature_distribution_shift:main"
-decision-min-support-calibration-opportunity = "decision.min_support_calibration_opportunity:main"
-decision-min-support-late-stage-label-coverage = "decision.min_support_late_stage_label_coverage:main"
-decision-min-support-late-stage-coverage-extension = "decision.min_support_late_stage_coverage_extension:main"
-decision-min-support-f024-behavior-separability = "decision.min_support_f024_behavior_separability:main"
-decision-min-support-f024-behavior-feature-candidates = "decision.min_support_f024_behavior_feature_candidates:main"
-decision-min-support-f024-two-feature-candidates = "decision.min_support_f024_two_feature_candidate_diagnostics:main"
-decision-min-support-f024-two-feature-guard-stability = "decision.min_support_f024_two_feature_guard_stability:main"
-decision-min-support-f024-i02-d10-guard-failure = "decision.min_support_f024_i02_d10_guard_failure_diagnostics:main"
-decision-min-support-behavior-overlap = "decision.min_support_behavior_overlap:main"
-decision-min-support-stage-threshold-diagnose = "decision.min_support_stage_threshold_diagnostics:main"
-decision-min-support-fe-transition-sampling-validate = "decision.min_support_fe_transition_sampling_validation:main"
-decision-min-support-transition-020-030-followup = "decision.min_support_transition_020_030_followup:main"
-decision-min-support-selector-transition-diagnose = "decision.min_support_selector_transition_diagnostics:main"
-decision-min-support-performance-bucket-sensitivity = "decision.min_support_performance_bucket_sensitivity:main"
-decision-min-support-bucket-smoothing-diagnose = "decision.min_support_bucket_smoothing_diagnostics:main"
-decision-min-support-ablation-compare = "decision.min_support_ablation_comparison:main"
-decision-min-support-pareto-plot = "decision.min_support_pareto_plot:main"
-decision-min-support-gated-pareto = "decision.min_support_gated_pareto_diagnostic:main"
-decision-min-support-family-stage-transfer = "decision.min_support_family_stage_threshold_transfer:main"
 decision-materialize-training-data = "decision.materialize_training_data:main"
 decision-check-training-pipeline-contract = "decision.check_training_pipeline_contract:main"
 decision-changed-same-learnability = "decision.changed_same_learnability_diagnostic:main"
 decision-algorithm-partition-stacking-diagnostic = "decision.algorithm_partition_stacking_diagnostic:main"
-decision-full-training-readiness-check = "decision.full_training_readiness_check:main"
 decision-train-full = "decision.train_full_decision_model:main"
 decision-compare-feature-groups = "decision.compare_feature_group_training:main"
 decision-interpret-full-training = "decision.interpret_full_training_results:main"
+decision-model-benchmark = "decision.model_benchmark_comparison:main"
+decision-classifier-tune = "decision.classifier_feature_engineering_tuning:main"
+decision-threshold-sweep = "decision.threshold_sweep:main"
+decision-compare-controller-baselines = "decision.compare_controller_baselines:main"
+decision-controller-cost-performance = "decision.controller_cost_performance_pareto:main"
 decision-external-test-predict = "decision.external_test_predict:main"
 decision-online-controller-evaluate = "decision.online_controller_evaluate:main"
+decision-cec-online-score-distribution = "decision.cec_online_score_distribution:main"
 
 [build-system]
 requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["benchmarks*", "optimizers*", "trajectory*", "experiments*", "behavior*", "ela*", "selection_reference*", "utility_labels*", "decision*"]
+include = ["benchmarks*", "optimizers*", "trajectory*", "experiments*", "behavior*", "landscape_queries*", "selection_reference*", "utility_labels*", "decision*"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
@@ -9,19 +10,25 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.query_contract import decision_query_root, validate_query_payload
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS
 
-DEFAULT_FULL_TRAINING_DIR = Path("results/decision/phase1_refined_sampling/full_training")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/full_training_interpretation")
+
 TOP_K_FRACTION = 0.10
 
 
 def build_full_training_interpretation_report(
     *,
+    query_id: str,
     full_training_dir: Path,
     output_dir: Path,
     overwrite: bool,
 ) -> dict[str, str]:
     _check_output_paths(output_dir, overwrite)
+    training_summary = json.loads(
+        (full_training_dir / "full_decision_model_training_summary.json").read_text(encoding="utf-8")
+    )
+    validate_query_payload(training_summary, query_id=query_id, artifact="Decision training summary")
     regression = pd.read_csv(full_training_dir / "validation_regression_summary.csv")
     decision = pd.read_csv(full_training_dir / "validation_decision_summary.csv")
     ranking = pd.read_csv(full_training_dir / "validation_ranking_summary.csv")
@@ -100,7 +107,7 @@ def _evidence_tables(
                 "model_name",
                 "threshold_mode",
                 "threshold",
-                "decision_ela_call_rate",
+                "decision_query_call_rate",
                 "mean_observed_utility_under_calls",
                 "positive_row_capture_rate",
                 "utility_capture_rate",
@@ -271,7 +278,7 @@ def _markdown_report(
             ),
             (
                 f"- **The usable signal is concentrated in `changed_algorithm`.** LightGBM top-10% ranking reaches "
-                f"{_fmt_pct(best_changed['top_k_u_gt_zero_rate'])} `U_ELA>0` rate and {_fmt_pct(best_changed['utility_capture_rate'])} utility capture on changed rows, "
+                f"{_fmt_pct(best_changed['top_k_u_gt_zero_rate'])} `U_query>0` rate and {_fmt_pct(best_changed['utility_capture_rate'])} utility capture on changed rows, "
                 f"but the best same-row top-10% utility capture is only {_fmt_pct(best_same['utility_capture_rate'])} and still has negative top-k mean observed utility."
             ),
             (
@@ -282,13 +289,13 @@ def _markdown_report(
             "",
             "- Cohort: `bbob_validation`, 64,800 rows from the phase1 refined sampling materialized Decision dataset.",
             "- Input matrix: exactly the nine frozen `bf_*` behavior features.",
-            "- Target: `u_ela_lamT_1`; `U_ELA>0` means executing ELA has positive observed utility under this frozen target.",
-            "- Regression metrics evaluate predicted utility magnitude; ranking metrics evaluate whether high scores enrich rows with useful ELA.",
+            "- Target: `u_query_lamT_1`; `U_query>0` means executing the evaluated fixed query has positive observed utility under this frozen target.",
+            "- Regression metrics evaluate predicted utility magnitude; ranking metrics evaluate whether high scores enrich rows with useful query outcomes.",
             "- Decision threshold metrics evaluate the policy `decision_score > threshold`; `zero` uses 0, while `train_utility` is selected only from train predictions.",
             "",
             "## Regression says LightGBM is the strongest main model, while Ridge is mostly a ranking baseline",
             "",
-            "All four models have weak or below-mean validation R2, so the exact magnitude of `U_ELA` remains hard to predict. LightGBM is still the best main model because it gives the lowest RMSE with nontrivial rank correlation; XGBoost is close, Random Forest is weaker, and Ridge has poor RMSE despite high Spearman.",
+            "All four models have weak or below-mean validation R2, so the exact magnitude of `U_query` remains hard to predict. LightGBM is still the best main model because it gives the lowest RMSE with nontrivial rank correlation; XGBoost is close, Random Forest is weaker, and Ridge has poor RMSE despite high Spearman.",
             "",
             _markdown_table(tables["all_validation_regression"]),
             "",
@@ -300,7 +307,7 @@ def _markdown_report(
             "",
             _markdown_table(tables["all_validation_threshold_decision"]),
             "",
-            "Implication: `predicted_u_ela > 0` should remain a protocol baseline because it matches the conceptual decision rule, but it should not be the only main empirical claim. The more defensible empirical claim is that behavior scores provide a useful prioritization signal.",
+            "Implication: `predicted_u_query > 0` should remain a protocol baseline because it matches the conceptual decision rule, but it should not be the only main empirical claim. The more defensible empirical claim is that behavior scores provide a useful prioritization signal.",
             "",
             "## Top-k ranking gives the cleanest Decision-before-Feature evidence",
             "",
@@ -308,19 +315,19 @@ def _markdown_report(
             "",
             _markdown_table(tables["all_validation_top10_ranking"]),
             "",
-            "Interpretation: if the downstream system can control an ELA budget or call rate, top-k ranking is a better operational decision口径 than raw zero thresholding. The top-k mean observed utility is still below zero overall because same_algorithm rows and costly misses remain numerous, so the report should emphasize capture/lift rather than claiming positive average utility for all top-k calls.",
+            "Interpretation: if the downstream system can control a query budget or call rate, top-k ranking is a better operational decision口径 than raw zero thresholding. Under the primary SBS-prefix protocol, same_algorithm means the query path selects the current SBS without changing parameters, restart behavior, budget policy, or risk policy; these rows are structurally budget-and-cost-only references, not confirmation-value evidence.",
             "",
             "## changed_algorithm rows carry the main learnable signal",
             "",
-            "`changed_algorithm` rows show much stronger ranking concentration than `same_algorithm` rows. This matches the earlier diagnostic: behavior features are more informative when ELA changes the selected optimizer. Same rows can still show rank lift, but their top-k mean observed utility remains below zero, so they should be treated as reference/noise-plus-cost rows rather than evidence that ELA switching helps.",
+            "Under the primary SBS-prefix protocol, `changed_algorithm` means `selected_equals_prefix=false`, so these rows isolate cases where the query changes the optimizer action. `same_algorithm` rows make no action change and should have non-positive performance gain before non-FE costs; any positive utility must trigger a state/budget consistency check rather than be interpreted as information confirmation value.",
             "",
             _markdown_table(tables["label_source_top10_ranking"]),
             "",
-            "Implication: the main paper table should report all rows and the changed/same split side by side. The strongest claim should be phrased as behavior features help prioritize cases where ELA-mediated algorithm choice changes are valuable, not as a universal calibrated utility predictor.",
+            "Implication: the main paper table should report all primary rows and the selected-equals-prefix split side by side. The legacy changed/same names are acceptable only because primary rows satisfy prefix_algorithm=default_algorithm; all-prefix robustness reports must use the explicit relation fields.",
             "",
             "## Dimension and FE_ratio reveal where the ranking signal is most usable",
             "",
-            "By dimension, LightGBM/XGBoost dominate most top-10% utility-capture comparisons. The 40D layer has a much lower base `U_ELA>0` rate, but top-k lift is high; this means the model can enrich rare useful rows even when the absolute row rate is small.",
+            "By dimension, LightGBM/XGBoost dominate most top-10% utility-capture comparisons. The 40D layer has a much lower base `U_query>0` rate, but top-k lift is high; this means the model can enrich rare useful rows even when the absolute row rate is small.",
             "",
             _markdown_table(tables["dimension_top10_ranking"]),
             "",
@@ -328,9 +335,9 @@ def _markdown_report(
             "",
             _markdown_table(tables["fe_ratio_best_top10_ranking"]),
             "",
-            "## Prefix-algorithm strata support reporting, not model input",
+            "## Prefix-algorithm robustness is isolated from the main result",
             "",
-            "The prefix-optimizer strata differ materially. XGBoost is strongest for `cmaes` and `de`; Ridge is competitive for `pso`; Random Forest leads `shade` by utility capture. These differences support stratified error analysis and explain why algorithm-partition diagnostics looked promising. They do not justify adding `prefix_algorithm` to the main model input under the frozen protocol.",
+            "The primary Decision dataset contains only the train-derived SBS prefix. Multi-prefix comparisons belong to the separate cross-probe dataset and may support cross-probe robustness, leave-one-probe-out, and algorithm-agnostic generalization analyses. They do not justify adding `prefix_algorithm` to the main model input.",
             "",
             _markdown_table(tables["prefix_algorithm_top10_ranking"]),
             "",
@@ -340,7 +347,7 @@ def _markdown_report(
             "",
             "- It is best on all-validation RMSE among the four trained models.",
             "- It nearly ties XGBoost on all-validation top-10% utility capture.",
-            "- It is best on `changed_algorithm` top-10% utility capture, the most interpretable ELA-switching stratum.",
+            "- It is best on the primary-protocol `changed_algorithm` top-10% utility capture, where changed is equivalent to `selected_equals_prefix=false`.",
             "- It is fast enough for reporting and deployment-style analysis in this dataset.",
             "",
             "Recommended secondary comparison model: `xgboost_regression`, because it slightly leads all-validation top-10% utility capture. Recommended baseline model: `ridge_regression`, because it provides a simple linear ranking baseline but should not be used for calibrated utility magnitude.",
@@ -349,14 +356,14 @@ def _markdown_report(
             "",
             "Recommended primary empirical口径: top-k ranking at 5%, 10%, and 20%, with 10% as the headline table because it balances selectivity and enough rows for stable stratification.",
             "",
-            "Recommended secondary口径: train-derived utility threshold, reported mainly to show that thresholding without validation tuning remains difficult. Zero threshold should be kept only as the conceptual baseline for `predicted_u_ela > 0`, not as the main performance claim.",
+            "Recommended secondary口径: train-derived utility threshold, reported mainly to show that thresholding without validation tuning remains difficult. Zero threshold should be kept only as the conceptual baseline for `predicted_u_query > 0`, not as the main performance claim.",
             "",
             "## Robustness and limitations",
             "",
-            "- This is predictive evidence, not causal evidence about ELA itself; labels are observed utility rows generated under the frozen phase1 setup.",
-            "- The sparse `U_ELA>0` rate makes regression magnitude difficult; ranking is more stable than direct thresholding.",
+            "- This is predictive evidence, not causal evidence about landscape analysis; labels are observed utility rows generated for the evaluated fixed query under the frozen phase1 setup.",
+            "- The sparse `U_query>0` rate makes regression magnitude difficult; ranking is more stable than direct thresholding.",
             "- `prefix_algorithm`, `dimension`, `FE_ratio`, `label_source`, `family`, and problem metadata are not model inputs; they are only reporting strata.",
-            "- Same-algorithm rows have low positive-utility prevalence and negative top-k mean utility, so they should be interpreted as reference/cost/noise rows.",
+            "- Primary-protocol same-algorithm rows are no-action-change budget-and-cost references; positive utility in this layer is a consistency-check failure condition, not confirmation value.",
             f"- Source evidence comes from `{full_training_dir}`.",
             "",
             "## Recommended next steps",
@@ -371,7 +378,7 @@ def _markdown_report(
             "",
             "- Can train-only FE-stage thresholds improve mean decision utility without using validation statistics?",
             "- Does the LightGBM ranking advantage transfer to CEC2017, CEC2022, and engineering problems under the planned external test protocol?",
-            "- Can calibration be improved without adding forbidden ELA/function/algorithm metadata to X?",
+            "- Can calibration be improved without adding forbidden query/function/algorithm metadata to X?",
             "",
         ]
     )
@@ -412,13 +419,16 @@ def _fmt_pct(value: Any) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build an interpretation report from full Decision Model training outputs.")
-    parser.add_argument("--full-training-dir", type=Path, default=DEFAULT_FULL_TRAINING_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--full-training-dir", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
     build_full_training_interpretation_report(
-        full_training_dir=args.full_training_dir,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        full_training_dir=args.full_training_dir or query_root / "full_training",
+        output_dir=args.output_dir or query_root / "full_training_interpretation",
         overwrite=args.overwrite,
     )
 

@@ -21,18 +21,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS, BEHAVIOR_FEATURE_GROUPS
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_DATASET_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet")
-DEFAULT_SCHEMA_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json")
-DEFAULT_READINESS_SUMMARY_PATH = Path(
-    "results/decision/phase1_refined_sampling/full_training_readiness/full_training_readiness_summary.json"
-)
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/full_training")
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_ela_lamT_1"
-AUXILIARY_LABEL_COLUMN = "need_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
+AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
 METADATA_COLUMNS = (
     "split",
     "problem_id",
@@ -42,8 +37,24 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    "query_id",
+    "query_protocol",
+    "sample_design_id",
     "default_algorithm",
+    "selection_reference_default_algorithm",
+    "selection_reference_protocol",
+    "selector_prediction_source",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "best_observed_algorithm",
+    "selected_matches_best_observed",
+    "potential_gain_raw",
+    "selector_regret_raw",
+    "skip_switches_from_prefix",
+    "no_query_transition_mode",
+    "query_transition_mode",
     "label_source",
 )
 FORBIDDEN_X_COLUMNS = {
@@ -55,30 +66,30 @@ FORBIDDEN_X_COLUMNS = {
     "function",
     "FE_total",
     "FE_prefix",
-    "FE_analysis",
-    "FE_skip_optimization",
-    "FE_ela_optimization",
+    "FE_query",
+    "FE_no_query_optimization",
+    "FE_query_optimization",
     "p_skip",
-    "p_ela",
+    "p_query",
     "performance_gain_raw",
     "performance_gain_norm",
-    "runtime_analysis",
+    "runtime_query",
     "runtime_selection",
-    "runtime_skip_optimization",
-    "runtime_ela_optimization",
+    "runtime_no_query_optimization",
+    "runtime_query_optimization",
     "time_cost_norm",
     "memory_cost_norm",
-    "u_ela_lamT_0",
-    "u_ela_lamT_025",
-    "u_ela_lamT_05",
-    "u_ela_lamT_2",
-    "need_ela_lamT_0",
-    "need_ela_lamT_025",
-    "need_ela_lamT_05",
-    "need_ela_lamT_2",
+    "u_query_lamT_0",
+    "u_query_lamT_025",
+    "u_query_lamT_05",
+    "u_query_lamT_2",
+    "need_query_lamT_0",
+    "need_query_lamT_025",
+    "need_query_lamT_05",
+    "need_query_lamT_2",
 }
 FORBIDDEN_X_NAME_FRAGMENTS = (
-    "ela",
+    "query",
     "function",
     "algorithm",
     "selected",
@@ -93,9 +104,9 @@ EPS = 1e-12
 
 def train_full_decision_models(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
-    readiness_summary_path: Path,
     output_dir: Path,
     overwrite: bool,
     random_seed: int,
@@ -104,10 +115,11 @@ def train_full_decision_models(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    readiness = _read_readiness_summary(readiness_summary_path)
+    query_spec = get_query_spec(query_id)
+    if schema.get("query_id") != query_id or schema.get("query_protocol") != query_spec.protocol:
+        raise ValueError("Decision dataset schema does not match the requested query protocol")
     feature_columns = _feature_columns(schema, feature_group)
     _check_dataset(dataset, feature_columns)
-    _check_readiness(readiness, dataset_path)
 
     train = dataset[dataset["split"] == TRAIN_SPLIT].copy()
     validation = dataset[dataset["split"] == VALIDATION_SPLIT].copy()
@@ -266,7 +278,9 @@ def train_full_decision_models(
         "experiment": "phase1_refined_sampling_full_decision_model_training",
         "dataset": str(dataset_path),
         "schema": str(schema_path),
-        "readiness_summary": str(readiness_summary_path),
+        "query_id": query_id,
+        "query_protocol": query_spec.protocol,
+        "sample_design_id": query_spec.sample_design_id,
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
         "feature_group": feature_group,
@@ -311,7 +325,7 @@ def train_full_decision_models(
             "decision_input_uses_only_behavior_features": True,
             "metadata_used_as_input": False,
             "algorithm_identifier_used_as_input": False,
-            "ela_features_used_as_input": False,
+            "query_features_used_as_input": False,
             "validation_rows_used_for_imputer_scaler_model_or_threshold_fit": 0,
         },
     }
@@ -364,12 +378,6 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"full training outputs already exist; pass --overwrite: {existing[0]}")
 
 
-def _read_readiness_summary(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"readiness summary is required before full training: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
     schema_columns = list(schema.get("input_columns", []))
     if schema_columns != list(BEHAVIOR_FEATURE_COLUMNS):
@@ -405,30 +413,35 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         raise ValueError(f"{TARGET_COLUMN} must be non-null and finite")
     if not np.array_equal(dataset[AUXILIARY_LABEL_COLUMN].to_numpy(dtype=bool), target.to_numpy(dtype=float) > 0.0):
         raise ValueError(f"{AUXILIARY_LABEL_COLUMN} must equal {TARGET_COLUMN} > 0")
+    if not (dataset["prefix_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)).all():
+        raise ValueError("main Decision dataset must use the train-derived SBS as both prefix and default")
+    if dataset["skip_switches_from_prefix"].astype(bool).any():
+        raise ValueError("main Decision dataset must use native no-query continuation without a prefix switch")
+    selected_equals_default = (
+        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    selected_equals_prefix = (
+        dataset["selected_algorithm"].astype(str) == dataset["prefix_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    if not np.array_equal(dataset["selected_equals_default"].to_numpy(dtype=bool), selected_equals_default):
+        raise ValueError("selected_equals_default is inconsistent")
+    if not np.array_equal(dataset["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix):
+        raise ValueError("selected_equals_prefix is inconsistent")
+    if (selected_equals_prefix & (target.to_numpy(dtype=float) > 0.0)).any():
+        raise ValueError("main-protocol rows that select the current SBS must not have positive query utility")
     expected_label_source = np.where(
-        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str),
+        selected_equals_default,
         "same_algorithm",
         "changed_algorithm",
     )
     if not np.array_equal(dataset["label_source"].to_numpy(dtype=str), expected_label_source):
-        raise ValueError("label_source must match selected_algorithm == default_algorithm")
+        raise ValueError("label_source must match selected_equals_default")
     for column in feature_columns:
         values = pd.to_numeric(dataset[column], errors="coerce")
         non_null = values.notna()
         invalid = non_null & ~np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))
         if invalid.any():
             raise ValueError(f"non-null behavior feature values must be finite: {column}")
-
-
-def _check_readiness(readiness: dict[str, Any], dataset_path: Path) -> None:
-    if not bool(readiness.get("can_start_full_training")):
-        raise ValueError("full training readiness summary does not approve training")
-    if Path(str(readiness.get("dataset_path"))) != dataset_path:
-        raise ValueError("readiness summary dataset path does not match requested dataset")
-    if list(readiness.get("input_columns", [])) != list(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("readiness summary input columns must match full BEHAVIOR_FEATURE_COLUMNS")
-    if readiness.get("target_column") != TARGET_COLUMN:
-        raise ValueError("readiness summary target column does not match training target")
 
 
 def _check_family_split(train: pd.DataFrame, validation: pd.DataFrame) -> None:
@@ -578,7 +591,7 @@ def _prediction_frame(
     output.insert(2, "model_family", model_family)
     output["decision_score"] = scores.astype(float)
     for threshold_mode, threshold in thresholds.items():
-        output[f"decision_run_ela_{threshold_mode}"] = scores > threshold
+        output[f"decision_run_query_{threshold_mode}"] = scores > threshold
         output[f"decision_utility_{threshold_mode}"] = np.where(scores > threshold, output[TARGET_COLUMN], 0.0)
     return output
 
@@ -733,7 +746,7 @@ def _decision_row(
 ) -> dict[str, Any]:
     observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
     positive = observed > 0.0
-    calls = frame[f"decision_run_ela_{threshold_mode}"].to_numpy(dtype=bool)
+    calls = frame[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
     decision_utility = np.where(calls, observed, 0.0)
     captured_positive = positive & calls
     unhelpful_calls = (~positive) & calls
@@ -745,8 +758,8 @@ def _decision_row(
         **_common_fields(frame, layer, group, model_name, model_family),
         "threshold_mode": threshold_mode,
         "threshold": float(threshold),
-        "decision_ela_call_rows": call_rows,
-        "decision_ela_call_rate": float(np.mean(calls)),
+        "decision_query_call_rows": call_rows,
+        "decision_query_call_rate": float(np.mean(calls)),
         "mean_observed_utility_under_calls": float(np.mean(observed[calls])) if call_rows else 0.0,
         "positive_rows_captured": int(np.sum(captured_positive)),
         "positive_row_capture_rate": float(np.sum(captured_positive) / max(positive_rows, 1)),
@@ -760,8 +773,8 @@ def _decision_row(
         "unhelpful_call_cost_sum": float(-np.sum(observed[unhelpful_calls])),
         "decision_utility_sum": float(np.sum(decision_utility)),
         "decision_mean_utility": float(np.mean(decision_utility)),
-        "always_ela_mean_utility": float(np.mean(observed)),
-        "never_ela_mean_utility": 0.0,
+        "always_query_mean_utility": float(np.mean(observed)),
+        "never_query_mean_utility": 0.0,
         "best_observed_action_mean_utility": float(np.mean(np.maximum(observed, 0.0))),
     }
 
@@ -980,7 +993,7 @@ def _markdown_report(
                 all_zero_decision[
                     [
                         "model_name",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "mean_observed_utility_under_calls",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -997,7 +1010,7 @@ def _markdown_report(
                 all_train_threshold_decision[
                     [
                         "model_name",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "mean_observed_utility_under_calls",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -1071,20 +1084,21 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train full Decision Models on the phase1 refined sampling dataset.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--readiness-summary", type=Path, default=DEFAULT_READINESS_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--feature-group", choices=sorted(BEHAVIOR_FEATURE_GROUPS), default="all_candidates")
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    materialized = Path("results/decision") / args.query_id / "materialized_training_data"
     train_full_decision_models(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        readiness_summary_path=args.readiness_summary,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or materialized / "decision_dataset.parquet",
+        schema_path=args.schema or materialized / "decision_dataset_schema.json",
+        output_dir=args.output_dir or Path("results/decision") / args.query_id / "full_training",
         overwrite=args.overwrite,
         random_seed=args.random_seed,
         feature_group=args.feature_group,

@@ -2,9 +2,11 @@
 
 ## 1. 方法定位
 
-本文研究的问题不是传统的"如何利用ELA选择算法"，而是进一步研究：
+本文研究的问题不是传统的“如何利用 landscape features 选择算法”，而是进一步研究：
 
-> 在执行昂贵Landscape Analysis之前，是否应该执行Landscape Analysis。
+> 在执行预先定义的 landscape-analysis query 之前，是否值得执行该固定 query。
+
+第一篇论文的主 query 是 `descriptor_cheap`，即 16 维自定义低成本描述符；它不代表完整 ELA 或完整 pflacco。`pflacco_standard` 与 `pflacco_broad` 仅用于预先定义的配置稳健性实验。
 
 因此，将问题定义为Analysis Selection Problem。
 
@@ -13,7 +15,7 @@
     Optimization Problem
             |
             v
-    ELA Feature Extraction
+    Query Feature Extraction
             |
             v
     Algorithm Selection
@@ -38,7 +40,7 @@
 |                       |
 | --------------------- |
 |                       |
-| Skip ELA      Run ELA |
+| No-query      Run Query |
 
     |              |
 
@@ -92,28 +94,31 @@ $$
 \phi
 $$
 
-表示ELA feature extractor。
+表示query feature extractor。
 
-然后：
+在本文的在线状态任务中，固定下游 Selection Reference 还接收 permutation-invariant 搜索行为和连续剩余预算，并预测每个候选动作的连续 loss：
 
 $$
-A^*=S(\phi(p))
+\widehat{\boldsymbol L}(s_t)
+=S\!\left(\phi(p),\operatorname{behavior}(s_t),B_t/FE_{total}\right),
 $$
 
-其中：
+$$
+\hat a_t=\arg\min_a\widehat L(s_t,a).
+$$
 
-(S)为算法选择模型。
+离线监督由同一共享状态上的 `continue_current` 与其余 portfolio actions 真实 continuation 产生；不使用静态 problem label 或 nearest performance bucket。
 
-该流程对应已有 ELA-based algorithm selection 范式：先获取 landscape features，再用监督学习模型从算法组合中选择优化器。本文不把该 selector 作为新贡献，而是把它作为固定下游 Selection Reference；本文研究的是调用该 selector 之前是否值得执行 ELA。
+该流程对应已有 feature-based algorithm selection 范式：先获取 landscape features，再用监督学习模型从算法组合中选择优化器。本文不把该 selector 作为新贡献，而是把它作为固定下游 Selection Reference；本文研究的是调用该 selector 之前是否值得执行所评估的固定 query。
 
 ---
 
 ## 2.3 Limitation
 
-ELA存在额外成本：
+固定 query 存在额外成本：
 
 $$
-C_{ELA}
+C_{query}
 $$
 
 包括：
@@ -127,7 +132,7 @@ $$
 不能默认：
 
 $$
-ELA(p)>0
+U_{query}(p)>0
 $$
 
 ---
@@ -146,13 +151,13 @@ $$
 d=1
 $$
 
-表示执行ELA。
+表示执行固定 query。
 
 $$
 d=0
 $$
 
-表示跳过ELA。
+表示不执行 query。
 
 目标：
 
@@ -170,11 +175,11 @@ $$
 
 ---
 
-# 4. ELA Utility Label
+# 4. Query Utility Label
 
 为了训练Decision Module，需要构造监督信号。
 
-## 4.1 No-analysis performance
+## 4.1 No-query performance
 
 直接优化：
 
@@ -184,23 +189,23 @@ $$
 
 表示：
 
-不执行ELA时的性能。
+不执行 query 时的性能。
 
 ---
 
-## 4.2 Analysis-based performance
+## 4.2 Query-based performance
 
 执行：
 
 $$
-Problem \rightarrow ELA \rightarrow Algorithm
+Problem \rightarrow Fixed\ Query \rightarrow Algorithm
 Selection
 $$
 
 得到：
 
 $$
-P_{ELA}
+p_{query}
 $$
 
 ---
@@ -210,44 +215,50 @@ $$
 定义：
 
 $$
-G=P_{skip}-P_{ELA}
+G=P_{skip}-p_{query}
 $$
 
-表示ELA带来的收益。
-
-成本：
-
-$$
-C=C_{ELA}
-$$
+表示固定 query 路径相对 No-query 路径的性能差。
 
 最终：
 
 $$
-U_{ELA}=G-\lambda C
+U_{query}=G-\lambda_T C_T-\lambda_M C_M.
 $$
 
-其中：
+主协议采用等总 FE；query sampling FE 通过减少 Query continuation budget 进入 $p_{query}$，不得再次扣除。$C_T,C_M$ 只表示尚未进入 performance loss 的额外时间与内存成本。
 
-($\lambda$)控制性能和成本权衡。
+令：
+
+$$
+P_{best\ observed}=\min_{a\in\mathcal A(s_t)}L(s_t,a),
+$$
+
+则：
+
+$$
+G=(P_{skip}-P_{best\ observed})-(p_{query}-P_{best\ observed}).
+$$
+
+第一项是逐状态潜在性能差，第二项是 selector regret。Population Transfer 的影响已经包含在 observed action loss 中，不作为独立成本重复相减。
 
 决策：
 
 $$
-U_{ELA}>0
+U_{query}>0
 $$
 
-执行ELA。
+执行固定 query。
 
 否则：
 
-跳过ELA。
+不执行 query。
 
 ---
 
 # 5. Search Behavior State Representation
 
-Decision-before-Feature不能使用ELA feature作为输入，否则产生循环。
+Decision-before-Feature不能使用query feature作为输入，否则产生循环。
 
 因此输入必须来自低成本搜索行为。
 
@@ -319,19 +330,38 @@ $$
 
 ---
 
-## 6.3 Directional Entropy
+## 6.3 Permutation-invariant Population Change
 
-描述搜索方向不确定性。
+令当前与anchor种群分别为等权经验分布 $P_t$ 与 $P_a$，种群规模为 $N$。跨checkpoint不假定行号表示同一个体。
 
-基于FE-ratio窗口内当前population相对于anchor population的位移方向计算。
+空间分布变化使用经验Wasserstein-1：
 
-高entropy：
+$$
+W_t^{(w)}=
+\frac{1}{r_t-r_a}
+\min_{\pi\in S_N}
+\frac{1}{N}\sum_{i=1}^{N}
+\frac{\lVert x_i^{(a)}-x_{\pi(i)}^{(t)}\rVert_2}{\sqrt d}.
+$$
 
-偏探索。
+centroid shift rate定义为：
 
-低entropy：
+$$
+G_t^{(w)}=
+\frac{\lVert \mu_t-\mu_a\rVert_2}
+{\sqrt d\,(r_t-r_a)}.
+$$
 
-偏开发或停滞。
+centroid shift coherence为未除预算间隔的centroid shift与Wasserstein distance之比；无集合变化时取0，其余限制在 $[0,1]$。
+
+当前种群的协方差谱集中度使用特征值的归一化Herfindahl concentration。令 $q=\min(d,N-1)$，则：
+
+$$
+C_t=
+\frac{q\frac{\sum_j\lambda_j^2}{(\sum_j\lambda_j)^2}-1}{q-1}.
+$$
+
+退化协方差取0。上述统计只依赖种群集合，不依赖个体身份或亲子关系。
 
 ---
 
@@ -401,9 +431,9 @@ $$
 与 *How do metaheuristics exploit?* 的区别：
 
 - 该论文指标用于late-stage exploitation behavior diagnostics/control；
-- 本文指标用于预测ELA Utility；
+- 本文指标用于预测Query Utility；
 - 该论文可使用iteration窗口、exploitation phase划分和reference optimum；
-- 本文使用FE-ratio窗口，不使用真实全局最优、function identity或ELA feature。
+- 本文使用FE-ratio窗口，不使用真实全局最优、function identity或query feature。
 
 与 *Determining Metaheuristic Similarity Using Behavioral Analysis* 的区别：
 
@@ -513,12 +543,12 @@ $$
 
 输出：
 
-ELA Utility。
+Query Utility。
 
 训练目标：
 
 $$
-\min_{\theta}(U_{ELA}-\hat U)^2
+\min_{\theta}(U_{query}-\hat U)^2
 $$
 
 ---
@@ -534,11 +564,11 @@ $$
 
     3. Extract behavior state
 
-    4. Predict ELA utility
+    4. Predict fixed-query utility
 
     5. If utility > 0:
 
-    Execute ELA
+    Execute the fixed query
 
     Run algorithm selection
 
@@ -554,5 +584,5 @@ $$
 
 1. 提出Analysis Selection Problem。
 2. 提出Decision-before-Feature框架。
-3. 建立搜索行为与ELA价值之间关系。
+3. 建立搜索行为与所评估固定 query 效用之间的关系。
 4. 提供资源感知的自动算法选择流程。
