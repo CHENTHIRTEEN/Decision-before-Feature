@@ -1,228 +1,40 @@
-# Decision-before-Feature phase1 utility label column spec
+# Decision-before-Feature phase1 query-specific utility label column spec
+
+> 实现同步（2026-08-11）：旧 utility labels 未保留完整 optimizer state，并缺少三档 query 协议字段，已撤回正式证据资格。活动接口不提供旧 ELA 字段兼容层。
 
 ## 1. 文档目的
 
-本文冻结 phase1 refined sampling 后续生成 utility label 数据集时的字段分层。
+本文冻结 query-specific utility label 的活动字段。每档 query 独立生成标签并写入：
 
-字段分为四类：
+```text
+results/utility_labels/{query_id}/
+```
 
-- metadata：只用于定位 state、split、分组报告和续跑管理；
-- main label：Decision Model 可使用的主监督目标及其直接组成字段；
-- cost ledger：成本账本字段，参与主 utility 或解释主 utility 的预算来源；
-- diagnostic-only：只用于诊断、上界参照或敏感性分析，不进入主 Decision Model 训练 target。
-
-本文只定义后续数据集字段口径，不修改当前 `utility_labels`、`selection_reference`、phase1 配置或正式 feature extractor。
+标签表只描述一个 `query_id`。缺少 `query_id`、`query_protocol`、`query_feature_columns` 或 `sample_design_id` 的旧表必须明确拒绝。
 
 ---
 
-## 2. 命名原则
+## 2. Query 协议字段
 
-phase1 refined sampling 后续输出可保留当前代码字段，同时在文档和汇总表中使用更清晰的语义别名。
+以下字段必需，且必须与 `LandscapeQuerySpec` 完全一致：
 
-当前已有字段与推荐语义别名：
-
-| 推荐字段 | 当前近似字段 | 含义 |
+| 字段 | 类型 | 含义 |
 |---|---|---|
-| `loss_skip` | `p_skip` | skip-ELA 路径最终 performance，越小越好 |
-| `loss_selector` | `p_ela` | fixed `selection_reference` 路径最终 performance，越小越好 |
-| `gain_real` | `performance_gain_norm` | observed selector 路径相对 skip 的归一化性能收益 |
-| `u_ela_real_primary` | `u_ela_lamT_1` | phase1 主 utility target |
-| `decision_label` | `need_ela_lamT_1` | phase1 主二分类标签 |
+| `query_id` | string | `descriptor_cheap`、`pflacco_standard` 或 `pflacco_broad` |
+| `query_protocol` | string | 版本化固定 query 协议 |
+| `query_feature_columns` | string | 实际固定特征列的 JSON 列表 |
+| `sample_design_id` | string | `lhs_50d` 或 `lhs_100d` |
+| `FE_query` | int | 该 query 的函数评价数 |
 
-若后续新增字段，优先使用本文推荐字段名；若为了兼容当前代码继续使用旧字段名，报告中必须明确别名关系。
+`descriptor_cheap` 与 `pflacco_standard` 必须使用相同的 `lhs_50d`、5% FE action-loss 表；`pflacco_broad` 必须使用独立 `lhs_100d`、10% FE action-loss 表。不同 sample design 或 FE 预算不得混用。
 
 ---
 
-## 3. Metadata 字段
+## 3. State 与算法关系字段
 
-Metadata 字段不进入 Decision Model 输入，不作为训练 target。
-
-| 字段 | 类型 | 是否必需 | 口径 |
-|---|---|---:|---|
-| `state_id` | string | 是 | state 的可读组合键，不使用 hash、checksum 或 digest |
-| `split` | string | 是 | `train`、`validation` 或后续明确命名的外部 test split |
-| `problem_id` | string | 是 | 具体问题粒度，例如 `bbob_f005_i01_d10` |
-| `family` | string | 是 | function family 粒度，例如 `bbob_f005` |
-| `dimension` | int | 是 | 只作 metadata、split 和分层报告 |
-| `prefix_algorithm` | string | 是 | 产生共享前缀 state 的优化算法，只作分层诊断 |
-| `seed` | int | 是 | 显式 optimizer seed |
-| `FE` | int | 是 | checkpoint 已消耗 FE |
-| `FE_ratio` | float | 是 | checkpoint ratio |
-| `default_algorithm` | string | 是 | skip-ELA 路径使用的默认算法 |
-| `selected_algorithm` | string | 是 | fixed `selection_reference` 在 ELA 路径中选择的算法 |
-| `label_source` | string | 是 | `same_algorithm` 或 `changed_algorithm` |
-
-`state_id` 推荐由显式字段拼接生成：
+以下 metadata 不进入 Decision Model 输入：
 
 ```text
-state_id =
-    split
-    + "|" + problem_id
-    + "|" + prefix_algorithm
-    + "|" + seed
-    + "|" + FE
-```
-
-不得用文件哈希、checksum、digest 或 Python 内置 `hash()` 生成 `state_id`。
-
----
-
-## 4. Cost ledger 字段
-
-Cost ledger 字段用于解释预算和非 FE 成本。它们可以参与主 utility 的组成，但不能被重复扣除。
-
-| 字段 | 类型 | 是否必需 | 口径 |
-|---|---|---:|---|
-| `FE_total` | int | 是 | 当前 problem/dimension 的总 FE 预算 |
-| `FE_prefix` | int | 是 | checkpoint 前缀已消耗 FE |
-| `FE_analysis` | int | 是 | ELA analysis 使用的 FE |
-| `FE_skip_optimization` | int | 是 | `FE_total - FE_prefix` |
-| `FE_ela_optimization` | int | 是 | `FE_total - FE_prefix - FE_analysis` |
-| `ela_sampling_fe` | int | 是 | 推荐别名，等价于 `FE_analysis` |
-| `ela_runtime` | float | 是 | 推荐别名，等价于 `runtime_analysis` |
-| `selector_runtime` | float | 是 | 推荐别名，等价于 `runtime_selection` |
-| `runtime_skip_optimization` | float | 是 | skip-ELA continuation runtime |
-| `runtime_selector_optimization` | float | 是 | 推荐别名，等价于当前 `runtime_ela_optimization` |
-| `ela_peak_rss` | float 或 null | 建议 | ELA 路径额外 peak RSS；未正式记录时为空 |
-| `time_cost_norm` | float | 是 | `(ela_runtime + selector_runtime) / max(runtime_skip_optimization, 1e-12)` |
-| `memory_cost_norm` | float | 是 | 当前主口径为 `0.0` |
-
-`ela_sampling_fe` 必须保留作预算账本，但主 `U_ELA` 不再额外扣除它，因为它已经通过减少 `FE_ela_optimization` 体现在 `loss_selector` 中。
-
-主标签采用 Population Transfer：
-
-- `loss_skip` 和 `loss_selector` 从同一 checkpoint `population`、`fitness`、`best_fitness` 派生；
-- `loss_selector` 不包含 best-so-far warm start；
-- ELA 采样点只用于计算 ELA features，不进入 selector 路径的 continuation population。
-
----
-
-## 5. Main label 字段
-
-Main label 字段是 phase1 Decision Model 的主监督口径。
-
-| 字段 | 类型 | 是否必需 | 口径 |
-|---|---|---:|---|
-| `loss_skip` | float | 是 | skip-ELA 路径最终 loss / error / regret，越小越好 |
-| `loss_selector` | float | 是 | fixed `selection_reference` 路径最终 loss / error / regret，越小越好 |
-| `performance_gain_raw` | float | 是 | `loss_skip - loss_selector` |
-| `gain_real` | float | 是 | `(loss_skip - loss_selector) / max(abs(loss_skip), abs(loss_selector), 1e-12)` |
-| `u_ela_real_primary` | float | 是 | `gain_real - time_cost_norm`，当前 `memory_cost_norm=0.0` |
-| `decision_label` | bool | 是 | `u_ela_real_primary > 0` |
-
-主训练 target 固定为：
-
-```text
-u_ela_real_primary
-```
-
-若输出仍沿用当前字段名，则等价于：
-
-```text
-target_column = u_ela_lamT_1
-decision_label = need_ela_lamT_1
-```
-
-主 Decision Model 训练只使用算法无关 behavior features 作为输入，不使用本节以外的 metadata、selector、VBS 或 diagnostic-only 字段作为输入。
-
----
-
-## 6. Lambda sensitivity 字段
-
-以下字段可以随主 label 一起保留，但只用于敏感性分析：
-
-| 字段 | 类型 | 口径 |
-|---|---|---|
-| `u_ela_lamT_0` | float | `gain_real` |
-| `u_ela_lamT_025` | float | `gain_real - 0.25 * time_cost_norm` |
-| `u_ela_lamT_05` | float | `gain_real - 0.5 * time_cost_norm` |
-| `u_ela_lamT_1` | float | `gain_real - 1.0 * time_cost_norm` |
-| `u_ela_lamT_2` | float | `gain_real - 2.0 * time_cost_norm` |
-| `need_ela_lamT_*` | bool | 对应 `u_ela_lamT_* > 0` |
-
-`u_ela_lamT_1` 是主列；其他 lambda 不作为主训练目标、主 threshold calibration 目标或主结论口径。
-
----
-
-## 7. Diagnostic-only 字段
-
-Diagnostic-only 字段不得进入主 Decision Model 训练 target，也不得作为可部署策略的输入。
-
-| 字段 | 类型 | 是否建议保留 | 口径与边界 |
-|---|---|---:|---|
-| `loss_vbs` | float | 是 | 当前 state / problem-stage 下逐状态最佳动作或 VBS 参照的 final performance |
-| `gain_vbs` | float | 是 | `(loss_skip - loss_vbs) / max(abs(loss_skip), abs(loss_vbs), 1e-12)` |
-| `u_ela_vbs_diagnostic` | float | 是 | `gain_vbs - time_cost_norm`，仅作上界或诊断参照 |
-| `selected_matches_vbs` | bool | 是 | `selected_algorithm == vbs_algorithm` |
-| `vbs_algorithm` | string | 是 | VBS 参照算法，只用于诊断 |
-| `utility_threshold` | float | 否 | 不建议写入主 label 文件；应由 calibration / evaluation 输出 |
-| `bucket_proxy_p_ela` | float | 可选 | 只用于 selector proxy 诊断 |
-| `bucket_proxy_u` | float | 可选 | 只用于 selector proxy 诊断 |
-| `bucket_proxy_precision` | float | 可选 | 只用于 proxy 报告，不等于 observed precision |
-
-`loss_vbs` 与 `u_ela_vbs_diagnostic` 是诊断上界，不是现实可部署 Decision Model 的训练目标。
-
-`utility_threshold` 不属于 label 生成结果。它依赖模型、训练 split、threshold mode 和 calibration 规则，应写入 `decision/` 或 `evaluation/` 输出，而不是写死在 utility label 数据集中。
-
----
-
-## 8. 输出表建议
-
-后续 phase1 可以按用途拆分输出：
-
-### 8.1 主 utility label 表
-
-主表保留：
-
-- metadata 字段；
-- cost ledger 字段；
-- main label 字段；
-- lambda sensitivity 字段；
-- behavior feature columns。
-
-主表不保留或不推荐保留：
-
-- `utility_threshold`；
-- alternate selector proxy 字段；
-- threshold calibration 结果。
-
-### 8.2 诊断表
-
-诊断表可保留：
-
-- `loss_vbs`；
-- `gain_vbs`；
-- `u_ela_vbs_diagnostic`；
-- `selected_matches_vbs`；
-- `vbs_algorithm`；
-- bucket proxy 字段；
-- selector sensitivity 输出。
-
-诊断表必须明确标注其字段不进入主 Decision Model 训练 target。
-
-### 8.3 Evaluation / calibration 表
-
-Evaluation 或 calibration 输出保留：
-
-- `utility_threshold`；
-- model score；
-- decision call；
-- `positive_row_capture_rate`；
-- `utility_capture_rate`；
-- observed precision；
-- bucket proxy precision；
-- runtime / Pareto 指标。
-
-这些字段不回写到主 utility label 表。
-
----
-
-## 9. 最小必需字段清单
-
-若只生成一个 phase1 utility label 主表，最小必需字段为：
-
-```text
-state_id
 split
 problem_id
 family
@@ -232,55 +44,143 @@ seed
 FE
 FE_ratio
 default_algorithm
+selection_reference_default_algorithm
+selection_reference_protocol
+selector_prediction_source
 selected_algorithm
-label_source
-
-FE_total
-FE_prefix
-FE_analysis
-FE_skip_optimization
-FE_ela_optimization
-ela_sampling_fe
-ela_runtime
-selector_runtime
-runtime_skip_optimization
-runtime_selector_optimization
-ela_peak_rss
-time_cost_norm
-memory_cost_norm
-
-loss_skip
-loss_selector
-performance_gain_raw
-gain_real
-u_ela_real_primary
-decision_label
-
-u_ela_lamT_0
-u_ela_lamT_025
-u_ela_lamT_05
-u_ela_lamT_1
-u_ela_lamT_2
-need_ela_lamT_0
-need_ela_lamT_025
-need_ela_lamT_05
-need_ela_lamT_1
-need_ela_lamT_2
-
-behavior feature columns
+selected_action
+selected_equals_default
+selected_equals_prefix
+skip_switches_from_prefix
+no_query_transition_mode
+query_transition_mode
 ```
 
-若生成诊断表，额外保留：
+主表要求 `prefix_algorithm == default_algorithm == train-derived SBS`。No-query 原生继续该完整状态；Query 选择 prefix 时同样原生继续，选择其他算法时使用一次 population-transfer initialization。全 prefix 数据只能进入独立 cross-probe 稳健性分析。
+
+---
+
+## 4. FE 与运行时间账本
+
+必需字段：
 
 ```text
-loss_vbs
-gain_vbs
-u_ela_vbs_diagnostic
-vbs_algorithm
-selected_matches_vbs
-bucket_proxy_p_ela
-bucket_proxy_u
-bucket_proxy_precision
+FE_total
+FE_prefix
+FE_query
+FE_no_query_optimization
+FE_query_optimization
+runtime_query
+runtime_selection
+runtime_no_query_optimization
+runtime_query_optimization
+time_cost_norm
+memory_cost_norm
 ```
 
-`utility_threshold` 只在 calibration / evaluation 表中保留。
+逐行关系：
+
+```text
+FE_no_query_optimization = FE_total - FE_prefix
+FE_query_optimization = FE_total - FE_prefix - FE_query
+time_cost_norm =
+    (runtime_query + runtime_selection)
+    / max(runtime_no_query_optimization, 1e-12)
+memory_cost_norm = 0.0
+```
+
+`runtime_query` 已等于 query 样本评价时间与 feature computation 时间之和。`FE_query` 已通过减少 Query continuation budget 进入 `p_query`，主 Utility 不得重复扣除。
+
+---
+
+## 5. 性能与 Selector 分解字段
+
+必需字段：
+
+```text
+p_skip
+p_query
+selected_action_loss
+best_observed_algorithm
+best_observed_loss
+selected_matches_best_observed
+potential_gain_raw
+selector_regret_raw
+performance_norm_scale
+potential_gain_norm
+selector_regret_decomposition_norm
+performance_gain_raw
+performance_gain_norm
+```
+
+逐行必须满足：
+
+```text
+p_query = selected_action_loss
+potential_gain_raw = p_skip - best_observed_loss
+selector_regret_raw = p_query - best_observed_loss
+performance_gain_raw = p_skip - p_query
+performance_gain_raw = potential_gain_raw - selector_regret_raw
+performance_norm_scale = max(abs(p_skip), abs(p_query), 1e-12)
+performance_gain_norm = performance_gain_raw / performance_norm_scale
+```
+
+`best observed action` 只用于离线诊断，不称为 oracle，也不进入 Decision Model 输入。
+
+---
+
+## 6. Utility 与布尔标签
+
+活动 utility 字段只有：
+
+```text
+u_query_lamT_0
+u_query_lamT_025
+u_query_lamT_05
+u_query_lamT_1
+u_query_lamT_2
+```
+
+对应布尔字段只有：
+
+```text
+need_query_lamT_0
+need_query_lamT_025
+need_query_lamT_05
+need_query_lamT_1
+need_query_lamT_2
+```
+
+对 `lambda_time in {0, 0.25, 0.5, 1, 2}`：
+
+```text
+u_query_lamT_* = performance_gain_norm - lambda_time * time_cost_norm
+need_query_lamT_* = (u_query_lamT_* > 0)
+```
+
+主 Decision target 固定为 `u_query_lamT_1`。其他 lambda 只用于敏感性分析。
+
+---
+
+## 7. Decision 输入边界
+
+Utility label、query feature、function、dimension、algorithm relation、best-observed-action 与成本字段都不得进入 Decision X。Decision X 仍只包含冻结的 permutation-invariant、算法无关 behavior fields。
+
+Selector 可以使用 behavior、当前 query 的固定 feature columns 与连续 `remaining_budget_ratio`；这不改变 Decision Model 的输入边界。三个 query 独立训练 Selector、Utility target 与 Decision Model，不把 `query_id` 作为模型输入。
+
+---
+
+## 8. 读取失败条件
+
+以下任一情况必须阻止活动读取或模型拟合：
+
+- 缺少 query 协议字段；
+- query feature columns 与版本化白名单不一致；
+- `FE_query` 与 sample design 不一致；
+- 5% 与 10% action losses 混用；
+- `p_query != selected_action_loss`；
+- 性能分解、时间成本或布尔标签无法逐行重算；
+- BBOB train/validation 存在 group-level extraction failure；
+- BBOB-train 某个 query feature 整列缺失。
+
+旧 `results/ela/`、旧 ELA 标签名和缺少新协议字段的模型均为撤回结果，不提供别名或兼容读取。

@@ -1,10 +1,21 @@
 from __future__ import annotations
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
-
 
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
-
+UTILITY_VALUE_COLUMNS = (
+    "u_query_lamT_0",
+    "u_query_lamT_025",
+    "u_query_lamT_05",
+    "u_query_lamT_1",
+    "u_query_lamT_2",
+)
+NEED_QUERY_COLUMNS = (
+    "need_query_lamT_0",
+    "need_query_lamT_025",
+    "need_query_lamT_05",
+    "need_query_lamT_1",
+    "need_query_lamT_2",
+)
 UTILITY_COLUMNS = (
     "split",
     "problem_id",
@@ -14,49 +25,45 @@ UTILITY_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    "query_id",
+    "query_protocol",
+    "query_feature_columns",
+    "sample_design_id",
     "FE_total",
     "FE_prefix",
-    "FE_analysis",
-    "FE_skip_optimization",
-    "FE_ela_optimization",
+    "FE_query",
+    "FE_no_query_optimization",
+    "FE_query_optimization",
     "default_algorithm",
+    "selection_reference_default_algorithm",
+    "selection_reference_protocol",
+    "selector_prediction_source",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "skip_switches_from_prefix",
+    "no_query_transition_mode",
+    "query_transition_mode",
     "p_skip",
-    "p_ela",
+    "p_query",
+    "selected_action_loss",
+    "best_observed_algorithm",
+    "best_observed_loss",
+    "selected_matches_best_observed",
+    "potential_gain_raw",
+    "selector_regret_raw",
+    "performance_norm_scale",
+    "potential_gain_norm",
+    "selector_regret_decomposition_norm",
     "performance_gain_raw",
     "performance_gain_norm",
-    "runtime_analysis",
+    "runtime_query",
     "runtime_selection",
-    "runtime_skip_optimization",
-    "runtime_ela_optimization",
+    "runtime_no_query_optimization",
+    "runtime_query_optimization",
     "time_cost_norm",
     "memory_cost_norm",
-    "u_ela_lamT_0",
-    "u_ela_lamT_025",
-    "u_ela_lamT_05",
-    "u_ela_lamT_1",
-    "u_ela_lamT_2",
-    "need_ela_lamT_0",
-    "need_ela_lamT_025",
-    "need_ela_lamT_05",
-    "need_ela_lamT_1",
-    "need_ela_lamT_2",
-) + BEHAVIOR_FEATURE_COLUMNS
-
-
-UTILITY_VALUE_COLUMNS = (
-    "u_ela_lamT_0",
-    "u_ela_lamT_025",
-    "u_ela_lamT_05",
-    "u_ela_lamT_1",
-    "u_ela_lamT_2",
-)
-
-
-NEED_ELA_COLUMNS = (
-    "need_ela_lamT_0",
-    "need_ela_lamT_025",
-    "need_ela_lamT_05",
-    "need_ela_lamT_1",
-    "need_ela_lamT_2",
+    *UTILITY_VALUE_COLUMNS,
+    *NEED_QUERY_COLUMNS,
 )

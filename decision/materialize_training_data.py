@@ -11,13 +11,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_UTILITY_ROOT = Path("results/utility_labels/phase1_refined_sampling")
 DEFAULT_BEHAVIOR_ROOT = Path("results/phase1_refined_sampling")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/materialized_training_data")
-TARGET_COLUMN = "u_ela_lamT_1"
-AUXILIARY_LABEL_COLUMN = "need_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
+AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
 EXPECTED_UTILITY_SHARDS = 72
 EXPECTED_BEHAVIOR_SHARDS = 72
 JOIN_KEY_COLUMNS = (
@@ -38,8 +37,24 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    "query_id",
+    "query_protocol",
+    "sample_design_id",
     "default_algorithm",
+    "selection_reference_default_algorithm",
+    "selection_reference_protocol",
+    "selector_prediction_source",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "best_observed_algorithm",
+    "selected_matches_best_observed",
+    "potential_gain_raw",
+    "selector_regret_raw",
+    "skip_switches_from_prefix",
+    "no_query_transition_mode",
+    "query_transition_mode",
     "label_source",
 )
 DATASET_COLUMNS = METADATA_COLUMNS + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN) + BEHAVIOR_FEATURE_COLUMNS
@@ -53,37 +68,59 @@ FORBIDDEN_INPUT_COLUMNS = {
     "seed",
     "FE",
     "FE_ratio",
+    "query_id",
+    "query_protocol",
+    "query_feature_columns",
+    "sample_design_id",
     "default_algorithm",
+    "selection_reference_default_algorithm",
+    "selection_reference_protocol",
+    "selector_prediction_source",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "skip_switches_from_prefix",
+    "no_query_transition_mode",
+    "query_transition_mode",
     "label_source",
     "FE_total",
     "FE_prefix",
-    "FE_analysis",
-    "FE_skip_optimization",
-    "FE_ela_optimization",
+    "FE_query",
+    "FE_no_query_optimization",
+    "FE_query_optimization",
     "p_skip",
-    "p_ela",
+    "p_query",
+    "selected_action_loss",
+    "best_observed_algorithm",
+    "best_observed_loss",
+    "selected_matches_best_observed",
+    "potential_gain_raw",
+    "selector_regret_raw",
+    "performance_norm_scale",
+    "potential_gain_norm",
+    "selector_regret_decomposition_norm",
     "performance_gain_raw",
     "performance_gain_norm",
-    "runtime_analysis",
+    "runtime_query",
     "runtime_selection",
-    "runtime_skip_optimization",
-    "runtime_ela_optimization",
+    "runtime_no_query_optimization",
+    "runtime_query_optimization",
     "time_cost_norm",
     "memory_cost_norm",
-    "u_ela_lamT_0",
-    "u_ela_lamT_025",
-    "u_ela_lamT_05",
-    "u_ela_lamT_1",
-    "u_ela_lamT_2",
-    "need_ela_lamT_0",
-    "need_ela_lamT_025",
-    "need_ela_lamT_05",
-    "need_ela_lamT_1",
-    "need_ela_lamT_2",
+    "u_query_lamT_0",
+    "u_query_lamT_025",
+    "u_query_lamT_05",
+    "u_query_lamT_1",
+    "u_query_lamT_2",
+    "need_query_lamT_0",
+    "need_query_lamT_025",
+    "need_query_lamT_05",
+    "need_query_lamT_1",
+    "need_query_lamT_2",
 }
 FORBIDDEN_INPUT_NAME_FRAGMENTS = (
-    "ela",
+    "query",
     "function",
     "algorithm",
     "selected",
@@ -97,6 +134,7 @@ EPS = 1e-12
 
 def materialize_decision_training_data(
     *,
+    query_id: str,
     utility_root: Path,
     behavior_root: Path,
     output_dir: Path,
@@ -117,6 +155,13 @@ def materialize_decision_training_data(
     utility = _read_parquet_shards(utility_paths, root_marker=utility_root.name)
     behavior = _read_parquet_shards(behavior_paths, root_marker=behavior_root.name).rename(columns={"algorithm": "prefix_algorithm"})
     _check_required_columns(utility, behavior)
+    spec = get_query_spec(query_id)
+    if set(utility["query_id"].astype(str)) != {query_id}:
+        raise ValueError("utility labels must contain exactly the requested query_id")
+    if set(utility["query_protocol"].astype(str)) != {spec.protocol}:
+        raise ValueError("utility labels use an incompatible query protocol")
+    if set(utility["sample_design_id"].astype(str)) != {spec.sample_design_id}:
+        raise ValueError("utility labels use an incompatible sample design")
     _check_input_legality()
 
     utility_duplicates = int(utility.duplicated(list(JOIN_KEY_COLUMNS)).sum())
@@ -144,17 +189,20 @@ def materialize_decision_training_data(
     if fe_ratio_mismatch_count:
         raise ValueError(f"FE_ratio mismatch after join for {fe_ratio_mismatch_count} rows")
 
-    dataset = _materialized_dataset(joined)
-    _check_targets(dataset)
-    _check_feature_values(dataset)
-    _check_label_source(dataset)
+    cross_probe_dataset = _materialized_dataset(joined)
+    _check_targets(cross_probe_dataset)
+    _check_feature_values(cross_probe_dataset)
+    _check_algorithm_relations(cross_probe_dataset)
+    dataset = _primary_protocol_dataset(cross_probe_dataset)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_path = output_dir / "decision_dataset.parquet"
+    cross_probe_dataset_path = output_dir / "cross_probe_dataset.parquet"
     schema_path = output_dir / "decision_dataset_schema.json"
     report_path = output_dir / "decision_dataset_materialization_report.md"
 
     pq.write_table(pa.Table.from_pandas(dataset, preserve_index=False), dataset_path)
+    pq.write_table(pa.Table.from_pandas(cross_probe_dataset, preserve_index=False), cross_probe_dataset_path)
     feature_null_summary = _feature_null_summary(dataset)
     target_summary = _target_summary(dataset)
     label_source_summary = _label_source_summary(dataset)
@@ -170,6 +218,7 @@ def materialize_decision_training_data(
         fe_ratio_mismatch_count=fe_ratio_mismatch_count,
     )
     input_legality = _input_legality_summary()
+    protocol_scope_summary = _protocol_scope_summary(dataset, cross_probe_dataset)
 
     _write_frame(feature_null_summary, output_dir / "feature_null_summary")
     _write_frame(target_summary, output_dir / "target_summary")
@@ -177,6 +226,7 @@ def materialize_decision_training_data(
     _write_frame(label_source_by_dimension, output_dir / "label_source_by_dimension_summary")
     _write_frame(join_summary, output_dir / "join_coverage_summary")
     _write_frame(input_legality, output_dir / "input_legality_summary")
+    _write_frame(protocol_scope_summary, output_dir / "protocol_scope_summary")
 
     schema_path.write_text(
         json.dumps(_schema_payload(dataset), indent=2, sort_keys=True),
@@ -194,19 +244,24 @@ def materialize_decision_training_data(
             utility_shards=len(utility_paths),
             behavior_shards=len(behavior_paths),
             dataset_path=dataset_path,
+            cross_probe_dataset_path=cross_probe_dataset_path,
             schema_path=schema_path,
+            protocol_scope_summary=protocol_scope_summary,
         ),
         encoding="utf-8",
     )
 
     print(f"wrote materialized Decision dataset to {dataset_path}")
+    print(f"wrote all-prefix cross-probe dataset to {cross_probe_dataset_path}")
     print(f"wrote materialization schema summary to {schema_path}")
     print(f"wrote materialization report to {report_path}")
     return {
         "dataset": str(dataset_path),
+        "cross_probe_dataset": str(cross_probe_dataset_path),
         "schema": str(schema_path),
         "report": str(report_path),
         "rows": int(len(dataset)),
+        "cross_probe_rows": int(len(cross_probe_dataset)),
         "join_coverage": join_coverage,
         "utility_shards": len(utility_paths),
         "behavior_shards": len(behavior_paths),
@@ -229,6 +284,7 @@ def _check_shard_counts(
 def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
     output_paths = (
         output_dir / "decision_dataset.parquet",
+        output_dir / "cross_probe_dataset.parquet",
         output_dir / "decision_dataset_schema.json",
         output_dir / "decision_dataset_materialization_report.md",
         output_dir / "feature_null_summary.csv",
@@ -243,6 +299,8 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "label_source_summary.parquet",
         output_dir / "label_source_by_dimension_summary.csv",
         output_dir / "label_source_by_dimension_summary.parquet",
+        output_dir / "protocol_scope_summary.csv",
+        output_dir / "protocol_scope_summary.parquet",
     )
     existing = [path for path in output_paths if path.exists()]
     if existing and not overwrite:
@@ -268,8 +326,24 @@ def _split_from_path(path: Path, root_marker: str) -> str:
 def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> None:
     utility_required = set(JOIN_KEY_COLUMNS) | {
         "FE_ratio",
+        "query_id",
+        "query_protocol",
+        "sample_design_id",
         "default_algorithm",
+        "selection_reference_default_algorithm",
+        "selection_reference_protocol",
+        "selector_prediction_source",
         "selected_algorithm",
+        "selected_action",
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "best_observed_algorithm",
+        "selected_matches_best_observed",
+        "potential_gain_raw",
+        "selector_regret_raw",
+        "skip_switches_from_prefix",
+        "no_query_transition_mode",
+        "query_transition_mode",
         TARGET_COLUMN,
         AUXILIARY_LABEL_COLUMN,
     }
@@ -307,8 +381,24 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "seed",
             "FE",
             "FE_ratio_utility",
+            "query_id",
+            "query_protocol",
+            "sample_design_id",
             "default_algorithm",
+            "selection_reference_default_algorithm",
+            "selection_reference_protocol",
+            "selector_prediction_source",
             "selected_algorithm",
+            "selected_action",
+            "selected_equals_default",
+            "selected_equals_prefix",
+            "best_observed_algorithm",
+            "selected_matches_best_observed",
+            "potential_gain_raw",
+            "selector_regret_raw",
+            "skip_switches_from_prefix",
+            "no_query_transition_mode",
+            "query_transition_mode",
             TARGET_COLUMN,
             AUXILIARY_LABEL_COLUMN,
             *[f"{column}_behavior" for column in BEHAVIOR_FEATURE_COLUMNS],
@@ -321,7 +411,7 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
         }
     )
     dataset["label_source"] = np.where(
-        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str),
+        dataset["selected_equals_default"].astype(bool),
         "same_algorithm",
         "changed_algorithm",
     )
@@ -353,14 +443,65 @@ def _check_feature_values(dataset: pd.DataFrame) -> None:
         raise ValueError(f"non-null behavior feature values must be finite: {invalid}")
 
 
-def _check_label_source(dataset: pd.DataFrame) -> None:
-    expected = np.where(
-        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str),
+def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
+    if not (
+        dataset["selection_reference_default_algorithm"].astype(str)
+        == dataset["default_algorithm"].astype(str)
+    ).all():
+        raise ValueError("selection_reference_default_algorithm must equal default_algorithm")
+    selected_equals_default = (
+        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    selected_equals_prefix = (
+        dataset["selected_algorithm"].astype(str) == dataset["prefix_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    skip_switches_from_prefix = (
+        dataset["default_algorithm"].astype(str) != dataset["prefix_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    if not np.array_equal(dataset["selected_equals_default"].to_numpy(dtype=bool), selected_equals_default):
+        raise ValueError("selected_equals_default must match selected_algorithm == default_algorithm")
+    if not np.array_equal(dataset["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix):
+        raise ValueError("selected_equals_prefix must match selected_algorithm == prefix_algorithm")
+    if not np.array_equal(dataset["skip_switches_from_prefix"].to_numpy(dtype=bool), skip_switches_from_prefix):
+        raise ValueError("skip_switches_from_prefix must match default_algorithm != prefix_algorithm")
+    expected_skip_transition = np.where(
+        skip_switches_from_prefix,
+        "population_transfer_initialization",
+        "native_optimizer_state",
+    )
+    if not np.array_equal(dataset["no_query_transition_mode"].to_numpy(dtype=str), expected_skip_transition):
+        raise ValueError("Skip transition mode must match skip_switches_from_prefix")
+    expected_query_transition = np.where(
+        selected_equals_prefix,
+        "native_optimizer_state",
+        "population_transfer_initialization",
+    )
+    if not np.array_equal(dataset["query_transition_mode"].to_numpy(dtype=str), expected_query_transition):
+        raise ValueError("query transition mode must distinguish native continuation from population transfer")
+    expected_label_source = np.where(
+        selected_equals_default,
         "same_algorithm",
         "changed_algorithm",
     )
-    if not np.array_equal(dataset["label_source"].to_numpy(dtype=str), expected):
+    if not np.array_equal(dataset["label_source"].to_numpy(dtype=str), expected_label_source):
         raise ValueError("label_source must match selected_algorithm == default_algorithm")
+
+
+def _primary_protocol_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
+    primary = dataset[
+        (dataset["prefix_algorithm"].astype(str) == dataset["default_algorithm"].astype(str))
+        & ~dataset["skip_switches_from_prefix"].astype(bool)
+    ].copy()
+    if primary.empty:
+        raise ValueError("primary protocol has no rows with prefix_algorithm == default_algorithm")
+    if set(primary["split"].astype(str)) != set(dataset["split"].astype(str)):
+        raise ValueError("primary protocol must retain every input split")
+    invalid_no_action_gain = primary[
+        primary["selected_equals_prefix"].astype(bool) & (primary[TARGET_COLUMN].astype(float) > 0.0)
+    ]
+    if not invalid_no_action_gain.empty:
+        raise ValueError("primary no-action-change rows must not have positive query utility")
+    return primary.reset_index(drop=True)
 
 
 def _join_summary(
@@ -482,6 +623,28 @@ def _target_row(frame: pd.DataFrame, *, split: str) -> dict[str, Any]:
     }
 
 
+def _protocol_scope_summary(primary: pd.DataFrame, cross_probe: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for scope, frame in (("primary_sbs_probe", primary), ("all_prefix_cross_probe", cross_probe)):
+        for split, group in frame.groupby("split", dropna=False):
+            rows.append(
+                {
+                    "protocol_scope": scope,
+                    "split": str(split),
+                    "rows": int(len(group)),
+                    "prefix_algorithms": ",".join(sorted(group["prefix_algorithm"].astype(str).unique())),
+                    "default_algorithms": ",".join(sorted(group["default_algorithm"].astype(str).unique())),
+                    "prefix_equals_default_rate": float(
+                        (group["prefix_algorithm"].astype(str) == group["default_algorithm"].astype(str)).mean()
+                    ),
+                    "skip_switch_rate": float(group["skip_switches_from_prefix"].astype(bool).mean()),
+                    "selected_equals_prefix_rate": float(group["selected_equals_prefix"].astype(bool).mean()),
+                    "selected_equals_default_rate": float(group["selected_equals_default"].astype(bool).mean()),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def _label_source_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (split, label_source), group in dataset.groupby(["split", "label_source"], dropna=False):
@@ -539,6 +702,9 @@ def _write_frame(frame: pd.DataFrame, path_without_suffix: Path) -> None:
 def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
     return {
         "dataset": "phase1_refined_sampling_decision_training_data",
+        "query_id": str(dataset["query_id"].iloc[0]),
+        "query_protocol": str(dataset["query_protocol"].iloc[0]),
+        "sample_design_id": str(dataset["sample_design_id"].iloc[0]),
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
         "input_columns": list(BEHAVIOR_FEATURE_COLUMNS),
@@ -548,12 +714,23 @@ def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
         "label_source_rule": {
             "same_algorithm": "selected_algorithm == default_algorithm",
             "changed_algorithm": "selected_algorithm != default_algorithm",
+            "interpretation": "legacy selector-vs-default stratum; selected_equals_prefix is the action-continuation field",
+        },
+        "primary_protocol": {
+            "dataset_file": "decision_dataset.parquet",
+            "row_rule": "prefix_algorithm == default_algorithm and not skip_switches_from_prefix",
+            "probe_and_default": "train-derived SBS",
+            "no_query_action": "native continuation of the SBS prefix state",
+        },
+        "cross_probe_protocol": {
+            "dataset_file": "cross_probe_dataset.parquet",
+            "row_rule": "all prefixes retained for robustness analyses; not part of the main result",
         },
         "materialization_rules": {
             "missing_behavior_features": "preserved in materialized dataset; train-split median imputation belongs to the training pipeline",
             "finite_extreme_values": "preserved without clipping, scaling, or replacement",
             "non_null_infinite_values": "not allowed",
-            "row_inclusion": "all joined rows with finite target are retained, including early FE checkpoints",
+            "row_inclusion": "the primary dataset retains only SBS-prefix rows; the cross-probe dataset retains all joined rows",
         },
         "excluded_from_decision_input": sorted(FORBIDDEN_INPUT_COLUMNS),
     }
@@ -571,7 +748,9 @@ def _markdown_report(
     utility_shards: int,
     behavior_shards: int,
     dataset_path: Path,
+    cross_probe_dataset_path: Path,
     schema_path: Path,
+    protocol_scope_summary: pd.DataFrame,
 ) -> str:
     overall_features = feature_null_summary[feature_null_summary["FE_ratio"].isna()]
     return "\n".join(
@@ -582,8 +761,9 @@ def _markdown_report(
             "",
             "- Data source: formal phase1 refined sampling utility labels joined to formal behavior features.",
             f"- Utility shards: {utility_shards}; behavior shards: {behavior_shards}.",
-            f"- Materialized rows: {len(dataset)}.",
-            f"- Dataset output: `{dataset_path}`.",
+            f"- Primary SBS-probe rows: {len(dataset)}.",
+            f"- Primary dataset output: `{dataset_path}`.",
+            f"- All-prefix robustness output: `{cross_probe_dataset_path}`.",
             f"- Schema summary output: `{schema_path}`.",
             "- No model training, imputation, clipping, scaling, or threshold calibration was run.",
             "",
@@ -593,6 +773,12 @@ def _markdown_report(
             f"- Main regression target: `{TARGET_COLUMN}`.",
             f"- Auxiliary decision label: `{AUXILIARY_LABEL_COLUMN}`.",
             "- Metadata and stratification columns are retained only for reporting, splitting, and error analysis.",
+            "- Main training uses only rows where `prefix_algorithm == default_algorithm` and `skip_switches_from_prefix == false`.",
+            "- Other prefix algorithms are isolated in the all-prefix cross-probe dataset for robustness analyses.",
+            "",
+            "## Protocol scope",
+            "",
+            _markdown_table(protocol_scope_summary),
             "",
             "## Join coverage",
             "",
@@ -625,11 +811,11 @@ def _markdown_report(
             "",
             _markdown_table(target_summary),
             "",
-            "## same_algorithm / changed_algorithm summary",
+            "## selected-vs-default report summary",
             "",
             _markdown_table(label_source_summary),
             "",
-            "## same_algorithm / changed_algorithm by dimension",
+            "## selected-vs-default report by dimension",
             "",
             _markdown_table(label_source_by_dimension),
             "",
@@ -639,8 +825,10 @@ def _markdown_report(
             "- Training code must fit median imputation on the train split only.",
             "- Finite extreme feature values are preserved without clipping or scaling.",
             "- Non-null infinite feature values and non-finite target values fail materialization.",
-            "- `label_source` is `same_algorithm` only when `selected_algorithm == default_algorithm`.",
-            "- ELA features, function id, algorithm id, optimizer parameters, selector fields, cost ledger fields, and utility component fields are excluded from Decision inputs.",
+            "- `label_source=same_algorithm` is a report stratum for `selected_equals_default`; it is not a general action-continuation field.",
+            "- `selected_equals_prefix` identifies whether the query path continues the current prefix algorithm.",
+            "- `skip_switches_from_prefix` identifies whether the no-query path changes away from the prefix algorithm.",
+            "- Query features, query id, function id, algorithm id, optimizer parameters, selector fields, cost ledger fields, and utility component fields are excluded from Decision inputs.",
             "",
         ]
     )
@@ -672,18 +860,22 @@ def _float_or_none(value: Any) -> float | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Materialize phase1 Decision Model training data without model training.")
-    parser.add_argument("--utility-root", type=Path, default=DEFAULT_UTILITY_ROOT)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--utility-root", type=Path, default=None)
     parser.add_argument("--behavior-root", type=Path, default=DEFAULT_BEHAVIOR_ROOT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--expected-utility-shards", type=int, default=EXPECTED_UTILITY_SHARDS)
     parser.add_argument("--expected-behavior-shards", type=int, default=EXPECTED_BEHAVIOR_SHARDS)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    utility_root = args.utility_root or Path("results/utility_labels") / args.query_id
+    output_dir = args.output_dir or Path("results/decision") / args.query_id / "materialized_training_data"
     materialize_decision_training_data(
-        utility_root=args.utility_root,
+        query_id=args.query_id,
+        utility_root=utility_root,
         behavior_root=args.behavior_root,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         expected_utility_shards=args.expected_utility_shards,
         expected_behavior_shards=args.expected_behavior_shards,
         overwrite=args.overwrite,

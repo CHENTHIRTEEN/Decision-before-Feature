@@ -11,20 +11,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.query_contract import decision_query_root, validate_query_frame
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
-DEFAULT_UTILITY_ROOT = Path("results/utility_labels/phase1_refined_sampling")
-DEFAULT_PREDICTIONS_PATH = Path(
-    "results/decision/phase1_refined_sampling/feature_group_ablation/"
-    "primary_with_maturity/validation_predictions.parquet"
-)
-DEFAULT_MODEL_FIT_SUMMARY_PATH = Path(
-    "results/decision/phase1_refined_sampling/feature_group_ablation/"
-    "primary_with_maturity/model_fit_summary.parquet"
-)
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/controller_cost_performance_pareto")
+
 DEFAULT_MODEL_NAME = "ridge_regression"
 DEFAULT_THRESHOLD_MODE = "train_utility"
-TARGET_COLUMN = "u_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
 EPS = 1e-12
 IDENTITY_COLUMNS = [
     "split",
@@ -50,28 +43,28 @@ GROUP_LAYERS = {
 PARETO_AXIS_SETS = {
     "resource": {
         "title": "Resource cost vs final performance",
-        "description": "直接围绕 ELA 调用资源解释 Decision-before-Feature。",
+        "description": "直接围绕固定 query 调用资源解释 Decision-before-Feature。",
         "panels": [
-            ("ela_call_rate", "final_performance_mean", "ELA call rate", "Mean final performance", "lower"),
-            ("FE_analysis_mean", "final_performance_mean", "Mean FE used by ELA analysis", "Mean final performance", "lower"),
-            ("ela_call_rate", "utility_mean", "ELA call rate", "Mean utility", "higher"),
+            ("query_call_rate", "final_performance_mean", "Query call rate", "Mean final performance", "lower"),
+            ("FE_query_mean", "final_performance_mean", "Mean FE used by the fixed query", "Mean final performance", "lower"),
+            ("query_call_rate", "utility_mean", "Query call rate", "Mean utility", "higher"),
         ],
     },
     "utility": {
         "title": "Resource cost vs utility",
-        "description": "直接检查 ELA 是否值得执行。",
+        "description": "直接检查所评估的固定 query 是否值得执行。",
         "panels": [
-            ("ela_call_rate", "utility_mean", "ELA call rate", "Mean utility", "higher"),
-            ("FE_analysis_mean", "utility_mean", "Mean FE used by ELA analysis", "Mean utility", "higher"),
-            ("ela_call_rate", "utility_capture_rate", "ELA call rate", "Utility capture rate", "higher"),
+            ("query_call_rate", "utility_mean", "Query call rate", "Mean utility", "higher"),
+            ("FE_query_mean", "utility_mean", "Mean FE used by the fixed query", "Mean utility", "higher"),
+            ("query_call_rate", "utility_capture_rate", "Query call rate", "Utility capture rate", "higher"),
         ],
     },
     "diagnostic": {
         "title": "Call quality diagnostics",
-        "description": "解释 controller 是否减少无效 ELA 调用。",
+        "description": "解释 controller 是否减少无效 query 调用。",
         "panels": [
             ("unhelpful_call_cost_sum", "utility_capture_rate", "Unhelpful call cost sum", "Utility capture rate", "higher"),
-            ("ela_call_rate", "precision_u_gt_zero_under_calls", "ELA call rate", "Precision under calls", "higher"),
+            ("query_call_rate", "precision_u_gt_zero_under_calls", "Query call rate", "Precision under calls", "higher"),
             ("unhelpful_call_rate_within_calls", "precision_u_gt_zero_under_calls", "Unhelpful call rate within calls", "Precision under calls", "higher"),
         ],
     },
@@ -81,7 +74,7 @@ PARETO_AXIS_SETS = {
         "panels": [
             ("runtime_mean_seconds", "final_performance_mean", "Mean runtime seconds", "Mean final performance", "lower"),
             ("runtime_mean_seconds", "utility_mean", "Mean runtime seconds", "Mean utility", "higher"),
-            ("runtime_mean_seconds", "ela_call_rate", "Mean runtime seconds", "ELA call rate", "lower"),
+            ("runtime_mean_seconds", "query_call_rate", "Mean runtime seconds", "Query call rate", "lower"),
         ],
     },
 }
@@ -89,27 +82,28 @@ PARETO_AXIS_SETS = {
 
 def run_controller_cost_performance_pareto(
     *,
+    query_id: str,
     utility_root: Path,
     predictions_path: Path,
     model_fit_summary_path: Path,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     overwrite: bool,
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
-    labels = _read_validation_labels(utility_root)
-    predictions = _read_predictions(predictions_path, model_name, threshold_mode)
+    labels = _read_validation_labels(utility_root, query_id)
+    predictions = _read_predictions(predictions_path, model_name, threshold_mode, query_id)
     prediction_seconds_per_row = _prediction_seconds_per_row(model_fit_summary_path, model_name)
     frame = _join_labels_and_predictions(labels, predictions)
     policy_rows = _policy_rows(
         frame=frame,
         threshold_mode=threshold_mode,
         prediction_seconds_per_row=prediction_seconds_per_row,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_seed=random_seed,
     )
     policy_summary = _policy_summary(policy_rows)
@@ -118,7 +112,7 @@ def run_controller_cost_performance_pareto(
     selector_ratio = _selector_selection_ratio(policy_rows)
     random_repetition_summary = _random_repetition_summary(
         frame=frame,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_repetitions=random_repetitions,
         random_seed=random_seed,
     )
@@ -132,7 +126,7 @@ def run_controller_cost_performance_pareto(
         output_dir / "cost_performance_pareto_frontier",
     )
     _write_frame(selector_ratio, output_dir / "selector_selection_ratio")
-    _write_frame(random_repetition_summary, output_dir / "random_ela_repetition_summary")
+    _write_frame(random_repetition_summary, output_dir / "random_query_repetition_summary")
 
     plot_paths = _draw_axis_set_plots(pareto_points=pareto_points, pareto_frontier=pareto_frontier, output_dir=output_dir)
 
@@ -140,8 +134,11 @@ def run_controller_cost_performance_pareto(
     summary_path = output_dir / "controller_cost_performance_pareto_summary.json"
     summary = {
         "experiment": "phase1_refined_sampling_controller_cost_performance_pareto",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
-            "How do the current controller, SBS/no-ELA, always-ELA, and random-ELA compare on the "
+            "How do the current controller, SBS/No-query, Always Query, and Random Analysis compare on the "
             "validation cost-performance Pareto frontier, and how do their selector action ratios differ?"
         ),
         "utility_root": str(utility_root),
@@ -150,7 +147,7 @@ def run_controller_cost_performance_pareto(
         "model_name": model_name,
         "threshold_mode": threshold_mode,
         "prediction_seconds_per_row": prediction_seconds_per_row,
-        "random_ela_probability": random_ela_probability,
+        "random_query_probability": random_query_probability,
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(frame)),
@@ -160,7 +157,7 @@ def run_controller_cost_performance_pareto(
             "pareto_axis_set_frontier": str(output_dir / "pareto_axis_set_frontier.parquet"),
             "resource_frontier_compat": str(output_dir / "cost_performance_pareto_frontier.parquet"),
             "selector_selection_ratio": str(output_dir / "selector_selection_ratio.parquet"),
-            "random_ela_repetition_summary": str(output_dir / "random_ela_repetition_summary.parquet"),
+            "random_query_repetition_summary": str(output_dir / "random_query_repetition_summary.parquet"),
             "plots": plot_paths,
             "report": str(report_path),
             "summary": str(summary_path),
@@ -169,14 +166,14 @@ def run_controller_cost_performance_pareto(
             "models_retrained": False,
             "utility_labels_regenerated": False,
             "validation_labels_used_for_controller_fit_or_threshold": False,
-            "decision_input_uses_ela_features": False,
+            "decision_input_uses_query_features": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
         },
         "metric_direction": {
             "final_performance_mean": "lower_is_better",
             "runtime_mean_seconds": "lower_is_better",
-            "ela_call_rate": "lower_is_better",
-            "FE_analysis_mean": "lower_is_better",
+            "query_call_rate": "lower_is_better",
+            "FE_query_mean": "lower_is_better",
             "unhelpful_call_cost_sum": "lower_is_better",
             "unhelpful_call_rate_within_calls": "lower_is_better",
             "utility_mean": "higher_is_better",
@@ -185,7 +182,7 @@ def run_controller_cost_performance_pareto(
         },
         "pareto_axis_sets": PARETO_AXIS_SETS,
         "scope_notes": [
-            "SBS/no-ELA is represented by the current default skip path; in phase1 the default algorithm is CMA-ES, "
+            "SBS/No-query is represented by the current default skip path; in phase1 the default algorithm is CMA-ES, "
             "matching the selection_reference SBS algorithm.",
             "Final performance is averaged in the current label scale and should be read with family-split context.",
             "Controller runtime includes the measured ridge validation prediction overhead per row.",
@@ -225,8 +222,8 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "pareto_axis_set_frontier.parquet",
         output_dir / "selector_selection_ratio.csv",
         output_dir / "selector_selection_ratio.parquet",
-        output_dir / "random_ela_repetition_summary.csv",
-        output_dir / "random_ela_repetition_summary.parquet",
+        output_dir / "random_query_repetition_summary.csv",
+        output_dir / "random_query_repetition_summary.parquet",
         output_dir / "cost_performance_pareto.png",
         output_dir / "cost_performance_pareto.svg",
         output_dir / "cost_performance_pareto.pdf",
@@ -250,22 +247,23 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"cost-performance outputs already exist; pass --overwrite: {existing[0]}")
 
 
-def _read_validation_labels(utility_root: Path) -> pd.DataFrame:
+def _read_validation_labels(utility_root: Path, query_id: str) -> pd.DataFrame:
     paths = sorted((utility_root / "bbob_validation").glob("*/dimension_*/utility_labels.parquet"))
     if not paths:
         raise FileNotFoundError(f"no validation utility label shards under {utility_root}")
     frames = [pq.read_table(path).to_pandas() for path in paths]
     frame = pd.concat(frames, ignore_index=True)
+    validate_query_frame(frame, query_id=query_id, artifact="validation utility labels")
     required = {
         *IDENTITY_COLUMNS,
         "p_skip",
-        "p_ela",
+        "p_query",
         "performance_gain_norm",
-        "runtime_analysis",
+        "runtime_query",
         "runtime_selection",
-        "runtime_skip_optimization",
-        "runtime_ela_optimization",
-        "FE_analysis",
+        "runtime_no_query_optimization",
+        "runtime_query_optimization",
+        "FE_query",
         TARGET_COLUMN,
     }
     missing = sorted(required.difference(frame.columns))
@@ -274,18 +272,19 @@ def _read_validation_labels(utility_root: Path) -> pd.DataFrame:
     return frame
 
 
-def _read_predictions(path: Path, model_name: str, threshold_mode: str) -> pd.DataFrame:
+def _read_predictions(path: Path, model_name: str, threshold_mode: str, query_id: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
     frame = pq.read_table(path).to_pandas()
-    required = {*PREDICTION_IDENTITY_COLUMNS, "model_name", f"decision_run_ela_{threshold_mode}"}
+    validate_query_frame(frame, query_id=query_id, artifact="validation predictions")
+    required = {*PREDICTION_IDENTITY_COLUMNS, "model_name", f"decision_run_query_{threshold_mode}"}
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"validation predictions missing columns: {missing}")
     frame = frame[frame["model_name"] == model_name].copy()
     if frame.empty:
         raise ValueError(f"no validation predictions for model_name={model_name}")
-    return frame[[*PREDICTION_IDENTITY_COLUMNS, f"decision_run_ela_{threshold_mode}"]].reset_index(drop=True)
+    return frame[[*PREDICTION_IDENTITY_COLUMNS, f"decision_run_query_{threshold_mode}"]].reset_index(drop=True)
 
 
 def _prediction_seconds_per_row(path: Path, model_name: str) -> float:
@@ -300,7 +299,7 @@ def _prediction_seconds_per_row(path: Path, model_name: str) -> float:
 
 def _join_labels_and_predictions(labels: pd.DataFrame, predictions: pd.DataFrame) -> pd.DataFrame:
     result = labels.merge(predictions, on=IDENTITY_COLUMNS, how="left", validate="one_to_one")
-    missing = result.filter(like="decision_run_ela_").isna().any(axis=1)
+    missing = result.filter(like="decision_run_query_").isna().any(axis=1)
     if bool(missing.any()):
         raise ValueError(f"missing controller predictions for {int(missing.sum())} utility-label rows")
     if len(result) != len(labels):
@@ -313,18 +312,19 @@ def _policy_rows(
     frame: pd.DataFrame,
     threshold_mode: str,
     prediction_seconds_per_row: float,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_seed: int,
 ) -> pd.DataFrame:
-    if random_ela_probability < 0.0 or random_ela_probability > 1.0:
-        raise ValueError("random_ela_probability must be in [0, 1]")
+    if random_query_probability < 0.0 or random_query_probability > 1.0:
+        raise ValueError("random_query_probability must be in [0, 1]")
     rng = np.random.default_rng(np.random.SeedSequence([int(random_seed), 20260811, len(frame)]))
-    random_call = rng.random(len(frame)) < random_ela_probability
-    controller_call = frame[f"decision_run_ela_{threshold_mode}"].to_numpy(dtype=bool)
+    random_call = rng.random(len(frame)) < random_query_probability
+    controller_call = frame[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
     policy_specs = (
         ("sbs_skip_reference", "baseline", np.zeros(len(frame), dtype=bool), 0.0),
-        ("always_ela", "baseline", np.ones(len(frame), dtype=bool), 0.0),
-        (f"random_ela_p{int(round(random_ela_probability * 100)):02d}", "baseline", random_call, 0.0),
+        ("always_query", "baseline", np.ones(len(frame), dtype=bool), 0.0),
+        ("traditional_aas", "baseline", np.ones(len(frame), dtype=bool), 0.0),
+        (f"random_query_p{int(round(random_query_probability * 100)):02d}", "baseline", random_call, 0.0),
         ("current_controller", "controller", controller_call, prediction_seconds_per_row),
     )
     frames = []
@@ -332,15 +332,15 @@ def _policy_rows(
         policy = frame.copy()
         policy.insert(0, "policy_name", policy_name)
         policy.insert(1, "policy_category", policy_category)
-        policy["run_ela"] = call
-        policy["policy_selected_algorithm"] = np.where(call, policy["selected_algorithm"], "skip_ela")
-        policy["policy_final_performance"] = np.where(call, policy["p_ela"], policy["p_skip"])
+        policy["run_query"] = call
+        policy["policy_selected_algorithm"] = np.where(call, policy["selected_algorithm"], "skip_query")
+        policy["policy_final_performance"] = np.where(call, policy["p_query"], policy["p_skip"])
         policy["policy_runtime_seconds"] = overhead + np.where(
             call,
-            policy["runtime_analysis"] + policy["runtime_selection"] + policy["runtime_ela_optimization"],
-            policy["runtime_skip_optimization"],
+            policy["runtime_query"] + policy["runtime_selection"] + policy["runtime_query_optimization"],
+            policy["runtime_no_query_optimization"],
         )
-        policy["policy_FE_analysis"] = np.where(call, policy["FE_analysis"], 0)
+        policy["policy_FE_query"] = np.where(call, policy["FE_query"], 0)
         denominator = np.maximum(np.maximum(np.abs(policy["p_skip"]), np.abs(policy["policy_final_performance"])), EPS)
         policy["policy_performance_gain_norm_vs_skip"] = (
             policy["p_skip"] - policy["policy_final_performance"]
@@ -367,7 +367,7 @@ def _policy_summary(policies: pd.DataFrame) -> pd.DataFrame:
 
 def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> dict[str, Any]:
     observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
-    calls = frame["run_ela"].to_numpy(dtype=bool)
+    calls = frame["run_query"].to_numpy(dtype=bool)
     positive = observed > 0.0
     captured_positive = positive & calls
     unhelpful_calls = (~positive) & calls
@@ -388,9 +388,9 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "prefix_algorithm": group.get("prefix_algorithm"),
         "label_source": group.get("label_source"),
         "rows": int(len(frame)),
-        "ela_call_rows": call_rows,
-        "ela_call_rate": float(np.mean(calls)),
-        "FE_analysis_mean": float(np.mean(frame["policy_FE_analysis"])),
+        "query_call_rows": call_rows,
+        "query_call_rate": float(np.mean(calls)),
+        "FE_query_mean": float(np.mean(frame["policy_FE_query"])),
         "runtime_mean_seconds": float(np.mean(runtime)),
         "runtime_median_seconds": float(np.median(runtime)),
         "final_performance_mean": float(np.mean(final_performance)),
@@ -417,9 +417,10 @@ def _pareto_points(policy_summary: pd.DataFrame) -> pd.DataFrame:
     points = policy_summary[policy_summary["layer"] == "overall"].copy()
     points["plot_label"] = points["policy_name"].map(
         {
-            "sbs_skip_reference": "SBS / no ELA",
-            "always_ela": "Always ELA",
-            "random_ela_p50": "Random ELA p=0.5",
+            "sbs_skip_reference": "SBS / No-query",
+            "always_query": "Always Query",
+            "traditional_aas": "Traditional AAS",
+            "random_query_p50": "Random Query p=0.5",
             "current_controller": "Current controller",
         }
     ).fillna(points["policy_name"])
@@ -480,7 +481,7 @@ def _non_dominated(
 
 
 def _selector_selection_ratio(policies: pd.DataFrame) -> pd.DataFrame:
-    focus = policies[policies["policy_name"].isin(["current_controller", "always_ela", "random_ela_p50"])].copy()
+    focus = policies[policies["policy_name"].isin(["current_controller", "always_query", "random_query_p50"])].copy()
     rows = []
     for policy_name, policy_frame in focus.groupby("policy_name", sort=True):
         all_counts = policy_frame["policy_selected_algorithm"].value_counts(dropna=False).sort_index()
@@ -495,7 +496,7 @@ def _selector_selection_ratio(policies: pd.DataFrame) -> pd.DataFrame:
                     "ratio": float(count / max(len(policy_frame), 1)),
                 }
             )
-        called = policy_frame[policy_frame["run_ela"]].copy()
+        called = policy_frame[policy_frame["run_query"]].copy()
         called_counts = called["selected_algorithm"].value_counts(dropna=False).sort_index()
         for selected_algorithm, count in called_counts.items():
             rows.append(
@@ -514,7 +515,7 @@ def _selector_selection_ratio(policies: pd.DataFrame) -> pd.DataFrame:
 def _random_repetition_summary(
     *,
     frame: pd.DataFrame,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
 ) -> pd.DataFrame:
@@ -525,18 +526,18 @@ def _random_repetition_summary(
         rng = np.random.default_rng(
             np.random.SeedSequence([int(random_seed), 20260812, len(frame), int(repetition)])
         )
-        call = rng.random(len(frame)) < random_ela_probability
-        final_performance = np.where(call, frame["p_ela"], frame["p_skip"])
+        call = rng.random(len(frame)) < random_query_probability
+        final_performance = np.where(call, frame["p_query"], frame["p_skip"])
         runtime = np.where(
             call,
-            frame["runtime_analysis"] + frame["runtime_selection"] + frame["runtime_ela_optimization"],
-            frame["runtime_skip_optimization"],
+            frame["runtime_query"] + frame["runtime_selection"] + frame["runtime_query_optimization"],
+            frame["runtime_no_query_optimization"],
         )
         utility = np.where(call, frame[TARGET_COLUMN], 0.0)
         rows.append(
             {
                 "repetition": repetition,
-                "ela_call_rate": float(np.mean(call)),
+                "query_call_rate": float(np.mean(call)),
                 "final_performance_mean": float(np.mean(final_performance)),
                 "runtime_mean_seconds": float(np.mean(runtime)),
                 "utility_mean": float(np.mean(utility)),
@@ -545,11 +546,11 @@ def _random_repetition_summary(
         )
     raw = pd.DataFrame(rows)
     summary_rows = []
-    for metric in ["ela_call_rate", "final_performance_mean", "runtime_mean_seconds", "utility_mean", "utility_sum"]:
+    for metric in ["query_call_rate", "final_performance_mean", "runtime_mean_seconds", "utility_mean", "utility_sum"]:
         values = raw[metric].to_numpy(dtype=float)
         summary_rows.append(
             {
-                "policy_name": f"random_ela_p{int(round(random_ela_probability * 100)):02d}",
+                "policy_name": f"random_query_p{int(round(random_query_probability * 100)):02d}",
                 "metric": metric,
                 "repetitions": random_repetitions,
                 "mean": float(np.mean(values)),
@@ -673,8 +674,8 @@ def _markdown_report(
         "final_performance_mean",
         "runtime_mean_seconds",
         "utility_mean",
-        "ela_call_rate",
-        "FE_analysis_mean",
+        "query_call_rate",
+        "FE_query_mean",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
         "unhelpful_call_cost_sum",
@@ -685,8 +686,8 @@ def _markdown_report(
         "frontier_cost_axis",
         "quality_axis",
         "quality_direction",
-        "ela_call_rate",
-        "FE_analysis_mean",
+        "query_call_rate",
+        "FE_query_mean",
         "runtime_mean_seconds",
         "final_performance_mean",
         "utility_mean",
@@ -718,7 +719,7 @@ def _markdown_report(
         f"- 当前 controller：`{model_name}`，阈值口径 `{threshold_mode}`。",
         f"- controller 每行预测开销：`{prediction_seconds_per_row:.9f}` 秒，已计入 runtime。",
         "- final performance 与 runtime 都按越小越好解释；utility 按越大越好解释。",
-        "- SBS/no-ELA 使用当前 default skip path；phase1 中 default algorithm 为 CMA-ES，与 selection reference 的 SBS 一致。",
+        "- SBS/No-query 使用当前 default skip path；phase1 中 default algorithm 为 CMA-ES，与 selection reference 的 SBS 一致。",
         "",
         "## Pareto Points",
         "",
@@ -729,7 +730,7 @@ def _markdown_report(
         "",
         _markdown_table(selector_ratio[selector_columns]),
         "",
-        "## Random-ELA Repetition Summary",
+        "## Random Analysis Repetition Summary",
         "",
         _markdown_table(random_repetition_summary),
         "",
@@ -737,7 +738,7 @@ def _markdown_report(
         "",
         "Pareto frontier 按 axis-set 分别计算。每个 panel 使用一个成本轴和一个质量轴：成本轴总是越低越好；质量轴根据 `quality_direction` 解释。"
         "如果一个策略在指定成本轴不更高、质量轴不更差，并且至少一个指标更优，则被比较策略不在该 panel 的 frontier 上。"
-        "selector 比例中，`called_rows` 只统计实际执行 ELA 的行，`all_rows` 将未执行 ELA 记为 `skip_ela`。",
+        "selector 比例中，`called_rows` 只统计实际执行固定 query 的行，`all_rows` 将未执行 query 记为 `skip_query`。",
     ]
     return "\n".join(report) + "\n"
 
@@ -778,25 +779,29 @@ def _write_frame(frame: pd.DataFrame, stem: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build phase1 controller cost-performance Pareto comparison.")
-    parser.add_argument("--utility-root", type=Path, default=DEFAULT_UTILITY_ROOT)
-    parser.add_argument("--predictions", type=Path, default=DEFAULT_PREDICTIONS_PATH)
-    parser.add_argument("--model-fit-summary", type=Path, default=DEFAULT_MODEL_FIT_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--utility-root", type=Path, default=None)
+    parser.add_argument("--predictions", type=Path, default=None)
+    parser.add_argument("--model-fit-summary", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
-    parser.add_argument("--random-ela-probability", type=float, default=0.5)
+    parser.add_argument("--random-query-probability", type=float, default=0.5)
     parser.add_argument("--random-repetitions", type=int, default=30)
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    feature_group_root = query_root / "feature_group_ablation/primary_with_maturity"
     run_controller_cost_performance_pareto(
-        utility_root=args.utility_root,
-        predictions_path=args.predictions,
-        model_fit_summary_path=args.model_fit_summary,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        utility_root=args.utility_root or Path("results/utility_labels") / args.query_id,
+        predictions_path=args.predictions or feature_group_root / "validation_predictions.parquet",
+        model_fit_summary_path=args.model_fit_summary or feature_group_root / "model_fit_summary.parquet",
+        output_dir=args.output_dir or query_root / "controller_cost_performance_pareto",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,
-        random_ela_probability=args.random_ela_probability,
+        random_query_probability=args.random_query_probability,
         random_repetitions=args.random_repetitions,
         random_seed=args.random_seed,
         overwrite=args.overwrite,

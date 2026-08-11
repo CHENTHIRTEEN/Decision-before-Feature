@@ -17,14 +17,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_DATASET_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet")
-DEFAULT_SCHEMA_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/changed_same_learnability_diagnostic")
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
 DOMAIN_SPECS = {
     "all_rows": None,
     "changed_only": "changed_algorithm",
@@ -36,6 +35,7 @@ EPS = 1e-12
 
 def run_changed_same_learnability_diagnostic(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
     output_dir: Path,
@@ -45,6 +45,8 @@ def run_changed_same_learnability_diagnostic(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validate_query_payload(schema, query_id=query_id, artifact="Decision schema")
+    validate_query_frame(dataset, query_id=query_id, artifact="Decision dataset")
     feature_columns = _feature_columns(schema)
     _check_dataset(dataset, feature_columns)
 
@@ -99,6 +101,9 @@ def run_changed_same_learnability_diagnostic(
     pq.write_table(pa.Table.from_pandas(validation_scores, preserve_index=False), output_dir / "baseline_validation_scores.parquet")
 
     summary = {
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "experiment": "changed_same_behavior_learnability_diagnostic",
         "dataset": str(dataset_path),
         "schema": str(schema_path),
@@ -164,7 +169,7 @@ def _feature_columns(schema: dict[str, Any]) -> list[str]:
     columns = list(schema.get("input_columns", []))
     if columns != list(BEHAVIOR_FEATURE_COLUMNS):
         raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
-    forbidden_fragments = ("ela", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
+    forbidden_fragments = ("query", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
     forbidden = [column for column in columns if any(fragment in column.lower() for fragment in forbidden_fragments)]
     if forbidden:
         raise ValueError(f"Decision input contains forbidden name fragments: {forbidden}")
@@ -179,6 +184,11 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         "family",
         "dimension",
         "prefix_algorithm",
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "skip_switches_from_prefix",
+        "no_query_transition_mode",
+        "query_transition_mode",
         "seed",
         "FE",
         "FE_ratio",
@@ -442,6 +452,7 @@ def _markdown_report(
             "- No main complex Decision Model was trained.",
             f"- Decision inputs: `{', '.join(feature_columns)}`.",
             f"- Target: `{TARGET_COLUMN}`.",
+            "- This diagnostic uses the primary SBS-prefix dataset, where prefix_algorithm=default_algorithm and legacy label_source therefore matches selected_equals_prefix.",
             "- Metadata and algorithm labels are not used as inputs; `label_source` is used only to define diagnostic domains.",
             "",
             "## Domain distribution",
@@ -484,17 +495,21 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Diagnose changed/same behavior-feature learnability with baseline models.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--random-seed", type=int, default=42)
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    materialized = query_root / "materialized_training_data"
 
     run_changed_same_learnability_diagnostic(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or materialized / "decision_dataset.parquet",
+        schema_path=args.schema or materialized / "decision_dataset_schema.json",
+        output_dir=args.output_dir or query_root / "changed_same_learnability_diagnostic",
         overwrite=args.overwrite,
         random_seed=args.random_seed,
     )

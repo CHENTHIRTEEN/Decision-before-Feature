@@ -17,35 +17,26 @@ import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
 from benchmarks import make_problem
-from ela.features import ELA_FEATURE_COLUMNS, extract_ela_for_problem
 from experiments.phase1_batch_common import family_name
 from experiments.phase1_batch_common import as_int_list, fe_total_for_dimension, load_config, selected_dimensions, selected_functions
-from optimizers import OptimizerSettings, run_optimizer
-from optimizers.continuation import run_population_continuation
-from selection_reference.build import (
-    _best_algorithm_by_problem,
-    _bucket_ratio_by_dimension,
-    _checkpoint_budget_map,
-    _ela_feature_path,
-    _fit_selector,
-    _predict_algorithms,
-    _read_feature_file,
-    _read_performance,
-    _single_best_solver,
+from landscape_queries.batch_features import FEATURE_METADATA_COLUMNS
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from optimizers import (
+    OptimizerSettings,
+    QUERY_TRANSFER_EVENT,
+    advance_optimizer_state,
+    initialize_optimizer_state,
+    initialize_transferred_optimizer_state,
 )
+from selection_reference.model import StatewiseSelectorModel, load_selector_model, make_selector_features
 from trajectory.records import TrajectoryRecord
 
 
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
 DEFAULT_TRAIN_CONFIG_PATH = Path("configs/phase1_bbob_train.yaml")
-DEFAULT_TRAINING_SUMMARY_PATH = Path(
-    "results/decision/phase1_refined_sampling/feature_group_ablation/"
-    "primary_with_maturity/full_decision_model_training_summary.json"
-)
-DEFAULT_OUTPUT_DIR = Path("results/decision/cec2017_test/online_controller_evaluation")
 DEFAULT_MODEL_NAME = "ridge_regression"
 DEFAULT_THRESHOLD_MODE = "train_utility"
-DEFAULT_RANDOM_ELA_PROBABILITY = 0.5
+DEFAULT_RANDOM_QUERY_PROBABILITY = 0.5
 DEFAULT_RANDOM_REPETITIONS = 30
 DEFAULT_RANDOM_SEED = 1701
 DEFAULT_SAMPLING_PROTOCOL = "training_matched"
@@ -70,12 +61,11 @@ DENSE_DECISION_CHECK_RATIOS = (
     0.60,
 )
 SAMPLING_PROTOCOLS = (DEFAULT_SAMPLING_PROTOCOL, "dense_decision_check")
-FE_ANALYSIS_RATIO = 0.05
 EPS = 1e-12
 
 
 @dataclass(frozen=True)
-class ControllerBundle:
+class DecisionControllerModel:
     model: Any
     model_name: str
     model_family: str
@@ -84,35 +74,47 @@ class ControllerBundle:
     feature_columns: list[str]
     training_summary_path: Path
     model_path: Path
+    query_id: str
+    query_protocol: str
 
 
 @dataclass(frozen=True)
 class OnlineSelector:
-    sbs_algorithm: str
-    buckets: tuple[float, ...]
-    models: dict[float, tuple[Any, str]]
+    model: StatewiseSelectorModel
 
-    def select(self, ela_features: dict[str, Any], remaining_ratio: float) -> tuple[str, float, str, float]:
-        started = perf_counter()
-        bucket = min(self.buckets, key=lambda value: (abs(value - remaining_ratio), value))
-        model, status = self.models[bucket]
-        frame = pd.DataFrame([{column: ela_features[column] for column in ELA_FEATURE_COLUMNS}])
-        frame.insert(0, "problem_id", str(ela_features["problem_id"]))
-        predicted = _predict_algorithms(model, status, frame, self.sbs_algorithm)
-        runtime_selection = perf_counter() - started
-        return str(predicted[str(ela_features["problem_id"])]), float(bucket), status, float(runtime_selection)
+    @property
+    def sbs_algorithm(self) -> str:
+        return self.model.default_algorithm
+
+    def select(
+        self,
+        query_features: dict[str, Any],
+        behavior_features: dict[str, Any],
+        remaining_ratio: float,
+    ) -> tuple[str, float, str, float]:
+        features = make_selector_features(
+            behavior_features=behavior_features,
+            query_features=query_features,
+            query_feature_columns=self.model.query_feature_columns,
+            remaining_budget_ratio=remaining_ratio,
+        )
+        selected, _, runtime_selection = self.model.select_one(features)
+        return selected, float(remaining_ratio), "random_forest_action_loss_regression", runtime_selection
 
 
 def evaluate_online_controller(
     *,
+    query_id: str,
+    query_feature_path: Path,
     config_path: Path,
     train_config_path: Path,
+    selector_model_path: Path,
     training_summary_path: Path,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
     sampling_protocol: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     only_functions: list[int] | None,
@@ -138,7 +140,13 @@ def evaluate_online_controller(
     dimensions = selected_dimensions(config, only_dimensions)
     seeds = _selected_seeds(config, only_seeds)
     controller = _load_controller(training_summary_path, model_name, threshold_mode)
-    selector = None if summarize_only else _fit_online_selector(train_config_path)
+    query_spec = get_query_spec(query_id)
+    if controller.query_id != query_id or controller.query_protocol != query_spec.protocol:
+        raise ValueError("Decision controller query protocol does not match the requested online evaluation")
+    selector = None if summarize_only else _fit_online_selector(selector_model_path)
+    query_feature_rows = {} if summarize_only else _read_external_query_features(query_feature_path, query_id)
+    if selector is not None and selector.model.query_id != query_id:
+        raise ValueError("selector model query_id does not match the requested online evaluation")
     checkpoint_plan = {
         dimension: _checkpoint_plan(config, dimension, checkpoint_ratios)
         for dimension in dimensions
@@ -158,7 +166,7 @@ def evaluate_online_controller(
             checkpoint_ratios=checkpoint_ratios,
             decision_check_frequency=decision_check_frequency,
             controller=controller,
-            random_ela_probability=random_ela_probability,
+            random_query_probability=random_query_probability,
             random_repetitions=random_repetitions,
             random_seed=random_seed,
             only_functions=only_functions,
@@ -180,8 +188,9 @@ def evaluate_online_controller(
             decision_check_frequency=decision_check_frequency,
             controller=controller,
             selector=selector,
+            query_feature_rows=query_feature_rows,
             checkpoint_plan=checkpoint_plan,
-            random_ela_probability=random_ela_probability,
+            random_query_probability=random_query_probability,
             random_repetitions=random_repetitions,
             random_seed=random_seed,
             functions=functions,
@@ -214,9 +223,10 @@ def evaluate_online_controller(
                         checkpoint_plan=checkpoint_plan[dimension],
                         controller=controller,
                         selector=selector,
+                        query_feature_row=_query_feature_row(query_feature_rows, function=function, dimension=dimension),
                         sampling_protocol=sampling_protocol,
                         decision_check_frequency=decision_check_frequency,
-                        random_ela_probability=random_ela_probability,
+                        random_query_probability=random_query_probability,
                         random_repetitions=random_repetitions,
                         random_seed=random_seed,
                     )
@@ -243,7 +253,7 @@ def evaluate_online_controller(
         decision_check_frequency=decision_check_frequency,
         controller=controller,
         default_algorithm=selector.sbs_algorithm,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_repetitions=random_repetitions,
         random_seed=random_seed,
         run_mode="single_output",
@@ -263,10 +273,11 @@ def _evaluate_online_controller_sharded(
     sampling_protocol: str,
     checkpoint_ratios: tuple[float, ...],
     decision_check_frequency: str,
-    controller: ControllerBundle,
+    controller: DecisionControllerModel,
     selector: OnlineSelector | None,
+    query_feature_rows: dict[tuple[int, int], dict[str, Any]],
     checkpoint_plan: dict[int, list[tuple[float, int]]],
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     functions: list[int],
@@ -310,9 +321,10 @@ def _evaluate_online_controller_sharded(
                     "checkpoint_plan": checkpoint_plan[dimension],
                     "controller": controller,
                     "selector": selector,
+                    "query_feature_row": _query_feature_row(query_feature_rows, function=function, dimension=dimension),
                     "sampling_protocol": sampling_protocol,
                     "decision_check_frequency": decision_check_frequency,
-                    "random_ela_probability": float(random_ela_probability),
+                    "random_query_probability": float(random_query_probability),
                     "random_repetitions": int(random_repetitions),
                     "random_seed": int(random_seed),
                     "output_dir": output_dir,
@@ -348,7 +360,7 @@ def _evaluate_online_controller_sharded(
         checkpoint_ratios=checkpoint_ratios,
         decision_check_frequency=decision_check_frequency,
         controller=controller,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_repetitions=random_repetitions,
         random_seed=random_seed,
         only_functions=only_functions,
@@ -414,9 +426,10 @@ def _evaluate_online_controller_shard(job: dict[str, Any]) -> dict[str, Any]:
                 checkpoint_plan=job["checkpoint_plan"],
                 controller=job["controller"],
                 selector=job["selector"],
+                query_feature_row=job["query_feature_row"],
                 sampling_protocol=str(job["sampling_protocol"]),
                 decision_check_frequency=str(job["decision_check_frequency"]),
-                random_ela_probability=float(job["random_ela_probability"]),
+                random_query_probability=float(job["random_query_probability"]),
                 random_repetitions=int(job["random_repetitions"]),
                 random_seed=int(job["random_seed"]),
             )
@@ -462,8 +475,8 @@ def _summarize_shards(
     sampling_protocol: str,
     checkpoint_ratios: tuple[float, ...],
     decision_check_frequency: str,
-    controller: ControllerBundle,
-    random_ela_probability: float,
+    controller: DecisionControllerModel,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     only_functions: list[int] | None,
@@ -496,7 +509,7 @@ def _summarize_shards(
         decision_check_frequency=decision_check_frequency,
         controller=controller,
         default_algorithm=default_algorithm,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_repetitions=random_repetitions,
         random_seed=random_seed,
         run_mode="sharded",
@@ -520,9 +533,9 @@ def _write_online_summary(
     sampling_protocol: str,
     checkpoint_ratios: tuple[float, ...],
     decision_check_frequency: str,
-    controller: ControllerBundle,
+    controller: DecisionControllerModel,
     default_algorithm: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     run_mode: str,
@@ -540,6 +553,9 @@ def _write_online_summary(
     base_runs = int(result[["problem_id", "dimension", "seed"]].drop_duplicates().shape[0])
     summary = {
         "experiment": "cec_online_controller_evaluation",
+        "query_id": str(result["query_id"].iloc[0]),
+        "query_protocol": str(result["query_protocol"].iloc[0]),
+        "sample_design_id": str(result["sample_design_id"].iloc[0]),
         "run_mode": run_mode,
         "config": str(config_path),
         "train_config": str(train_config_path),
@@ -553,11 +569,17 @@ def _write_online_summary(
         "threshold": float(controller.threshold),
         "feature_columns": controller.feature_columns,
         "default_algorithm": default_algorithm,
-        "random_ela_probability": random_ela_probability,
+        "random_query_probability": random_query_probability,
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(result)),
         "base_runs": base_runs,
+        "query_group_failure_rows": int(
+            (
+                result["query_called"].astype(bool)
+                & result["query_feature_status"].astype(str).ne("ok")
+            ).sum()
+        ),
         "policies": sorted(result["policy_name"].astype(str).unique().tolist()),
         "shards": shards,
         "outputs": {
@@ -571,15 +593,17 @@ def _write_online_summary(
         "data_leakage_check": {
             "external_rows_used_for_controller_fit": 0,
             "external_rows_used_for_threshold_fit": 0,
-            "external_ela_features_used_as_controller_input": False,
+            "external_query_features_used_as_controller_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_controller_input": False,
             "controller_inputs_are_behavior_features_only": True,
         },
         "scope_notes": [
             "All policies start from the SBS/default optimizer probe state when a decision is needed.",
-            "Behavior sampling is the decision-check frequency: every checkpoint is also a possible ELA trigger point.",
-            "always_ela executes ELA at the first checkpoint in the active sampling protocol, so it is an after-probe always-analysis baseline.",
-            "random_ela samples one independent checkpoint trigger stream per repetition and run at each decision-check point.",
+            "Behavior sampling is the decision-check frequency: every checkpoint is also a possible query trigger point.",
+            "always_query executes the fixed query at the first checkpoint in the active sampling protocol.",
+            "traditional_aas reuses the equivalent always-query plus selector run instead of repeating the continuation.",
+            "External group-level query failures are retained in query_feature_status and use the selector's frozen BBOB-train median imputation; affected rows are reported separately.",
+            "random_query samples one independent checkpoint trigger stream per repetition and run at each decision-check point.",
             "dense_decision_check is a sensitivity analysis of decision-check frequency, not a passive observation protocol.",
             "The controller and threshold are frozen from BBOB train artifacts.",
             "In sharded mode, existing function/dimension shard outputs are skipped unless --overwrite is passed.",
@@ -652,7 +676,7 @@ def _selected_seeds(config: dict, only_seeds: list[int] | None) -> list[int]:
     return [seed for seed in seeds if seed in requested]
 
 
-def _load_controller(training_summary_path: Path, model_name: str, threshold_mode: str) -> ControllerBundle:
+def _load_controller(training_summary_path: Path, model_name: str, threshold_mode: str) -> DecisionControllerModel:
     summary = json.loads(training_summary_path.read_text(encoding="utf-8"))
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
     if not feature_columns or not set(feature_columns).issubset(BEHAVIOR_FEATURE_COLUMNS):
@@ -660,7 +684,7 @@ def _load_controller(training_summary_path: Path, model_name: str, threshold_mod
     model_path = _model_path(summary, model_name)
     threshold = _threshold(summary, model_name, threshold_mode)
     model_family = _model_family(summary, model_name)
-    return ControllerBundle(
+    return DecisionControllerModel(
         model=joblib.load(model_path),
         model_name=model_name,
         model_family=model_family,
@@ -669,7 +693,89 @@ def _load_controller(training_summary_path: Path, model_name: str, threshold_mod
         feature_columns=feature_columns,
         training_summary_path=training_summary_path,
         model_path=model_path,
+        query_id=str(summary.get("query_id", "")),
+        query_protocol=str(summary.get("query_protocol", "")),
     )
+
+
+def _read_external_query_features(path: Path, query_id: str) -> dict[tuple[int, int], dict[str, Any]]:
+    if not path.exists():
+        raise FileNotFoundError(f"missing external query feature table: {path}")
+    spec = get_query_spec(query_id)
+    frame = pq.read_table(path).to_pandas()
+    expected_columns = set(FEATURE_METADATA_COLUMNS) | set(spec.feature_columns)
+    observed_columns = set(frame.columns)
+    if observed_columns != expected_columns:
+        raise ValueError(
+            "external query feature table does not exactly match the frozen whitelist; "
+            f"missing={sorted(expected_columns - observed_columns)}, "
+            f"extra={sorted(observed_columns - expected_columns)}"
+        )
+    required = {
+        "problem_id",
+        "function",
+        "dimension",
+        "query_id",
+        "query_protocol",
+        "sample_design_id",
+        "runtime_query",
+        "feature_status",
+        "feature_failure",
+        "feature_group_status",
+        "additional_function_evaluations",
+        "query_feature_columns",
+        *spec.feature_columns,
+    }
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"external query feature table is missing columns: {sorted(missing)}")
+    if set(frame["query_id"].astype(str)) != {query_id}:
+        raise ValueError("external query feature table contains the wrong query_id")
+    if set(frame["query_protocol"].astype(str)) != {spec.protocol}:
+        raise ValueError("external query feature table contains the wrong query_protocol")
+    if set(frame["sample_design_id"].astype(str)) != {spec.sample_design_id}:
+        raise ValueError("external query feature table contains the wrong sample design")
+    expected_feature_columns = json.dumps(list(spec.feature_columns), ensure_ascii=False)
+    if set(frame["query_feature_columns"].astype(str)) != {expected_feature_columns}:
+        raise ValueError("external query feature table contains a non-frozen feature-column list")
+    if (frame["additional_function_evaluations"].astype(int) != 0).any():
+        raise ValueError("external query feature extraction reports additional objective evaluations")
+    for row in frame.to_dict(orient="records"):
+        group_status = json.loads(str(row["feature_group_status"]))
+        if set(group_status) != set(spec.feature_groups):
+            raise ValueError("external query feature group status does not cover the frozen groups")
+        has_group_failure = any(str(status.get("status")) != "ok" for status in group_status.values())
+        expected_status = "failed" if has_group_failure else "ok"
+        if str(row["feature_status"]) != expected_status:
+            raise ValueError("external query feature_status is inconsistent with group-level status")
+    key = ["function", "dimension"]
+    if frame.duplicated(key).any():
+        raise ValueError("external query feature table contains duplicate function/dimension rows")
+    runtimes = frame["runtime_query"].astype(float).to_numpy()
+    if not np.isfinite(runtimes).all() or (runtimes < 0.0).any():
+        raise ValueError("external query runtime must be finite and non-negative")
+    expected_runtime = (
+        frame["runtime_sampling_evaluation"].astype(float)
+        + frame["runtime_feature_computation"].astype(float)
+    ).to_numpy()
+    if not np.allclose(runtimes, expected_runtime, rtol=0.0, atol=1e-12):
+        raise ValueError("external runtime_query is not sampling evaluation plus feature computation")
+    return {
+        (int(row["function"]), int(row["dimension"])): row
+        for row in frame.to_dict(orient="records")
+    }
+
+
+def _query_feature_row(
+    rows: dict[tuple[int, int], dict[str, Any]],
+    *,
+    function: int,
+    dimension: int,
+) -> dict[str, Any]:
+    key = (int(function), int(dimension))
+    if key not in rows:
+        raise ValueError(f"missing saved query features for function={function}, dimension={dimension}")
+    return rows[key]
 
 
 def _model_path(summary: dict[str, Any], model_name: str) -> Path:
@@ -707,19 +813,8 @@ def _model_family(summary: dict[str, Any], model_name: str) -> str:
     return str(row["model_family"].iloc[0]) if len(row) else ""
 
 
-def _fit_online_selector(train_config_path: Path) -> OnlineSelector:
-    train_config = load_config(train_config_path)
-    train_features = _read_feature_file(_ela_feature_path(train_config, Path("results/ela")))
-    train_performance = _read_performance(train_config, None, None)
-    train_budget_map = _checkpoint_budget_map(train_config, train_performance, None)
-    buckets = tuple(sorted({remaining for values in train_budget_map.values() for remaining, _ in values}))
-    sbs_algorithm = _single_best_solver(train_performance)
-    models = {}
-    for remaining_ratio in buckets:
-        bucket_ratio_by_dimension = _bucket_ratio_by_dimension(train_budget_map, remaining_ratio)
-        target = _best_algorithm_by_problem(train_performance, bucket_ratio_by_dimension)
-        models[remaining_ratio] = _fit_selector(train_features, target)
-    return OnlineSelector(sbs_algorithm=sbs_algorithm, buckets=buckets, models=models)
+def _fit_online_selector(selector_model_path: Path) -> OnlineSelector:
+    return OnlineSelector(model=load_selector_model(selector_model_path))
 
 
 def _checkpoint_ratios(config: dict, sampling_protocol: str) -> tuple[float, ...]:
@@ -741,7 +836,7 @@ def _decision_check_frequency(sampling_protocol: str) -> str:
 def _sampling_output_dir(output_dir: Path, sampling_protocol: str) -> Path:
     if sampling_protocol == DEFAULT_SAMPLING_PROTOCOL:
         return output_dir
-    if sampling_protocol == "dense_decision_check" and output_dir == DEFAULT_OUTPUT_DIR:
+    if sampling_protocol == "dense_decision_check" and not output_dir.name.endswith("_dense_decision_check"):
         return output_dir.with_name(f"{output_dir.name}_dense_decision_check")
     return output_dir
 
@@ -764,18 +859,19 @@ def _evaluate_one_run(
     seed: int,
     fe_total: int,
     checkpoint_plan: list[tuple[float, int]],
-    controller: ControllerBundle,
+    controller: DecisionControllerModel,
     selector: OnlineSelector,
+    query_feature_row: dict[str, Any],
     sampling_protocol: str,
     decision_check_frequency: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
 ) -> list[dict[str, Any]]:
     suite = str(config["suite"]).lower()
     problem = make_problem({"suite": suite, "function": function, "instance": 1, "dimension": dimension})
     try:
-        no_ela = _run_threshold_policy(
+        no_query = _run_threshold_policy(
             problem=problem,
             config=config,
             function=function,
@@ -783,14 +879,15 @@ def _evaluate_one_run(
             fe_total=fe_total,
             checkpoint_plan=checkpoint_plan,
             selector=selector,
+            query_feature_row=query_feature_row,
             controller=None,
-            policy_name="sbs_no_ela",
+            policy_name="sbs_no_query",
             trigger_mode="never",
             sampling_protocol=sampling_protocol,
             decision_check_frequency=decision_check_frequency,
             repetition=None,
         )
-        always_ela = _run_threshold_policy(
+        always_query = _run_threshold_policy(
             problem=problem,
             config=config,
             function=function,
@@ -798,13 +895,16 @@ def _evaluate_one_run(
             fe_total=fe_total,
             checkpoint_plan=checkpoint_plan,
             selector=selector,
+            query_feature_row=query_feature_row,
             controller=None,
-            policy_name="always_ela",
+            policy_name="always_query",
             trigger_mode="first_checkpoint",
             sampling_protocol=sampling_protocol,
             decision_check_frequency=decision_check_frequency,
             repetition=None,
         )
+        traditional_aas = dict(always_query)
+        traditional_aas["policy_name"] = "traditional_aas"
         controller_row = _run_threshold_policy(
             problem=problem,
             config=config,
@@ -813,6 +913,7 @@ def _evaluate_one_run(
             fe_total=fe_total,
             checkpoint_plan=checkpoint_plan,
             selector=selector,
+            query_feature_row=query_feature_row,
             controller=controller,
             policy_name="current_controller",
             trigger_mode="controller",
@@ -829,18 +930,19 @@ def _evaluate_one_run(
                 fe_total=fe_total,
                 checkpoint_plan=checkpoint_plan,
                 selector=selector,
+                query_feature_row=query_feature_row,
                 controller=None,
-                policy_name="random_ela_p50",
+                policy_name="random_query_p50",
                 trigger_mode="random",
                 sampling_protocol=sampling_protocol,
                 decision_check_frequency=decision_check_frequency,
                 repetition=repetition,
-                random_ela_probability=random_ela_probability,
+                random_query_probability=random_query_probability,
                 random_seed=random_seed,
             )
             for repetition in range(random_repetitions)
         ]
-        rows = [no_ela, always_ela, controller_row, *random_rows]
+        rows = [no_query, always_query, traditional_aas, controller_row, *random_rows]
         for row in rows:
             row.update(
                 {
@@ -870,71 +972,49 @@ def _run_threshold_policy(
     fe_total: int,
     checkpoint_plan: list[tuple[float, int]],
     selector: OnlineSelector,
-    controller: ControllerBundle | None,
+    query_feature_row: dict[str, Any],
+    controller: DecisionControllerModel | None,
     policy_name: str,
     trigger_mode: str,
     sampling_protocol: str,
     decision_check_frequency: str,
     repetition: int | None,
-    random_ela_probability: float = 0.5,
+    random_query_probability: float = 0.5,
     random_seed: int = 1701,
 ) -> dict[str, Any]:
     default_algorithm = selector.sbs_algorithm
     population_size = int(config["population_size"])
-    fe_analysis = int(FE_ANALYSIS_RATIO * fe_total)
+    query_spec = get_query_spec(selector.model.query_id)
+    fe_query = query_spec.sample_design.sample_size(problem.dimension)
+    if fe_query != int(round(query_spec.sample_design.fe_ratio * fe_total)):
+        raise ValueError("online query FE does not match the frozen sample design")
     trajectory_rows: list[dict[str, Any]] = []
-    current_population = None
-    current_fitness = None
-    current_best = np.inf
-    current_fe = 0
-    runtime_probe = 0.0
+    settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
+    started = perf_counter()
+    current_state = initialize_optimizer_state(
+        algorithm=default_algorithm,
+        problem=problem,
+        seed=seed,
+        settings=settings,
+    )
+    prefix_algorithm = str(current_state.algorithm)
+    runtime_probe = perf_counter() - started
+    current_fe = int(current_state.evaluations)
     triggered = False
     trigger_ratio = None
     trigger_score = None
     selected_algorithm = default_algorithm
-    selected_bucket = None
+    selector_remaining_budget_ratio = None
     selector_status = "not_used"
-    runtime_analysis = 0.0
+    runtime_query = 0.0
     runtime_selection = 0.0
 
     for ratio, checkpoint_fe in checkpoint_plan:
         delta = checkpoint_fe - current_fe
         if delta <= 0:
             continue
-        if current_fe == 0:
-            settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
-            started = perf_counter()
-            records = run_optimizer(
-                algorithm=default_algorithm,
-                problem=problem,
-                seed=seed,
-                fe_total=checkpoint_fe,
-                settings=settings,
-            )
-            runtime_probe += perf_counter() - started
-            record = records[-1]
-            current_population = np.asarray(record.population, dtype=float)
-            current_fitness = np.asarray(record.fitness, dtype=float)
-            current_best = float(record.best_fitness)
-        else:
-            continuation = run_population_continuation(
-                algorithm=default_algorithm,
-                problem=problem,
-                seed=seed,
-                function=function,
-                instance=1,
-                generation=max(1, current_fe // population_size),
-                event=10,
-                fe_budget=delta,
-                population=current_population,
-                fitness=current_fitness,
-                best_fitness=current_best,
-                settings=OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,)),
-            )
-            runtime_probe += continuation.runtime_seconds
-            current_population = np.asarray(continuation.population, dtype=float)
-            current_fitness = np.asarray(continuation.fitness, dtype=float)
-            current_best = float(continuation.best_fitness)
+        continuation = advance_optimizer_state(state=current_state, problem=problem, fe_budget=delta)
+        runtime_probe += continuation.runtime_seconds
         current_fe = checkpoint_fe
         trajectory_record = TrajectoryRecord.from_arrays(
             problem_id=problem.problem_id,
@@ -944,9 +1024,9 @@ def _run_threshold_policy(
             seed=seed,
             fe=current_fe,
             fe_total=fe_total,
-            population=current_population,
-            fitness=current_fitness,
-            best_fitness=current_best,
+            population=current_state.population,
+            fitness=current_state.fitness,
+            best_fitness=current_state.best_fitness,
             fe_ratio=ratio,
         )
         trajectory_rows.append(trajectory_record.__dict__)
@@ -955,7 +1035,7 @@ def _run_threshold_policy(
             behavior_row=behavior_row,
             controller=controller,
             trigger_mode=trigger_mode,
-            random_ela_probability=random_ela_probability,
+            random_query_probability=random_query_probability,
             random_seed=random_seed,
             seed=seed,
             function=function,
@@ -965,64 +1045,56 @@ def _run_threshold_policy(
         if should_trigger:
             triggered = True
             trigger_ratio = ratio
-            ela_features = extract_ela_for_problem(
-                problem=problem,
-                seed=0,
-                fe_analysis=fe_analysis,
-                function=function,
-                instance=1,
-            )
-            runtime_analysis = float(ela_features["runtime_analysis"])
-            ela_features = {"problem_id": problem.problem_id, **ela_features}
-            remaining = max(fe_total - current_fe - fe_analysis, 0)
+            if str(query_feature_row["problem_id"]) != problem.problem_id:
+                raise ValueError("saved query feature row does not match the online problem")
+            runtime_query = float(query_feature_row["runtime_query"])
+            query_features = {
+                column: query_feature_row.get(column)
+                for column in selector.model.query_feature_columns
+            }
+            remaining = max(fe_total - current_fe - fe_query, 0)
             remaining_ratio = round(remaining / fe_total, 6)
-            selected_algorithm, selected_bucket, selector_status, runtime_selection = selector.select(
-                ela_features,
+            selected_algorithm, selector_remaining_budget_ratio, selector_status, runtime_selection = selector.select(
+                query_features,
+                behavior_row,
                 remaining_ratio,
             )
             break
 
     if triggered:
-        remaining_budget = max(fe_total - current_fe - fe_analysis, 0)
-        # Triggered selector path uses population transfer; ELA samples only determine the selected algorithm.
-        after = run_population_continuation(
-            algorithm=selected_algorithm,
-            problem=problem,
-            seed=seed,
-            function=function,
-            instance=1,
-            generation=max(1, current_fe // population_size),
-            event=20,
-            fe_budget=remaining_budget,
-            population=current_population,
-            fitness=current_fitness,
-            best_fitness=current_best,
-            settings=OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,)),
-        )
+        remaining_budget = max(fe_total - current_fe - fe_query, 0)
+        after_started = perf_counter()
+        if selected_algorithm == prefix_algorithm:
+            after_state = current_state
+            transition_mode = "native_optimizer_state"
+        else:
+            after_state = initialize_transferred_optimizer_state(
+                algorithm=selected_algorithm,
+                source_state=current_state,
+                problem=problem,
+                seed=seed,
+                function=function,
+                instance=1,
+                event=QUERY_TRANSFER_EVENT,
+            )
+            transition_mode = "population_transfer_initialization"
+        after = advance_optimizer_state(state=after_state, problem=problem, fe_budget=remaining_budget)
         final_performance = float(after.best_fitness)
-        runtime_after = float(after.runtime_seconds)
+        runtime_after = float(perf_counter() - after_started)
         fe_after = int(after.evaluations)
-        fe_used = int(current_fe + fe_analysis + fe_after)
+        if fe_after != remaining_budget:
+            raise ValueError("query continuation did not consume its assigned FE budget")
+        fe_used = int(current_fe + fe_query + fe_after)
     else:
         remaining_budget = max(fe_total - current_fe, 0)
-        after = run_population_continuation(
-            algorithm=default_algorithm,
-            problem=problem,
-            seed=seed,
-            function=function,
-            instance=1,
-            generation=max(1, current_fe // population_size),
-            event=30,
-            fe_budget=remaining_budget,
-            population=current_population,
-            fitness=current_fitness,
-            best_fitness=current_best,
-            settings=OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,)),
-        )
+        after = advance_optimizer_state(state=current_state, problem=problem, fe_budget=remaining_budget)
         final_performance = float(after.best_fitness)
         runtime_after = float(after.runtime_seconds)
         fe_after = int(after.evaluations)
+        if fe_after != remaining_budget:
+            raise ValueError("Skip continuation did not consume its assigned FE budget")
         fe_used = int(current_fe + fe_after)
+        transition_mode = "native_optimizer_state"
 
     policy_category = "controller" if policy_name == "current_controller" else "baseline"
     return {
@@ -1031,25 +1103,35 @@ def _run_threshold_policy(
         "sampling_protocol": sampling_protocol,
         "decision_check_frequency": decision_check_frequency,
         "random_repetition": repetition,
+        "prefix_algorithm": prefix_algorithm,
         "default_algorithm": default_algorithm,
         "selected_algorithm": selected_algorithm,
+        "selected_equals_default": bool(selected_algorithm == default_algorithm),
+        "selected_equals_prefix": bool(selected_algorithm == prefix_algorithm),
+        "skip_switches_from_prefix": bool(default_algorithm != prefix_algorithm),
         "selector_status": selector_status,
-        "selected_bucket_remaining_ratio": selected_bucket,
-        "ela_called": bool(triggered),
+        "optimizer_transition_mode": transition_mode,
+        "selector_remaining_budget_ratio": selector_remaining_budget_ratio,
+        "query_called": bool(triggered),
+        "query_id": selector.model.query_id,
+        "query_protocol": selector.model.query_protocol,
+        "sample_design_id": selector.model.sample_design_id,
+        "query_feature_status": str(query_feature_row.get("feature_status", "unknown")) if triggered else "not_called",
+        "query_feature_failure": str(query_feature_row.get("feature_failure", "")) if triggered else "",
         "trigger_FE": int(current_fe) if triggered else None,
         "trigger_FE_ratio": float(trigger_ratio) if triggered else None,
         "decision_score": float(trigger_score) if trigger_score is not None else None,
         "decision_threshold": float(controller.threshold) if controller is not None else None,
         "FE_total": int(fe_total),
         "FE_probe": int(current_fe),
-        "FE_analysis": int(fe_analysis) if triggered else 0,
+        "FE_query": int(fe_query) if triggered else 0,
         "FE_after_decision_optimization": int(fe_after),
         "FE_used": int(fe_used),
         "runtime_probe": float(runtime_probe),
-        "runtime_analysis": float(runtime_analysis),
+        "runtime_query": float(runtime_query),
         "runtime_selection": float(runtime_selection),
         "runtime_after_decision_optimization": float(runtime_after),
-        "runtime_total": float(runtime_probe + runtime_analysis + runtime_selection + runtime_after),
+        "runtime_total": float(runtime_probe + runtime_query + runtime_selection + runtime_after),
         "final_performance": final_performance,
     }
 
@@ -1057,9 +1139,9 @@ def _run_threshold_policy(
 def _should_trigger(
     *,
     behavior_row: dict[str, Any],
-    controller: ControllerBundle | None,
+    controller: DecisionControllerModel | None,
     trigger_mode: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_seed: int,
     seed: int,
     function: int,
@@ -1072,7 +1154,7 @@ def _should_trigger(
         return False, None
     if trigger_mode == "controller":
         if controller is None:
-            raise ValueError("controller trigger mode requires a controller bundle")
+            raise ValueError("controller trigger mode requires a fitted Decision controller model")
         frame = pd.DataFrame([{column: behavior_row[column] for column in controller.feature_columns}])
         score = float(controller.model.predict(frame)[0])
         return bool(score > controller.threshold), score
@@ -1080,7 +1162,7 @@ def _should_trigger(
         rng = np.random.default_rng(
             np.random.SeedSequence([int(random_seed), int(seed), int(function), int(dimension), int(repetition or 0), int(behavior_row["FE"])])
         )
-        return bool(rng.random() < random_ela_probability), None
+        return bool(rng.random() < random_query_probability), None
     raise ValueError(f"unknown trigger_mode: {trigger_mode}")
 
 
@@ -1116,7 +1198,7 @@ def _summary_row(frame: pd.DataFrame, layer: str, group: dict[str, Any], policy_
         "rows": int(len(frame)),
         "mean_final_performance": float(frame["final_performance"].mean()),
         "median_final_performance": float(frame["final_performance"].median()),
-        "ela_call_rate": float(frame["ela_called"].mean()),
+        "query_call_rate": float(frame["query_called"].mean()),
         "mean_FE_used": float(frame["FE_used"].mean()),
         "mean_runtime_total": float(frame["runtime_total"].mean()),
         "mean_trigger_FE_ratio": float(frame["trigger_FE_ratio"].dropna().mean()) if frame["trigger_FE_ratio"].notna().any() else None,
@@ -1124,38 +1206,38 @@ def _summary_row(frame: pd.DataFrame, layer: str, group: dict[str, Any], policy_
 
 
 def _relative_summary(rows: pd.DataFrame) -> pd.DataFrame:
-    baseline = rows[rows["policy_name"] == "sbs_no_ela"][
+    baseline = rows[rows["policy_name"] == "sbs_no_query"][
         ["problem_id", "dimension", "seed", "final_performance", "runtime_total", "FE_used"]
     ].rename(
         columns={
-            "final_performance": "sbs_no_ela_final_performance",
-            "runtime_total": "sbs_no_ela_runtime_total",
-            "FE_used": "sbs_no_ela_FE_used",
+            "final_performance": "sbs_no_query_final_performance",
+            "runtime_total": "sbs_no_query_runtime_total",
+            "FE_used": "sbs_no_query_FE_used",
         }
     )
     joined = rows.merge(baseline, on=["problem_id", "dimension", "seed"], how="left")
-    joined["final_performance_delta_vs_sbs_no_ela"] = (
-        joined["final_performance"] - joined["sbs_no_ela_final_performance"]
+    joined["final_performance_delta_vs_sbs_no_query"] = (
+        joined["final_performance"] - joined["sbs_no_query_final_performance"]
     )
-    joined["runtime_delta_vs_sbs_no_ela"] = joined["runtime_total"] - joined["sbs_no_ela_runtime_total"]
-    joined["FE_used_delta_vs_sbs_no_ela"] = joined["FE_used"] - joined["sbs_no_ela_FE_used"]
+    joined["runtime_delta_vs_sbs_no_query"] = joined["runtime_total"] - joined["sbs_no_query_runtime_total"]
+    joined["FE_used_delta_vs_sbs_no_query"] = joined["FE_used"] - joined["sbs_no_query_FE_used"]
     return (
         joined.groupby("policy_name", as_index=False)
         .agg(
             rows=("final_performance", "size"),
-            mean_final_performance_delta_vs_sbs_no_ela=("final_performance_delta_vs_sbs_no_ela", "mean"),
-            median_final_performance_delta_vs_sbs_no_ela=("final_performance_delta_vs_sbs_no_ela", "median"),
-            mean_runtime_delta_vs_sbs_no_ela=("runtime_delta_vs_sbs_no_ela", "mean"),
-            mean_FE_used_delta_vs_sbs_no_ela=("FE_used_delta_vs_sbs_no_ela", "mean"),
-            ela_call_rate=("ela_called", "mean"),
+            mean_final_performance_delta_vs_sbs_no_query=("final_performance_delta_vs_sbs_no_query", "mean"),
+            median_final_performance_delta_vs_sbs_no_query=("final_performance_delta_vs_sbs_no_query", "median"),
+            mean_runtime_delta_vs_sbs_no_query=("runtime_delta_vs_sbs_no_query", "mean"),
+            mean_FE_used_delta_vs_sbs_no_query=("FE_used_delta_vs_sbs_no_query", "mean"),
+            query_call_rate=("query_called", "mean"),
         )
-        .sort_values("mean_final_performance_delta_vs_sbs_no_ela")
+        .sort_values("mean_final_performance_delta_vs_sbs_no_query")
         .reset_index(drop=True)
     )
 
 
 def _random_repetition_summary(rows: pd.DataFrame) -> pd.DataFrame:
-    random_rows = rows[rows["policy_name"] == "random_ela_p50"].copy()
+    random_rows = rows[rows["policy_name"] == "random_query_p50"].copy()
     if random_rows.empty:
         return pd.DataFrame()
     summary = (
@@ -1163,17 +1245,17 @@ def _random_repetition_summary(rows: pd.DataFrame) -> pd.DataFrame:
         .agg(
             rows=("final_performance", "size"),
             mean_final_performance=("final_performance", "mean"),
-            ela_call_rate=("ela_called", "mean"),
+            query_call_rate=("query_called", "mean"),
             mean_FE_used=("FE_used", "mean"),
             mean_runtime_total=("runtime_total", "mean"),
         )
     )
     metric_rows = []
-    for metric in ("mean_final_performance", "ela_call_rate", "mean_FE_used", "mean_runtime_total"):
+    for metric in ("mean_final_performance", "query_call_rate", "mean_FE_used", "mean_runtime_total"):
         values = summary[metric].astype(float)
         metric_rows.append(
             {
-                "policy_name": "random_ela_p50",
+                "policy_name": "random_query_p50",
                 "metric": metric,
                 "repetitions": int(len(summary)),
                 "mean": float(values.mean()),
@@ -1203,7 +1285,7 @@ def _markdown_report(
             "rows",
             "mean_final_performance",
             "median_final_performance",
-            "ela_call_rate",
+            "query_call_rate",
             "mean_FE_used",
             "mean_runtime_total",
             "mean_trigger_FE_ratio",
@@ -1222,19 +1304,20 @@ def _markdown_report(
             f"- Checkpoint ratios: `{', '.join(str(value) for value in summary['checkpoint_ratios'])}`。",
             "- 评价单位是完整 optimization run；final performance 越小越好。",
             "- Controller 只使用实时 behavior features；CEC rows 不参与训练、预处理拟合或阈值选择。",
-            "- 每个 checkpoint 同时是 behavior observation 点和可能触发 ELA 的 decision-check point。",
-            "- `always_ela` 表示在当前 sampling protocol 的第一个 checkpoint 后必定执行 ELA 的 after-probe baseline。",
+            "- Query 后的 Selection Reference 使用冻结的 BBOB-train statewise action-loss regressor，并连续接收 remaining budget；CEC rows 不参与 selector 拟合。",
+            "- 每个 checkpoint 同时是 behavior observation 点和可能触发固定 query 的 decision-check point。",
+            "- `always_query` 表示在当前 sampling protocol 的第一个 checkpoint 后必定执行固定 query 的 after-probe baseline。",
             "- `dense_decision_check` 只能解释为决策检查频率敏感性，不是纯被动观测频率实验。",
             "",
             "## Overall Policies",
             "",
             _markdown_table(overall),
             "",
-            "## Relative To SBS/No-ELA",
+            "## Relative To SBS/No-query",
             "",
             _markdown_table(relative_summary),
             "",
-            "## Random-ELA Repetition Summary",
+            "## Random Analysis Repetition Summary",
             "",
             _markdown_table(random_repetition_summary),
             "",
@@ -1284,14 +1367,17 @@ def _split_name(config: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run online CEC controller evaluation with frozen BBOB controller.")
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--train-config", type=Path, default=DEFAULT_TRAIN_CONFIG_PATH)
-    parser.add_argument("--training-summary", type=Path, default=DEFAULT_TRAINING_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-features", type=Path, default=None)
+    parser.add_argument("--selector-model", type=Path, default=None)
+    parser.add_argument("--training-summary", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
     parser.add_argument("--sampling-protocol", choices=SAMPLING_PROTOCOLS, default=DEFAULT_SAMPLING_PROTOCOL)
-    parser.add_argument("--random-ela-probability", type=float, default=DEFAULT_RANDOM_ELA_PROBABILITY)
+    parser.add_argument("--random-query-probability", type=float, default=DEFAULT_RANDOM_QUERY_PROBABILITY)
     parser.add_argument("--random-repetitions", type=int, default=DEFAULT_RANDOM_REPETITIONS)
     parser.add_argument("--random-seed", type=int, default=DEFAULT_RANDOM_SEED)
     parser.add_argument("--only-function", type=int, action="append", default=None)
@@ -1304,15 +1390,25 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    config = load_config(args.config)
+    split = _split_name(config)
+    query_features = args.query_features or Path("results/landscape_queries/features") / args.query_id / split / "features.parquet"
+    selector_model = args.selector_model or Path("results/selection_reference") / args.query_id / "statewise_selector.joblib"
+    training_summary = args.training_summary or Path("results/decision") / args.query_id / "full_training/full_decision_model_training_summary.json"
+    output_dir = args.output_dir or Path("results/decision") / args.query_id / split / "online_controller_evaluation"
+
     evaluate_online_controller(
+        query_id=args.query_id,
+        query_feature_path=query_features,
         config_path=args.config,
         train_config_path=args.train_config,
-        training_summary_path=args.training_summary,
-        output_dir=args.output_dir,
+        selector_model_path=selector_model,
+        training_summary_path=training_summary,
+        output_dir=output_dir,
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,
         sampling_protocol=args.sampling_protocol,
-        random_ela_probability=args.random_ela_probability,
+        random_query_probability=args.random_query_probability,
         random_repetitions=args.random_repetitions,
         random_seed=args.random_seed,
         only_functions=args.only_function,

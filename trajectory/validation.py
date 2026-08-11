@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from trajectory.records import OPTIMIZER_STATE_MODE
+
 
 REQUIRED_COLUMNS = {
     "problem_id",
@@ -17,6 +19,7 @@ REQUIRED_COLUMNS = {
     "population",
     "fitness",
     "best_fitness",
+    "optimizer_state_mode",
 }
 
 
@@ -31,6 +34,10 @@ def validate_trajectory_file(path: str | Path) -> dict[str, int]:
 
     grouped: dict[tuple[str, str, int], list[dict]] = defaultdict(list)
     for row in rows:
+        if row["optimizer_state_mode"] != OPTIMIZER_STATE_MODE:
+            raise ValueError(
+                "trajectory was not generated with native optimizer-state continuation; regenerate the shard"
+            )
         if not 0.0 < row["FE_ratio"] <= 1.0:
             raise ValueError("FE_ratio must be in (0, 1]")
         if len(row["population"]) != len(row["fitness"]):
@@ -47,4 +54,3 @@ def validate_trajectory_file(path: str | Path) -> dict[str, int]:
             raise ValueError(f"best_fitness must be non-increasing for {key}")
 
     return {"rows": len(rows), "runs": len(grouped)}
-

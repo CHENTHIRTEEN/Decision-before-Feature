@@ -17,14 +17,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_DATASET_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet")
-DEFAULT_SCHEMA_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/algorithm_partition_stacking_diagnostic")
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
 ALGORITHMS = ("cmaes", "de", "pso", "shade")
 STACK_SCORE_COLUMNS = tuple(f"score_from_{algorithm}_model" for algorithm in ALGORITHMS)
 TOP_K_FRACTIONS = (0.05, 0.10, 0.20)
@@ -33,6 +32,7 @@ EPS = 1e-12
 
 def run_algorithm_partition_stacking_diagnostic(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
     output_dir: Path,
@@ -42,6 +42,8 @@ def run_algorithm_partition_stacking_diagnostic(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validate_query_payload(schema, query_id=query_id, artifact="Decision schema")
+    validate_query_frame(dataset, query_id=query_id, artifact="cross-probe Decision dataset")
     feature_columns = _feature_columns(schema)
     _check_dataset(dataset, feature_columns)
 
@@ -163,6 +165,9 @@ def run_algorithm_partition_stacking_diagnostic(
     )
 
     summary = {
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "experiment": "algorithm_partition_stacking_diagnostic",
         "dataset": str(dataset_path),
         "schema": str(schema_path),
@@ -242,7 +247,7 @@ def _feature_columns(schema: dict[str, Any]) -> list[str]:
     columns = list(schema.get("input_columns", []))
     if columns != list(BEHAVIOR_FEATURE_COLUMNS):
         raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
-    forbidden_fragments = ("ela", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
+    forbidden_fragments = ("query", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
     forbidden = [column for column in columns if any(fragment in column.lower() for fragment in forbidden_fragments)]
     if forbidden:
         raise ValueError(f"Decision input contains forbidden name fragments: {forbidden}")
@@ -260,7 +265,13 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         "FE",
         "FE_ratio",
         "default_algorithm",
+        "selection_reference_default_algorithm",
         "selected_algorithm",
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "skip_switches_from_prefix",
+        "no_query_transition_mode",
+        "query_transition_mode",
         "label_source",
         TARGET_COLUMN,
         *feature_columns,
@@ -410,6 +421,9 @@ def _score_frame(
             "label_source",
             "default_algorithm",
             "selected_algorithm",
+            "selected_equals_default",
+            "selected_equals_prefix",
+            "skip_switches_from_prefix",
             TARGET_COLUMN,
         ]
     ].copy()
@@ -452,6 +466,8 @@ def _evaluation_layers(validation: pd.DataFrame) -> dict[str, list[tuple[str, np
     layers: dict[str, list[tuple[str, np.ndarray]]] = {
         "all_validation": [("all_validation", np.ones(len(validation), dtype=bool))],
         "label_source": [],
+        "selected_equals_prefix": [],
+        "skip_switches_from_prefix": [],
         "prefix_algorithm": [],
         "dimension": [],
         "FE_ratio": [],
@@ -459,6 +475,19 @@ def _evaluation_layers(validation: pd.DataFrame) -> dict[str, list[tuple[str, np
     for label_source in ("changed_algorithm", "same_algorithm"):
         layers["label_source"].append(
             (label_source, validation["label_source"].astype(str).to_numpy() == label_source)
+        )
+    for value in (False, True):
+        layers["selected_equals_prefix"].append(
+            (
+                f"selected_equals_prefix={str(value).lower()}",
+                validation["selected_equals_prefix"].to_numpy(dtype=bool) == value,
+            )
+        )
+        layers["skip_switches_from_prefix"].append(
+            (
+                f"skip_switches_from_prefix={str(value).lower()}",
+                validation["skip_switches_from_prefix"].to_numpy(dtype=bool) == value,
+            )
         )
     for algorithm in ALGORITHMS:
         layers["prefix_algorithm"].append(
@@ -686,17 +715,15 @@ def _markdown_report(
     ranking_summary: pd.DataFrame,
 ) -> str:
     overall_regression = regression_summary[regression_summary["layer"] == "all_validation"]
-    changed_same_decision = decision_summary[
-        (decision_summary["layer"] == "label_source")
-        & decision_summary["group_label"].isin(["changed_algorithm", "same_algorithm"])
+    action_relation_decision = decision_summary[
+        decision_summary["layer"].isin(["selected_equals_prefix", "skip_switches_from_prefix"])
     ]
     top10 = ranking_summary[
         (ranking_summary["top_k_fraction"] == 0.10)
         & (
             (ranking_summary["layer"] == "all_validation")
             | (
-                (ranking_summary["layer"] == "label_source")
-                & ranking_summary["group_label"].isin(["changed_algorithm", "same_algorithm"])
+                ranking_summary["layer"].isin(["selected_equals_prefix", "skip_switches_from_prefix"])
             )
         )
     ]
@@ -708,6 +735,8 @@ def _markdown_report(
             "",
             "- Dual-track comparison: protocol-compliant global ridge baseline vs algorithm-partition stacking diagnostic.",
             "- The stacking track uses `prefix_algorithm` only for base-model partitioning and report grouping.",
+            "- This diagnostic reads the all-prefix cross-probe dataset; it is not a main-result model.",
+            "- Action-change strata use `selected_equals_prefix` and `skip_switches_from_prefix`; legacy `label_source` is not used as an action relation.",
             "- Meta model input is only the four base scores.",
             "- No model files were saved, and no main complex Decision Model was trained.",
             f"- OOF folds: {summary['oof_folds']} family-grouped folds.",
@@ -724,9 +753,9 @@ def _markdown_report(
             "",
             _markdown_table(overall_regression),
             "",
-            "## changed/same decision metrics",
+            "## Prefix action-relation decision metrics",
             "",
-            _markdown_table(changed_same_decision),
+            _markdown_table(action_relation_decision),
             "",
             "## Top 10% ranking metrics",
             "",
@@ -762,17 +791,21 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run algorithm-partition stacking diagnostic for Decision Model labels.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--random-seed", type=int, default=42)
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    materialized = query_root / "materialized_training_data"
 
     run_algorithm_partition_stacking_diagnostic(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or materialized / "cross_probe_dataset.parquet",
+        schema_path=args.schema or materialized / "decision_dataset_schema.json",
+        output_dir=args.output_dir or query_root / "algorithm_partition_stacking_diagnostic",
         overwrite=args.overwrite,
         random_seed=args.random_seed,
     )

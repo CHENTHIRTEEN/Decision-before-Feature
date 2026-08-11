@@ -2,15 +2,14 @@
 
 ## 1. 文档目的
 
-本文用于在正式 phase1 refined sampling 启动前统一 `P_skip`、`P_ELA`、`performance_gain_raw`、`performance_gain_norm`、`time_cost_norm`、`memory_cost_norm`、`U_ELA`、`need_ela`、observed utility、proxy utility、`selected=VBS`、`U_ELA>0 capture` 和 `precision` 的定义。
+本文统一 phase1 refined sampling 使用的 `P_skip`、`p_query`、`performance_gain_raw`、`performance_gain_norm`、`time_cost_norm`、`memory_cost_norm`、`U_query`、`need_query_lamT_*`、observed utility、`best observed action`、`U_query>0 capture` 和 `precision` 定义。旧正式数据不满足完整 optimizer-state continuation，修正后必须重新生成。
 
 本文只冻结指标口径和报告边界，不修改：
 
-- 原始 `utility_labels`；
-- 原始 `selection_reference`；
+- 研究问题与 offline supervised-learning 设计；
 - phase1 配置；
-- 正式 behavior feature extractor；
-- 已有 min_support 结果文件。
+- Decision Model 的算法无关输入边界；
+- 已冻结的 baseline 集合。
 
 若本文与早期 `Offline Utility Label` 协议中的泛化成本描述冲突，phase1 refined sampling 按本文执行。
 
@@ -18,35 +17,35 @@
 
 ## 2. 主性能方向与字段公式
 
-`P_skip` 与 `P_ELA` 均表示越小越好的 final performance 值，例如 final loss、error 或 regret。
+`P_skip` 与 `p_query` 均表示越小越好的 final performance 值，例如 final loss、error 或 regret。
 
-二者都从同一共享 checkpoint population state 续跑得到。
+二者都从同一共享完整 optimizer checkpoint state 派生。第一篇论文主行满足 `prefix_algorithm == default_algorithm ==` 训练集 SBS，因此 No-query 路径原生继续当前 SBS；Query 路径仅在 `selected_algorithm != prefix_algorithm` 时执行 population transfer 初始化。其他 prefix 行只用于独立的 cross-probe 稳健性分析。
 
-`P_ELA` 的主口径是：
+`p_query` 的主口径是：
 
-- 扣除 `FE_analysis` 后；
+- 扣除 `FE_query` 后；
 - 使用 selection reference 选择的算法；
 - 从 checkpoint `population`、`fitness` 和 `best_fitness` 继续优化；
 - 不使用 Best-so-far Warm Start；
-- 不复用 ELA 采样点。
+- 不复用 query 采样点。
 
 对最小化问题：
 
 ```text
-performance_gain_raw = P_skip - P_ELA
+performance_gain_raw = P_skip - p_query
 ```
 
 因此：
 
-- `performance_gain_raw > 0` 表示 ELA 路径得到更低的最终 performance 值；
+- `performance_gain_raw > 0` 表示 Query 路径得到更低的最终 performance 值；
 - `performance_gain_raw = 0` 表示两条路径最终 performance 相同；
-- `performance_gain_raw < 0` 表示 skip-ELA 路径更低。
+- `performance_gain_raw < 0` 表示 No-query 路径更低。
 
 归一化性能收益统一为：
 
 ```text
 performance_gain_norm =
-    (P_skip - P_ELA) / max(abs(P_skip), abs(P_ELA), 1e-12)
+    (P_skip - p_query) / max(abs(P_skip), abs(p_query), 1e-12)
 ```
 
 该分母同时适用于正式 `utility_labels` 和后续 selector proxy 诊断。不得在 proxy 诊断中改用仅含 `abs(P_skip)` 的分母。
@@ -55,7 +54,7 @@ performance_gain_norm =
 
 ```text
 time_cost_norm =
-    (runtime_analysis + runtime_selection) / max(runtime_skip_optimization, 1e-12)
+    (runtime_query + runtime_selection) / max(runtime_no_query_optimization, 1e-12)
 ```
 
 当前 phase1 主口径中：
@@ -68,18 +67,18 @@ memory_cost_norm = 0.0
 
 ---
 
-## 3. ELA Utility 与主 target column
+## 3. Query Utility 与主 target column
 
 主 utility 定义为：
 
 ```text
-U_ELA =
+U_query =
     performance_gain_norm
     - lambda_time * time_cost_norm
     - lambda_memory * memory_cost_norm
 ```
 
-当前 `u_ela_lamT_*` 字段表示：
+当前 `u_query_lamT_*` 字段表示：
 
 ```text
 lambda_memory = 0
@@ -89,13 +88,13 @@ lambda_time in {0, 0.25, 0.5, 1, 2}
 phase1 refined sampling 的 Decision Model 主 target column 固定为：
 
 ```text
-u_ela_lamT_1
+u_query_lamT_1
 ```
 
 对应主二分类派生标签为：
 
 ```text
-need_ela_lamT_1 = u_ela_lamT_1 > 0
+need_query_lamT_1 = u_query_lamT_1 > 0
 ```
 
 其他 lambda 字段只用于敏感性分析，不作为主训练目标、主阈值选择目标或主结论口径。
@@ -106,19 +105,19 @@ need_ela_lamT_1 = u_ela_lamT_1 > 0
 
 phase1 主协议采用等总 FE 预算。
 
-ELA 分析消耗的 FE 已通过减少后续优化预算体现：
+固定 query 消耗的 FE 已通过减少后续优化预算体现：
 
 ```text
-FE_ela_optimization = FE_total - FE_prefix - FE_analysis
-FE_skip_optimization = FE_total - FE_prefix
+FE_query_optimization = FE_total - FE_prefix - FE_query
+FE_no_query_optimization = FE_total - FE_prefix
 ```
 
-因此，主 `U_ELA` 中不得再次扣除同一笔 ELA FE 成本。主 `U_ELA` 只额外扣除已记录的非 FE 成本，例如 ELA feature computation runtime、selection runtime，以及后续可能正式记录的同量纲内存开销。
+因此，主 `U_query` 中不得再次扣除同一笔 query FE 成本。主 `U_query` 只额外扣除已记录的非 FE 成本，例如 query feature computation runtime、selection runtime，以及后续可能正式记录的同量纲内存开销。
 
-只有另设“额外 ELA FE”扩展实验，并且 ELA FE 不从优化预算中扣除时，才允许使用单独公式：
+只有另设“额外 query FE”扩展实验，并且 query FE 不从优化预算中扣除时，才允许使用单独公式：
 
 ```text
-U_ELA =
+U_query =
     performance_gain_norm
     - lambda_FE * extra_FE_cost
     - lambda_time * time_cost_norm
@@ -129,97 +128,95 @@ U_ELA =
 
 ---
 
-## 5. same_algorithm 与 changed_algorithm
+## 5. 算法关系字段与报告分层
 
-标签行按下游 selector 是否改变算法分为两类：
+`prefix_algorithm`、`default_algorithm` 和 `selected_algorithm` 是三个不同概念，必须逐行保存以下字段：
+
+```text
+selected_equals_default = (selected_algorithm == default_algorithm)
+selected_equals_prefix = (selected_algorithm == prefix_algorithm)
+skip_switches_from_prefix = (default_algorithm != prefix_algorithm)
+```
+
+`label_source` 仅作为 selected-vs-default 报告分层：
 
 ```text
 same_algorithm:
-    selected_algorithm == default_algorithm
+    selected_equals_default
 
 changed_algorithm:
-    selected_algorithm != default_algorithm
+    not selected_equals_default
 ```
 
-`same_algorithm` 行中的 `U_ELA` 只能解释为共享前缀配对续跑随机差异参照及成本影响。即使 `same_algorithm` 行出现 `U_ELA > 0`，也不得写成“ELA selector 切换算法带来收益”。
+这个命名只回答 selector 是否选择训练集 SBS/default。在多 prefix 数据中，`same_algorithm` 不等于“Query 后继续当前算法”；实际行动关系必须看 `selected_equals_prefix`，No-query 是否切走必须看 `skip_switches_from_prefix`。
 
-`changed_algorithm` 行更接近“执行 ELA 后 selector 选择了不同优化算法”的效用来源，是解释 ELA 改变算法选择后带来效用的主分层。
+第一篇论文主数据只保留：
 
-报告时必须至少区分：
+```text
+prefix_algorithm == default_algorithm == train-derived SBS
+skip_switches_from_prefix == false
+```
 
-- all rows；
-- `same_algorithm` rows；
-- `changed_algorithm` rows。
+因此主数据中 `selected_equals_default == selected_equals_prefix`，`same_algorithm` 才可同时解释为“Query 后选择当前 SBS”。这类行不调整参数、不重启、不改变预算或风险策略；Query 路径与 No-query 路径从同一完整状态和 RNG state 原生推进，只少 `FE_query` 对应的优化预算。对保存 best-so-far 的实现，`performance_gain_raw` 应不大于 0，`U_query` 还需扣除非 FE 成本，因此不得把偶然的正值解释为“确认信息价值”。若观察到正值，应先检查状态一致性、预算账本和数值记录。
 
-Decision Model 输入仍不得使用 `selected_algorithm`、`default_algorithm`、`prefix_algorithm`、algorithm id、function id 或 ELA features；这些字段只用于 metadata、split 和分层报告。
+其他 prefix 行写入独立 cross-probe 数据，用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主训练、主 threshold 或主结果汇总。
+
+Decision Model 输入仍不得使用上述算法关系字段、algorithm id、function id 或 query features；它们只用于数据范围限定、metadata 与分层报告。
 
 ---
 
-## 6. Observed Utility 与 Proxy Utility
+## 6. Observed Utility 与替代 Selector 诊断
 
-Observed `P_ELA`、observed `performance_gain_norm` 和 observed `U_ELA` 只来自已经生成的 utility label 行。
+Observed `p_query`、observed `performance_gain_norm` 和 observed `U_query` 只来自逐共享状态 action-loss table 中现实 selector 选择的动作。正式 Selection Reference 不再使用 trajectory bucket proxy。
 
-对替代 selector 或诊断 selector：
+对替代 selector 或诊断 selector，可按相同 state key 从完整 action-loss table 读取其所选动作的 observed loss；不得把另一个动作的 loss 当作该 selector 的结果。若某 state 未运行完整动作集合，则该 state 不能进入正式 selector regret 或替代 selector 比较。
 
-- 若诊断 selector 选择的算法与原 utility label 行中的 `selected_algorithm` 相同，则该行可报告 observed `P_ELA/U_ELA`；
-- 若诊断 selector 选择了不同算法，则不能把原 utility label 的 `P_ELA/U_ELA` 当作该诊断 selector 的 observed value；
-- 若使用已有 trajectory bucket 估算替代算法表现，必须命名为 bucket proxy `P_ELA/U_ELA`。
-
-bucket proxy `P_ELA/U_ELA` 只用于 selector 诊断和敏感性说明，不是新生成的 utility label，不进入 Decision Model 训练 target，也不能替代 phase1 主效用标签。
-
-bucket proxy 的归一化公式必须与主标签一致：
+必须保存：
 
 ```text
-bucket_proxy_performance_gain_norm =
-    (bucket_proxy_p_skip - bucket_proxy_p_ela)
-    / max(abs(bucket_proxy_p_skip), abs(bucket_proxy_p_ela), 1e-12)
-
-bucket_proxy_u =
-    bucket_proxy_performance_gain_norm
-    - lambda_time * time_cost_norm
+best_observed_loss
+best_observed_algorithm
+selected_action_loss
+potential_gain_raw
+selector_regret_raw
+selected_matches_best_observed
 ```
 
-若 proxy 使用 neighbor bucket、interpolated bucket 或 stage-wise bucket，它必须在输出表和报告文字中标明为 proxy，不得与 observed utility 混报。
+这些字段只作离线标签与诊断，不进入 Decision Model 输入。
 
 ---
 
-## 7. selected=VBS、capture 与 precision
+## 7. best-observed-action、capture 与 precision
 
-`selected=VBS` 只表示 `selection_reference` problem-stage 粒度下：
+`selected_matches_best_observed` 只表示现实 selector 是否选择了逐状态已运行候选动作中的最小 loss 动作。它不代表 `U_query` 必然大于 0，因为 No-query 具有更多 continuation FE，且 Query 还需计算非 FE 成本。任何 selector 诊断都必须同时报告 `selector_regret_raw`、observed `p_query`、observed `U_query`、capture 和 precision。
 
-```text
-selected_algorithm == vbs_algorithm
-```
-
-它是下游 ELA-based selector 的一致率指标，不代表 `P_ELA` 一定更低，也不代表 `U_ELA` 一定改善。任何 selector 诊断都必须同时报告 `selected=VBS`、`P_ELA` 或 proxy `P_ELA`、`U_ELA` 或 proxy `U_ELA`、capture 和 precision。
-
-`U_ELA>0 capture` 的主口径为捕获到的正效用总量占全部正效用总量：
+`U_query>0 capture` 的主口径为捕获到的正效用总量占全部正效用总量：
 
 ```text
 utility_capture_rate =
-    sum(U_ELA for rows where policy_calls_ela and U_ELA > 0)
-    / sum(U_ELA for rows where U_ELA > 0)
+    sum(U_query for rows where policy_calls_query and U_query > 0)
+    / sum(U_query for rows where U_query > 0)
 ```
 
 `positive_row_capture_rate` 是行数捕获率：
 
 ```text
 positive_row_capture_rate =
-    count(policy_calls_ela and U_ELA > 0)
-    / count(U_ELA > 0)
+    count(policy_calls_query and U_query > 0)
+    / count(U_query > 0)
 ```
 
 二者必须分开命名，不得混用。
 
-`precision` 定义为被策略调用 ELA 的行中有正效用的比例：
+`precision` 定义为被策略调用 query 的行中有正效用的比例：
 
 ```text
 precision =
-    count(policy_calls_ela and U_ELA > 0)
-    / count(policy_calls_ela)
+    count(policy_calls_query and U_query > 0)
+    / count(policy_calls_query)
 ```
 
-若使用 bucket proxy 判断调用是否有正效用，必须写成 `bucket_proxy_precision` 或在报告中明确说明 `precision` 来自 `bucket_proxy_u > 0`，不得作为 observed precision 报告。
+Precision 只能由 observed utility label 计算；不再接受 nearest-bucket proxy precision 作为正式结果。
 
 ---
 
@@ -227,8 +224,8 @@ precision =
 
 Decision Model 训练：
 
-- 主回归 target 使用 `u_ela_lamT_1`；
-- 主二分类派生指标使用 `u_ela_lamT_1 > 0`；
+- 主回归 target 使用 `u_query_lamT_1`；
+- 主二分类派生指标使用 `u_query_lamT_1 > 0`；
 - 其他 lambda 只作为敏感性分析；
 - 输入列只允许算法无关 behavior features。
 
@@ -245,61 +242,41 @@ Pareto 评估必须同时报告：
 - utility；
 - final performance；
 - runtime；
-- ELA call rate；
+- query call rate；
 - positive-row capture；
 - utility capture；
 - unhelpful call cost。
 
-其中 final performance 仍按越小越好解释；utility 按 `U_ELA` 越大越好解释。
+其中 final performance 仍按越小越好解释；utility 按 `U_query` 越大越好解释。
 
 ---
 
-## 9. 后续诊断脚本同步项
+## 9. 当前实现同步
 
-本节只记录后续需要同步的脚本口径，当前文档任务不执行脚本修改。
+代码已按本文口径完成字段与数据范围隔离，但正式数据尚需从 trajectory 开始重生成：
 
-- `decision/min_support_selection_reference_h3_label_source_diagnostic.py`
-  - 将 bucket proxy denominator 同步为 `max(abs(bucket_proxy_p_skip), abs(bucket_proxy_p_ela), 1e-12)`。
-- `decision/min_support_selection_reference_h5_model_capacity.py`
-  - 将 bucket proxy denominator 同步为 `max(abs(bucket_proxy_p_skip), abs(bucket_proxy_p_ela), 1e-12)`。
-  - 将 proxy capture / precision 明确命名为 bucket-proxy 指标。
-- `decision/min_support_bucket_smoothing_diagnostics.py`
-  - 保持 neighbor / interpolated bucket 只作为 proxy 报告。
-  - 不与 observed utility 混报。
-- `decision/min_support_performance_bucket_sensitivity.py`
-  - 保持 neighbor bucket sensitivity 只作为 proxy 报告。
-  - 不生成或暗示 alternate observed utility labels。
-- `decision/min_support_evaluate.py`
-  - 核心计算无需修改。
-  - 后续报告文字引用本文中 `u_ela_lamT_1`、capture 和 precision 定义。
-- `decision/min_support_model_sensitivity.py`
-  - 核心计算无需修改。
-  - 后续报告文字引用本文中 observed utility 与主 target 定义。
-- `decision/min_support_stage_threshold_diagnostics.py`
-  - 核心计算无需修改。
-  - 后续报告需明确 train-derived threshold 与不可部署 held-out family-stage threshold 的边界。
-- `decision/min_support_gated_pareto_diagnostic.py`
-  - 核心计算无需修改。
-  - 后续 Pareto 报告需同时列出 utility、final performance、runtime、call rate、capture 和 unhelpful call cost。
-- `decision/min_support_selection_reference_generalization_data_quality.py`
-  - 后续输出说明需同步 `same_algorithm` / `changed_algorithm` 解释边界。
-- `decision/min_support_label_source_check.py`
-  - 后续输出说明需同步 `same_algorithm` 作为共享前缀配对续跑随机差异参照的边界。
-- `decision/min_support_changed_algorithm_diagnostics.py`
-  - 后续输出说明需同步主 target `u_ela_lamT_1` 与 `changed_algorithm` 主分层口径。
+- 按当前固定配置，主 SBS-prefix Decision dataset 预期为 64,800 rows，train / validation 为 48,600 / 16,200；
+- all-prefix cross-probe dataset 预期为 259,200 rows，train / validation 为 194,400 / 64,800；
+- 主 target：`u_query_lamT_1`；
+- preprocessing、模型和 deployable threshold 只在 BBOB train 上拟合；
+- 主 Decision 数据只含训练集 SBS prefix；全 prefix 数据单独输出作稳健性分析；
+- `same_algorithm` / `changed_algorithm` 只作为 selected-vs-default 报告分层；行动变化使用三个显式布尔字段；
+- 旧 bucket selector 及其 proxy 产物只作为已替代方法的历史记录，不进入数据质量解释、主 Decision target 或正式结果。
+
+当前模型选择、baseline 同步状态和外部评价边界见 `docs/30_results/phase1_current_results.md`。
 
 ---
 
 ## 10. 当前冻结结论
 
-phase1 refined sampling 主实验沿用等总 FE 预算，不回写、不重算当前 min_support label 文件。
+phase1 refined sampling 主实验沿用等总 FE 预算。当前目录中的旧 labels 不含新关系字段且依赖已撤回的 trajectory/behavior 口径，不能作为正式证据；必须重生成到 `results/utility_labels/phase1_refined_sampling/` 后再物化主数据和 cross-probe 数据。模型比较和阈值分析不得回写标签。
 
 正式训练与主报告使用：
 
 ```text
-target_column = u_ela_lamT_1
-need_ela = u_ela_lamT_1 > 0
-performance_gain_norm denominator = max(abs(P_skip), abs(P_ELA), 1e-12)
+target_column = u_query_lamT_1
+need_query_lamT_1 = u_query_lamT_1 > 0
+performance_gain_norm denominator = max(abs(P_skip), abs(p_query), 1e-12)
 ```
 
-selector proxy 诊断保留在诊断层，不进入正式 Decision Model 训练数据。
+替代 selector 诊断必须从同一逐状态 action-loss table 读取其实际所选动作的 observed loss，并且不进入正式 Decision Model 训练数据。

@@ -1,5 +1,7 @@
 # Decision-before-Feature Master Research Specification
 
+> 实现同步（2026-08-11）：完整 optimizer-state continuation 已替换 checkpoint 重建机制。旧 BBOB labels、模型和评价结果已撤回；必须从 trajectory 开始重生成后再确定主模型。Landscape query 同时改为三档预定义配置：`descriptor_cheap` 是第一篇论文唯一主 query，`pflacco_standard` 与 `pflacco_broad` 只作配置稳健性实验。实现状态见 `../../README.md`、`../../PROJECT_HANDOFF.md` 与 `../10_protocols/Decision-before-Feature_Landscape_Query三档配置与数据契约.md`。
+
 ## 0. Document Purpose
 
 本文档是 Decision-before-Feature 项目的最高层研究规范。
@@ -13,8 +15,10 @@
 
 核心原则：
 
-> 本研究不是设计新的优化算法，而是研究在黑盒优化中，Landscape Analysis
-> 本身是否值得执行。
+> 本研究不是设计新的优化算法，而是研究在黑盒优化中，所评估的固定
+> landscape-analysis query 是否值得执行。
+
+构念边界：当前主 query 是 16 维自定义低成本描述符，不代表完整 ELA、完整 pflacco 或一般意义上的所有 Landscape Analysis。第一篇论文不得把三档结果外推到未评价的 pflacco feature groups、NeurELA、Deep-ELA 或其他 landscape representation。
 
 ---
 
@@ -25,7 +29,7 @@
 所属领域：
 
 - Automated Algorithm Selection (AAS)
-- Exploratory Landscape Analysis (ELA)
+- Landscape analysis and Exploratory Landscape Analysis (ELA)
 - Metaheuristic Behavior Analysis
 - Resource-aware Optimization
 
@@ -39,7 +43,7 @@
 
     ↓
 
-    Landscape Feature Extraction
+    Fixed Landscape-query Feature Extraction
 
     ↓
 
@@ -51,15 +55,15 @@
 
 隐含假设：
 
-    Feature extraction is always beneficial
+    The evaluated feature query is always beneficial
 
 本文提出：
 
-    Analysis itself should be selected.
+    A fixed analysis query should be selected conditionally.
 
 即：
 
-> 在执行Landscape Analysis之前，判断是否值得付出分析成本。
+> 在执行预先定义的 landscape-analysis query 之前，判断是否值得付出该配置的采样与计算成本。
 
 ---
 
@@ -83,11 +87,11 @@ $$
 
 0:
 
-Skip Landscape Analysis
+No-query
 
 1:
 
-Run Landscape Analysis
+Run the evaluated fixed query
 
 目标：
 
@@ -127,7 +131,7 @@ $$
 
     v
 
-    ELA Utility Prediction
+    Query Utility Prediction
 
     |
 
@@ -139,11 +143,11 @@ $$
 
     |                |
 
-    Skip ELA        Run ELA
+    No-query        Run Query
 
     |                |
 
-    Default Solver   ELA + Algorithm Selection
+    Default Solver   Query + Algorithm Selection
 
 ---
 
@@ -165,7 +169,7 @@ Online controller training。
 
 原因：
 
-1. ELA Utility需要离线计算；
+1. Query Utility需要离线计算；
 2. 避免credit assignment问题；
 3. 保证Analysis Selection问题独立。
 
@@ -235,8 +239,15 @@ CMA-ES:
 
 ### Exploration
 
-- directional entropy
-- movement range
+- population Wasserstein change rate
+- centroid shift and shift coherence
+- covariance spectral concentration
+
+### Fitness Distribution
+
+- quantile improvement fraction
+- mean distribution improvement rate
+- one-dimensional fitness Wasserstein rate
 
 ### Exploitation
 
@@ -257,9 +268,9 @@ CMA-ES:
 
 关键口径：
 
-1. *How do metaheuristics exploit?* 中的distance-to-reference decay、directional entropy和stagnation indicators主要用于分析和调节late-stage exploitation behavior，并使用iteration窗口和exploitation phase划分。
+1. *How do metaheuristics exploit?* 中的distance-to-reference decay、directional entropy和stagnation indicators主要用于分析和调节late-stage exploitation behavior，并使用iteration窗口和exploitation phase划分；本文不采用需要跨代个体对应关系的directional entropy。
 2. *Determining Metaheuristic Similarity Using Behavioral Analysis* 中的behavioral characteristics主要用于whole-run algorithm similarity，包括diversity/accuracy/convergence/locality/communication/evaluation-effort等整段搜索特征。
-3. 本项目只继承其中可解释、低成本、算法无关的行为语义，并改写为checkpoint-level、FE-ratio-normalized behavior state。
+3. 本项目只继承其中可解释、低成本、算法无关的行为语义，并改写为checkpoint-level、FE-ratio-normalized、permutation-invariant behavior state。
 
 因此论文主线必须表述为：
 
@@ -277,7 +288,7 @@ CMA-ES:
 
 - true global optimum；
 - function identity；
-- ELA feature；
+- query feature；
 - whole-run knee-point extraction；
 - STN/IN similarity metrics；
 - DBSCAN frequency map。
@@ -292,7 +303,7 @@ CMA-ES:
 
 Search Maturity表示：
 
-> 当前搜索过程是否已经产生足够的信息，使Landscape Analysis具有价值。
+> 当前搜索过程是否已经产生足够的信息，使所评估的固定 query 具有价值。
 
 ---
 
@@ -328,16 +339,20 @@ Search Maturity表示：
 
 # 8. Offline Utility Label
 
-Skip ELA 与 Run ELA 的 paired continuation 使用同一 checkpoint population state。
+No-query 与 Run Query 的 paired continuation 使用同一完整 optimizer checkpoint state。
 
 主实验固定为 Population Transfer：
 
-- 继续优化时使用 checkpoint population、fitness 和 best fitness；
+- 第一篇论文主协议令 prefix/default 都等于训练集 SBS，No-query 原生继续该 SBS 的 population、fitness、内部动态量、generation、best-so-far 与 RNG state；
+- 若 Run Query 仍选择 prefix algorithm，则从同一完整状态原生继续，但后续优化预算扣除 `FE_query`；
 - 若 selector 切换算法，新算法重新初始化自身内部状态；
+- 跨算法初始化只转移 checkpoint population、fitness 与 best-so-far position，并明确记为 population transfer；
 - 不使用 Best-so-far Warm Start；
-- 不复用 ELA 采样点。
+- 不复用 query 采样点。
 
-## 8.1 Skip ELA
+全 prefix trajectory 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化。正式标签必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `skip_switches_from_prefix`；多 prefix 数据中的 `same_algorithm` 不得解释为“继续当前算法”。
+
+## 8.1 No-query
 
 得到：
 
@@ -347,7 +362,7 @@ $$
 
 ---
 
-## 8.2 Run ELA
+## 8.2 Run Query
 
 流程：
 
@@ -355,7 +370,7 @@ $$
 
     ↓
 
-    ELA Feature Extraction
+    Query Feature Extraction
 
     ↓
 
@@ -368,8 +383,10 @@ $$
 得到：
 
 $$
-P_{ELA}
+p_{query}
 $$
+
+正式 Selection Reference 不是 problem 级静态分类器。对每个共享 checkpoint state，离线运行 `continue_current` 与其余 portfolio actions，记录连续 action loss；Selector 使用 query features、算法无关 behavior 与连续 `remaining_budget_ratio` 预测各动作损失并选择预测值最小的动作。训练行使用按 function family 的交叉拟合预测，validation/test 不参与拟合。
 
 ---
 
@@ -378,16 +395,23 @@ $$
 定义：
 
 $$
-U_{ELA} = (P_{skip}-P_{ELA}) -\lambda C_{ELA}
+U_{query} = (P_{skip}-p_{query}) -\lambda_T C_T-\lambda_M C_M
 $$
 
 其中：
 
-成本包括：
+Query sampling FE 已通过减少 Run Query 分支的后续优化预算进入 $p_{query}$，不得再次扣除。$C_T$ 与 $C_M$ 只表示尚未进入 performance loss 的 feature/selector runtime 与额外内存成本。
 
-- Sampling FE
-- Feature computation
-- Runtime
+逐状态最佳已观测动作只用于诊断分解：
+
+$$
+P_{skip}-p_{query}
+=
+(P_{skip}-P_{best\ observed})
+-(p_{query}-P_{best\ observed}).
+$$
+
+跨算法 Population Transfer 的影响已包含在 observed action loss 中，不作为额外减项重复计入。
 
 ---
 
@@ -402,7 +426,7 @@ Algorithm-agnostic behavior state。
 - Function ID
 - Dimension
 - Algorithm ID
-- ELA Feature
+- Query Feature
 
 ---
 
@@ -411,7 +435,7 @@ Algorithm-agnostic behavior state。
 预测：
 
 $$
-\hat U_{ELA}
+\hat U_{query}
 $$
 
 ---
@@ -506,16 +530,11 @@ Function-family split。
 
 FE ratio。
 
-推荐：
+正式 phase1 checkpoint ratios：
 
-    0.5%
-    1%
-    2%
-    5%
-    10%
-    20%
-    50%
-    100%
+    20%, 25%, 28%, 30%, 35%, 40%, 45%, 50%, 55%, 60%
+
+Selection Reference 将扣除 query sampling FE 后的 `remaining_budget_ratio` 作为连续输入，不使用 nearest bucket。
 
 ---
 
@@ -523,13 +542,13 @@ FE ratio。
 
 必须包含：
 
-## Never ELA
+## Never Query
 
 最低分析成本。
 
-## Always ELA
+## Always Query
 
-传统ELA流程。
+固定 query 的传统始终调用流程。
 
 ## Random Analysis
 
@@ -537,7 +556,7 @@ FE ratio。
 
 ## Traditional AAS
 
-ELA + Selector。
+Query + Selector。
 
 ## SBS
 
@@ -546,6 +565,8 @@ Single Best Solver。
 ## VBS
 
 Virtual Best Solver。
+
+VBS 保留为标准静态算法选择上界；共享状态上已运行候选动作的最小 loss 另称为 `best observed action`，不得与 VBS 或现实可部署方法混称。
 
 ---
 
@@ -576,23 +597,23 @@ Virtual Best Solver。
 
 ## RQ1
 
-ELA是否总有收益？
+主 `descriptor_cheap` query 是否在所有状态都有净收益？
 
 验证：
 
-ELA negative utility。
+`U_{cheap} \leq 0` 的状态比例、效应量与区间。
 
 ---
 
 ## RQ2
 
-Behavior是否可以预测ELA Utility？
+Behavior是否可以预测Query Utility？
 
 ---
 
 ## RQ3
 
-Decision-before-Feature是否减少无效ELA？
+Decision-before-Feature 是否减少无效 query 调用？
 
 ---
 
@@ -651,9 +672,11 @@ Algorithm-specific features
 
     ├── behavior/
 
-    ├── ela/
+    ├── landscape_queries/
 
-    ├── oracle/
+    ├── utility_labels/
+
+    ├── selection_reference/
 
     ├── decision/
 
@@ -671,7 +694,7 @@ Algorithm-specific features
 
 1. 修改benchmark split；
 2. 使用test数据训练；
-3. 输入ELA feature到Decision Model；
+3. 输入query feature到Decision Model；
 4. 输入algorithm-specific parameter；
 5. 未记录配置新增实验；
 6. 删除失败实验结果。
@@ -722,7 +745,7 @@ Paper Experiment Reproduction
 
     ↓
 
-    ELA Utility
+    Query Utility
 
     ↓
 
@@ -734,4 +757,6 @@ Paper Experiment Reproduction
 
 核心贡献：
 
-> Landscape Analysis itself should become an object of optimization.
+> The decision to execute an evaluated fixed landscape-analysis query should itself be optimized.
+
+该结论只覆盖 `descriptor_cheap` 主配置；若 standard/broad 方向一致，只能进一步表述为“在三个预定义 query 配置上具有稳健性”。若方向不一致，必须报告 representation dependence，不能重新定义 query 或选择性隐藏结果。

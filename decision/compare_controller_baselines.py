@@ -10,16 +10,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.query_contract import decision_query_root, validate_query_frame
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
-DEFAULT_PREDICTIONS_PATH = Path(
-    "results/decision/phase1_refined_sampling/feature_group_ablation/"
-    "primary_with_maturity/validation_predictions.parquet"
-)
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/controller_baseline_comparison")
+
 DEFAULT_MODEL_NAME = "ridge_regression"
 DEFAULT_THRESHOLD_MODE = "train_utility"
 DEFAULT_EXPECTED_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
 GROUP_LAYERS = {
     "overall": [],
     "label_source": ["label_source"],
@@ -32,22 +30,25 @@ GROUP_LAYERS = {
 
 def compare_controller_baselines(
     *,
+    query_id: str,
     predictions_path: Path,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
     expected_split: str,
     overwrite: bool,
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
-    predictions = _read_predictions(predictions_path, model_name, threshold_mode, expected_split)
+    predictions = _read_predictions(
+        predictions_path, model_name, threshold_mode, expected_split, query_id
+    )
     policies = _policy_frames(
         predictions=predictions,
         threshold_mode=threshold_mode,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_seed=random_seed,
     )
     policy_summary = _policy_summary(policies)
@@ -55,7 +56,7 @@ def compare_controller_baselines(
     best_policy_summary = _best_policy_summary(policy_summary)
     random_repetition_summary = _random_repetition_summary(
         predictions=predictions,
-        random_ela_probability=random_ela_probability,
+        random_query_probability=random_query_probability,
         random_seed=random_seed,
         random_repetitions=random_repetitions,
     )
@@ -68,15 +69,18 @@ def compare_controller_baselines(
 
     summary = {
         "experiment": "phase1_refined_sampling_controller_baseline_comparison",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
-            "How does the current Decision-before-Feature controller compare with SBS/no-ELA, "
-            "always-ELA, and random-ELA under the existing validation U_ELA labels?"
+            "How does the current Decision-before-Feature controller compare with SBS/No-query, "
+            "Always Query, and Random Analysis under the existing validation U_query labels?"
         ),
         "predictions_path": str(predictions_path),
         "model_name": model_name,
         "threshold_mode": threshold_mode,
         "expected_split": expected_split,
-        "random_ela_probability": random_ela_probability,
+        "random_query_probability": random_query_probability,
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(predictions)),
@@ -93,12 +97,12 @@ def compare_controller_baselines(
             "models_retrained": False,
             "utility_labels_regenerated": False,
             "expected_split_rows_used_for_controller_fit_or_threshold": False,
-            "ela_features_used_as_decision_input": False,
+            "query_features_used_as_decision_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
         },
         "scope_notes": [
-            "The comparison is expressed in the current U_ELA label space.",
-            "sbs_skip_reference and no_ela have identical utility under the current phase1 materialized dataset because "
+            "The comparison is expressed in the current U_query label space.",
+            "sbs_skip_reference and no_query have identical utility under the current phase1 materialized dataset because "
             "default_algorithm is CMA-ES, matching the selection_reference SBS algorithm.",
             "A distinct optimizer-level SBS performance comparison requires materializing P_sbs or final-performance "
             "columns; those fields are not present in the current controller prediction table.",
@@ -115,7 +119,7 @@ def compare_controller_baselines(
             random_repetition_summary=random_repetition_summary,
             model_name=model_name,
             threshold_mode=threshold_mode,
-            random_ela_probability=random_ela_probability,
+            random_query_probability=random_query_probability,
             random_repetitions=random_repetitions,
             expected_split=expected_split,
         ),
@@ -145,10 +149,17 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"controller baseline comparison outputs already exist; pass --overwrite: {existing[0]}")
 
 
-def _read_predictions(path: Path, model_name: str, threshold_mode: str, expected_split: str) -> pd.DataFrame:
+def _read_predictions(
+    path: Path,
+    model_name: str,
+    threshold_mode: str,
+    expected_split: str,
+    query_id: str,
+) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
     frame = pq.read_table(path).to_pandas()
+    validate_query_frame(frame, query_id=query_id, artifact="controller prediction table")
     required = {
         "model_name",
         "split",
@@ -163,7 +174,7 @@ def _read_predictions(path: Path, model_name: str, threshold_mode: str, expected
         "selected_algorithm",
         "label_source",
         TARGET_COLUMN,
-        f"decision_run_ela_{threshold_mode}",
+        f"decision_run_query_{threshold_mode}",
         f"decision_utility_{threshold_mode}",
     }
     missing = sorted(required.difference(frame.columns))
@@ -183,20 +194,21 @@ def _policy_frames(
     *,
     predictions: pd.DataFrame,
     threshold_mode: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_seed: int,
 ) -> pd.DataFrame:
-    if random_ela_probability < 0.0 or random_ela_probability > 1.0:
-        raise ValueError("random_ela_probability must be in [0, 1]")
+    if random_query_probability < 0.0 or random_query_probability > 1.0:
+        raise ValueError("random_query_probability must be in [0, 1]")
     observed = predictions[TARGET_COLUMN].to_numpy(dtype=float)
     rng = np.random.default_rng(np.random.SeedSequence([int(random_seed), 20260809, len(predictions)]))
-    random_call = rng.random(len(predictions)) < random_ela_probability
-    current_call = predictions[f"decision_run_ela_{threshold_mode}"].to_numpy(dtype=bool)
+    random_call = rng.random(len(predictions)) < random_query_probability
+    current_call = predictions[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
     policy_specs = (
         ("sbs_skip_reference", "baseline", np.zeros(len(predictions), dtype=bool)),
-        ("no_ela", "baseline", np.zeros(len(predictions), dtype=bool)),
-        ("always_ela", "baseline", np.ones(len(predictions), dtype=bool)),
-        (f"random_ela_p{int(round(random_ela_probability * 100)):02d}", "baseline", random_call),
+        ("no_query", "baseline", np.zeros(len(predictions), dtype=bool)),
+        ("always_query", "baseline", np.ones(len(predictions), dtype=bool)),
+        ("traditional_aas", "baseline", np.ones(len(predictions), dtype=bool)),
+        (f"random_query_p{int(round(random_query_probability * 100)):02d}", "baseline", random_call),
         ("current_controller", "controller", current_call),
     )
     frames = []
@@ -220,7 +232,7 @@ def _policy_frames(
         frame = metadata.copy()
         frame.insert(0, "policy_name", policy_name)
         frame.insert(1, "policy_category", policy_category)
-        frame["run_ela"] = call
+        frame["run_query"] = call
         frame["policy_utility"] = np.where(call, observed, 0.0)
         frames.append(frame)
     return pd.concat(frames, ignore_index=True)
@@ -246,7 +258,7 @@ def _policy_summary(policies: pd.DataFrame) -> pd.DataFrame:
 def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> dict[str, Any]:
     observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
     utility = frame["policy_utility"].to_numpy(dtype=float)
-    calls = frame["run_ela"].to_numpy(dtype=bool)
+    calls = frame["run_query"].to_numpy(dtype=bool)
     positive = observed > 0.0
     captured_positive = positive & calls
     unhelpful_calls = (~positive) & calls
@@ -266,8 +278,8 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "rows": int(len(frame)),
         "observed_utility_gt_zero_rows": int(np.sum(positive)),
         "observed_utility_gt_zero_rate": float(np.mean(positive)),
-        "ela_call_rows": call_rows,
-        "ela_call_rate": float(np.mean(calls)),
+        "query_call_rows": call_rows,
+        "query_call_rate": float(np.mean(calls)),
         "mean_observed_utility_under_calls": float(np.mean(observed[calls])) if call_rows else 0.0,
         "positive_row_capture_rate": float(np.sum(captured_positive) / max(np.sum(positive), 1)),
         "utility_capture_rate": (
@@ -291,7 +303,7 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
             "policy_name",
             "utility_mean",
             "utility_sum",
-            "ela_call_rate",
+            "query_call_rate",
             "utility_capture_rate",
             "precision_u_gt_zero_under_calls",
             "unhelpful_call_cost_sum",
@@ -301,7 +313,7 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
             "policy_name": "baseline_policy",
             "utility_mean": "baseline_utility_mean",
             "utility_sum": "baseline_utility_sum",
-            "ela_call_rate": "baseline_ela_call_rate",
+            "query_call_rate": "baseline_query_call_rate",
             "utility_capture_rate": "baseline_utility_capture_rate",
             "precision_u_gt_zero_under_calls": "baseline_precision_u_gt_zero_under_calls",
             "unhelpful_call_cost_sum": "baseline_unhelpful_call_cost_sum",
@@ -311,7 +323,7 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
         [
             "utility_mean",
             "utility_sum",
-            "ela_call_rate",
+            "query_call_rate",
             "utility_capture_rate",
             "precision_u_gt_zero_under_calls",
             "unhelpful_call_cost_sum",
@@ -320,7 +332,7 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
         columns={
             "utility_mean": "controller_utility_mean",
             "utility_sum": "controller_utility_sum",
-            "ela_call_rate": "controller_ela_call_rate",
+            "query_call_rate": "controller_query_call_rate",
             "utility_capture_rate": "controller_utility_capture_rate",
             "precision_u_gt_zero_under_calls": "controller_precision_u_gt_zero_under_calls",
             "unhelpful_call_cost_sum": "controller_unhelpful_call_cost_sum",
@@ -333,14 +345,14 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
         result[column] = value
     result["utility_mean_delta_vs_baseline"] = result["controller_utility_mean"] - result["baseline_utility_mean"]
     result["utility_sum_delta_vs_baseline"] = result["controller_utility_sum"] - result["baseline_utility_sum"]
-    result["ela_call_rate_delta_vs_baseline"] = result["controller_ela_call_rate"] - result["baseline_ela_call_rate"]
+    result["query_call_rate_delta_vs_baseline"] = result["controller_query_call_rate"] - result["baseline_query_call_rate"]
     return result.reset_index(drop=True)
 
 
 def _random_repetition_summary(
     *,
     predictions: pd.DataFrame,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_seed: int,
     random_repetitions: int,
 ) -> pd.DataFrame:
@@ -354,7 +366,7 @@ def _random_repetition_summary(
         rng = np.random.default_rng(
             np.random.SeedSequence([int(random_seed), 20260810, len(predictions), int(repetition)])
         )
-        call = rng.random(len(predictions)) < random_ela_probability
+        call = rng.random(len(predictions)) < random_query_probability
         captured_positive = positive & call
         utility = np.where(call, observed, 0.0)
         call_rows = int(np.sum(call))
@@ -362,7 +374,7 @@ def _random_repetition_summary(
             {
                 "repetition": repetition,
                 "rows": int(len(predictions)),
-                "ela_call_rate": float(np.mean(call)),
+                "query_call_rate": float(np.mean(call)),
                 "utility_mean": float(np.mean(utility)),
                 "utility_sum": float(np.sum(utility)),
                 "utility_capture_rate": (
@@ -376,7 +388,7 @@ def _random_repetition_summary(
     raw = pd.DataFrame(rows)
     summary_rows = []
     for metric in (
-        "ela_call_rate",
+        "query_call_rate",
         "utility_mean",
         "utility_sum",
         "utility_capture_rate",
@@ -385,7 +397,7 @@ def _random_repetition_summary(
         values = raw[metric].to_numpy(dtype=float)
         summary_rows.append(
             {
-                "policy_name": f"random_ela_p{int(round(random_ela_probability * 100)):02d}",
+                "policy_name": f"random_query_p{int(round(random_query_probability * 100)):02d}",
                 "metric": metric,
                 "repetitions": random_repetitions,
                 "mean": float(np.mean(values)),
@@ -421,7 +433,7 @@ def _markdown_report(
     random_repetition_summary: pd.DataFrame,
     model_name: str,
     threshold_mode: str,
-    random_ela_probability: float,
+    random_query_probability: float,
     random_repetitions: int,
     expected_split: str,
 ) -> str:
@@ -431,7 +443,7 @@ def _markdown_report(
         "rows",
         "utility_mean",
         "utility_sum",
-        "ela_call_rate",
+        "query_call_rate",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
         "unhelpful_call_cost_sum",
@@ -441,9 +453,9 @@ def _markdown_report(
         "baseline_utility_mean",
         "controller_utility_mean",
         "utility_mean_delta_vs_baseline",
-        "baseline_ela_call_rate",
-        "controller_ela_call_rate",
-        "ela_call_rate_delta_vs_baseline",
+        "baseline_query_call_rate",
+        "controller_query_call_rate",
+        "query_call_rate_delta_vs_baseline",
     ]
     label_columns = [
         "policy_name",
@@ -451,7 +463,7 @@ def _markdown_report(
         "rows",
         "utility_mean",
         "utility_sum",
-        "ela_call_rate",
+        "query_call_rate",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
     ]
@@ -465,10 +477,10 @@ def _markdown_report(
         "## 摘要",
         "",
         f"- 当前 controller：`{model_name}`，阈值口径为 `{threshold_mode}`。",
-        f"- Random-ELA baseline 使用 `p={random_ela_probability:.3f}`，随机流由显式 `SeedSequence` 生成。",
-        f"- Random-ELA 额外报告 `{random_repetitions}` 个独立随机流的均值、标准差和范围。",
-        f"- 指标在 `{expected_split}` 上计算，口径是当前 materialized dataset 中的 `U_ELA`。",
-        "- `sbs_skip_reference` 与 `no_ela` 在当前 phase1 表中数值相同：都表示不调用 ELA，相对 utility 为 0。",
+        f"- Random Analysis baseline 使用 `p={random_query_probability:.3f}`，随机流由显式 `SeedSequence` 生成。",
+        f"- Random Analysis 额外报告 `{random_repetitions}` 个独立随机流的均值、标准差和范围。",
+        f"- 指标在 `{expected_split}` 上计算，口径是当前 materialized dataset 中的 `U_query`。",
+        "- `sbs_skip_reference` 与 `no_query` 在当前 phase1 表中数值相同：都表示不调用固定 query，相对 utility 为 0。",
         "",
         "## Overall Policies",
         "",
@@ -478,7 +490,7 @@ def _markdown_report(
         "",
         _markdown_table(relative_summary[relative_columns]),
         "",
-        "## Random-ELA Repetition Summary",
+        "## Random Analysis Repetition Summary",
         "",
         _markdown_table(random_repetition_summary),
         "",
@@ -488,9 +500,10 @@ def _markdown_report(
         "",
         "## 解释",
         "",
-        "当 controller 的 mean utility 大于 0 时，它优于 `sbs_skip_reference` 和 `no_ela`。"
-        "与 `always_ela` 的比较用于判断选择性调用 ELA 是否减少了无效调用。"
-        "Random-ELA 用于检查当前结果是否只是由调用频率变化带来的随机效应。",
+        "当 controller 的 mean utility 大于 0 时，它优于 `sbs_skip_reference` 和 `no_query`。"
+        "与 `always_query` 的比较用于判断选择性调用固定 query 是否减少了无效调用。"
+        "`traditional_aas` 复用 `always_query` 的固定 query + Selector 运行结果，不重复执行等价 continuation。"
+        "Random Analysis 用于检查当前结果是否只是由调用频率变化带来的随机效应。",
     ]
     return "\n".join(lines) + "\n"
 
@@ -519,23 +532,27 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare current phase1 controller with ELA-call baselines.")
-    parser.add_argument("--predictions", type=Path, default=DEFAULT_PREDICTIONS_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser = argparse.ArgumentParser(description="Compare the current phase1 controller with fixed-query baselines.")
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--predictions", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
-    parser.add_argument("--random-ela-probability", type=float, default=0.5)
+    parser.add_argument("--random-query-probability", type=float, default=0.5)
     parser.add_argument("--random-repetitions", type=int, default=30)
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--expected-split", default=DEFAULT_EXPECTED_SPLIT)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
     compare_controller_baselines(
-        predictions_path=args.predictions,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        predictions_path=args.predictions
+        or query_root / "feature_group_ablation/primary_with_maturity/validation_predictions.parquet",
+        output_dir=args.output_dir or query_root / "controller_baseline_comparison",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,
-        random_ela_probability=args.random_ela_probability,
+        random_query_probability=args.random_query_probability,
         random_repetitions=args.random_repetitions,
         random_seed=args.random_seed,
         expected_split=args.expected_split,

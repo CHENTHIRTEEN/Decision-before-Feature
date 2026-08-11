@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from benchmarks import make_problem
+from experiments.phase1_batch_common import (
+    as_int_list,
+    fe_total_for_dimension,
+    load_config,
+    selected_dimensions,
+    selected_functions,
+    split_name,
+)
+from landscape_queries.sampling import sample_problem
+from landscape_queries.specs import SAMPLE_DESIGN_SPECS, get_sample_design_spec
+
+
+SAMPLE_KEY_COLUMNS = (
+    "split",
+    "problem_id",
+    "family",
+    "function",
+    "instance",
+    "dimension",
+    "sample_design_id",
+)
+
+
+def default_sample_path(sample_design_id: str, split: str) -> Path:
+    return Path("results/landscape_queries/samples") / sample_design_id / split / "samples.parquet"
+
+
+def generate_query_samples(
+    *,
+    config_path: Path,
+    sample_design_id: str,
+    output_path: Path | None,
+    base_seed: int,
+    only_functions: list[int] | None,
+    only_dimensions: list[int] | None,
+    overwrite: bool,
+) -> dict[str, int | str]:
+    config = load_config(config_path)
+    suite = str(config["suite"]).lower()
+    if suite not in {"bbob", "cec2017", "cec2022"}:
+        raise ValueError("query-sample-batch supports bbob, cec2017, and cec2022")
+    split = split_name(config)
+    design = get_sample_design_spec(sample_design_id)
+    output = output_path or default_sample_path(sample_design_id, split)
+    if output.exists() and not overwrite:
+        raise FileExistsError(f"query sample output already exists; pass --overwrite: {output}")
+
+    rows = []
+    for function in selected_functions(config, only_functions):
+        for dimension in selected_dimensions(config, only_dimensions):
+            fe_total = fe_total_for_dimension(config, dimension)
+            expected_fe = int(round(design.fe_ratio * fe_total))
+            if design.sample_size(dimension) != expected_fe:
+                raise ValueError(
+                    f"{sample_design_id} requires {design.sample_size_per_dimension}d = "
+                    f"{design.fe_ratio:.0%} FE, but d={dimension} has FE_total={fe_total}"
+                )
+            for instance in as_int_list(config, "instances"):
+                problem = make_problem(
+                    {
+                        "suite": suite,
+                        "function": function,
+                        "instance": instance,
+                        "dimension": dimension,
+                    }
+                )
+                try:
+                    sample = sample_problem(
+                        problem=problem,
+                        sample_design=design,
+                        base_seed=base_seed,
+                        function=function,
+                        instance=instance,
+                    )
+                    rows.append(
+                        {
+                            "split": split,
+                            "problem_id": problem.problem_id,
+                            "family": problem.family,
+                            "function": int(function),
+                            "instance": int(instance),
+                            "dimension": int(dimension),
+                            "FE_total": int(fe_total),
+                            "sample_design_id": design.sample_design_id,
+                            "sampling_protocol": design.protocol,
+                            **sample,
+                            "sample_status": "ok",
+                            "sample_failure": "",
+                        }
+                    )
+                finally:
+                    problem.close()
+
+    if not rows:
+        raise ValueError("query sampling produced no rows")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pylist(rows, schema=sample_schema()), output)
+    print(f"wrote {len(rows)} {sample_design_id} problem samples to {output}")
+    return {"rows": len(rows), "sample_design_id": sample_design_id, "output": str(output)}
+
+
+def sample_schema() -> pa.Schema:
+    return pa.schema(
+        [
+            ("split", pa.string()),
+            ("problem_id", pa.string()),
+            ("family", pa.string()),
+            ("function", pa.int32()),
+            ("instance", pa.int32()),
+            ("dimension", pa.int32()),
+            ("FE_total", pa.int64()),
+            ("sample_design_id", pa.string()),
+            ("sampling_protocol", pa.string()),
+            ("sample_seed", pa.int64()),
+            ("sample_size", pa.int64()),
+            ("FE_query", pa.int64()),
+            ("runtime_sampling_evaluation", pa.float64()),
+            ("lower_bounds", pa.list_(pa.float64())),
+            ("upper_bounds", pa.list_(pa.float64())),
+            ("X", pa.list_(pa.list_(pa.float64()))),
+            ("y", pa.list_(pa.float64())),
+            ("sample_status", pa.string()),
+            ("sample_failure", pa.string()),
+        ]
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate a fixed LHS sample boundary for a landscape query.")
+    parser.add_argument("--config", type=Path, action="append", required=True)
+    parser.add_argument("--sample-design-id", choices=sorted(SAMPLE_DESIGN_SPECS), required=True)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--base-seed", type=int, default=0)
+    parser.add_argument("--only-function", type=int, action="append", default=None)
+    parser.add_argument("--only-dimension", type=int, action="append", default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args()
+    if args.output is not None and len(args.config) != 1:
+        raise ValueError("--output can be used only with one --config")
+    for config_path in args.config:
+        generate_query_samples(
+            config_path=config_path,
+            sample_design_id=args.sample_design_id,
+            output_path=args.output,
+            base_seed=args.base_seed,
+            only_functions=args.only_function,
+            only_dimensions=args.only_dimension,
+            overwrite=args.overwrite,
+        )
+
+
+if __name__ == "__main__":
+    main()

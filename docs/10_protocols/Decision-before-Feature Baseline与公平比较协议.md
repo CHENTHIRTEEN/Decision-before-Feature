@@ -1,5 +1,7 @@
 # Decision-before-Feature Baseline与公平比较协议
 
+> 实现同步（2026-08-11）：Never Query、Always Query、Random Analysis、Traditional AAS 和 SBS skip reference 的代码路径已实现；Traditional AAS 与 Always Query 共享“固定 query + 同一 Selector”的等价运行结果，不重复 continuation。VBS 仍由静态 per-problem 完整候选结果单独计算，不以逐状态 `best observed action` 替代。现有表依赖撤回的 trajectory、旧 16 维构念与旧 Ridge controller，不是当前性能证据。三档 query 必须分别重跑本协议后才能形成论文表。详见 `../30_results/phase1_current_results.md`。
+
 ## 1. 文档定位
 
 本文档定义 Decision-before-Feature 论文中的实验比较协议。
@@ -32,11 +34,11 @@
 
             |                 |                  |
 
-        Never ELA        Always ELA       Decision-before-Feature
+        Never Query        Always Query       Decision-before-Feature
 
             |                 |                  |
 
-     Default Solver    ELA + Selector        Decision
+     Default Solver    Query + Selector      Decision
 
                                                  |
 
@@ -44,21 +46,23 @@
 
                                       |                 |
 
-                                   Skip             Run ELA
+                                   No-query         Run Query
 
                                       |                 |
 
-                                Default Solver    ELA + Selector
+                                Default Solver    Query + Selector
 
 ------------------------------------------------------------------------
 
 # 3. Baseline体系
 
-## Baseline 1: Never ELA (No Analysis)
+## Baseline 1: Never Query (No Analysis)
 
 ### 定义
 
-完全不执行Landscape Analysis。
+完全不执行所评估的固定 landscape-analysis query。
+
+第一篇论文主协议中，Default Optimizer 是仅由 BBOB train 确定的 SBS，probe 也由同一 SBS 产生；Never Query 原生继续当前完整状态，不重启、不调参、不切换算法。
 
 流程：
 
@@ -84,11 +88,11 @@
 
 ------------------------------------------------------------------------
 
-# Baseline 2: Always ELA
+# Baseline 2: Always Query
 
 ### 定义
 
-所有问题都执行ELA。
+所有问题都执行当前 `query_id` 对应的固定 query。
 
 流程：
 
@@ -96,7 +100,7 @@
 
     ↓
 
-    ELA Feature Extraction
+    Query Feature Extraction
 
     ↓
 
@@ -112,7 +116,7 @@
 
 用于回答：
 
-> 如果无限相信ELA，是否最优？
+> 如果始终调用该固定 query，是否最优？
 
 ------------------------------------------------------------------------
 
@@ -120,19 +124,19 @@
 
 ## 定义
 
-随机决定是否执行ELA。
+随机决定是否执行当前固定 query。
 
 例如：
 
 概率：
 
-$$ p_{ELA}=0.5 $$
+$$ p_{query}=0.5 $$
 
 ### 作用
 
 排除：
 
-简单减少ELA调用带来的偶然收益。
+简单减少 query 调用带来的偶然收益。
 
 ------------------------------------------------------------------------
 
@@ -142,7 +146,9 @@ $$ p_{ELA}=0.5 $$
 
 经典：
 
-ELA + ML Selector。
+固定 query + ML Selector。
+
+正式实现使用与 Proposed Method 完全相同的逐状态 action-loss regression Selector，只是按预定 checkpoint 总是调用，不使用 Decision Module。不得为该 baseline 单独保留静态 problem classifier 或 nearest bucket。
 
 不包含Decision Module。
 
@@ -184,6 +190,8 @@ DE/CMA-ES/SHADE中选择一个。
 
 Algorithm Portfolio还有多少提升空间。
 
+VBS 是静态 per-problem 标准上界。共享 state 上从已运行 continuation actions 取最小 loss 时，另称为 `best observed action`；它只用于 selector regret 和潜在性能差诊断，不作为现实 baseline 执行。
+
 ------------------------------------------------------------------------
 
 # 4. Proposed Method
@@ -204,12 +212,12 @@ Algorithm Portfolio还有多少提升空间。
 
     ↓
 
-    Estimate U_ELA
+    Estimate U_query
 
 
-    if U_ELA > 0:
+    if U_query > 0:
 
-          ELA
+          Fixed Query
 
           Algorithm Selection
 
@@ -234,28 +242,30 @@ $$ FE_{total} = FE_{analysis} + FE_{optimization} $$
 
 ------------------------------------------------------------------------
 
-## 5.2 ELA成本计算
+## 5.2 Query 成本计算
 
-ELA阶段：
+Query 阶段：
 
 包括：
 
 -   sampling FE
 -   feature calculation
 
-不能隐藏ELA成本。
+不能隐藏 query 成本。
 
 ------------------------------------------------------------------------
 
 ## 5.3 Optimization Budget
 
-ELA方法：
+Query 方法：
 
 必须扣除分析阶段消耗。
 
+等总 FE 主协议通过 `FE_query_optimization = FE_total - FE_prefix - FE_query` 扣除 sampling FE；Utility 不能再减同一笔 FE。只额外计算 feature/selector runtime 与内存等未进入 final loss 的成本。
+
 否则：
 
-Always ELA天然占优势。
+Always Query天然占优势。
 
 ------------------------------------------------------------------------
 
@@ -263,10 +273,10 @@ Always ELA天然占优势。
 
 所有会在 checkpoint 后调用 selector 的方法：
 
-- Always ELA；
-- Random Analysis 中的 Run ELA 分支；
+- Always Query；
+- Random Analysis 中的 Run Query 分支；
 - Traditional AAS；
-- Decision-before-Feature 中的 Run ELA 分支。
+- Decision-before-Feature 中的 Run Query 分支。
 
 必须使用同一 Population Transfer 口径。
 
@@ -275,10 +285,12 @@ Always ELA天然占优势。
 - 切换后的算法直接使用当前 checkpoint 的 `population`、`fitness` 和 `best_fitness`；
 - 切换后的算法重新初始化自身内部状态；
 - 不使用 Best-so-far Warm Start 作为主实验默认设置；
-- ELA 采样点不注入后续优化 population；
-- `FE_ela_optimization = FE_total - FE_prefix - FE_analysis`。
+- query 采样点不注入后续优化 population；
+- `FE_query_optimization = FE_total - FE_prefix - FE_query`。
 
-这样比较的是是否执行 ELA 以及 selector 选择的算法，而不是额外重启策略或 ELA 样本复用策略。
+主结果只使用 `prefix_algorithm=default_algorithm=训练集 SBS` 的行。全 prefix 行若 No-query 需要切到 default，必须以 `skip_switches_from_prefix` 明示，且只能进入独立稳健性分析。
+
+这样比较的是是否执行固定 query 以及 selector 选择的算法，而不是额外重启策略或 query 样本复用策略。
 
 ------------------------------------------------------------------------
 
@@ -364,7 +376,7 @@ Expected Running Time。
 
 如果预测：
 
-$$ U_{ELA} $$
+$$ U_{query} $$
 
 评价：
 
@@ -395,7 +407,7 @@ $$ FE_{total} $$
 
 包括：
 
--   ELA
+-   固定 query
 -   Decision model
 -   Optimization
 
@@ -423,8 +435,8 @@ $$ Performance $$
 
 比较：
 
--   Never ELA
--   Always ELA
+-   Never Query
+-   Always Query
 -   Proposed
 
 ------------------------------------------------------------------------
@@ -546,11 +558,11 @@ Decision-before-Feature定义了新的Analysis Selection Problem。
 
 ## Q2:
 
-为什么不用全部ELA？
+为什么不始终执行 query？
 
 回应：
 
-实验展示ELA存在负Utility区域。
+实验展示主 `descriptor_cheap` query 存在 `U_{cheap}\leq0` 的区域。
 
 ------------------------------------------------------------------------
 
@@ -608,7 +620,7 @@ Framework。
 
 ## Figure 2
 
-ELA Utility distribution。
+Query Utility distribution。
 
 ------------------------------------------------------------------------
 
@@ -638,7 +650,7 @@ Decision-before-Feature永远最好。
 
 而是证明：
 
-    Always ELA
+    Always Query
 
     ↓
 
@@ -647,7 +659,7 @@ Decision-before-Feature永远最好。
     但高成本
 
 
-    Never ELA
+    Never Query
 
     ↓
 

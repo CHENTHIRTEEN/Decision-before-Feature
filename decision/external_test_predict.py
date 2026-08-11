@@ -13,20 +13,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from decision.train_full_decision_model import AUXILIARY_LABEL_COLUMN, METADATA_COLUMNS, TARGET_COLUMN
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_DATASET_PATH = Path("results/decision/cec2017_test/materialized_test_data/decision_dataset.parquet")
-DEFAULT_TRAINING_SUMMARY_PATH = Path(
-    "results/decision/phase1_refined_sampling/feature_group_ablation/"
-    "primary_with_maturity/full_decision_model_training_summary.json"
-)
-DEFAULT_OUTPUT_DIR = Path("results/decision/cec2017_test")
 DEFAULT_MODEL_NAME = "ridge_regression"
 DEFAULT_THRESHOLD_MODE = "train_utility"
 DEFAULT_EXPECTED_SPLIT = "cec2017_test"
 FORBIDDEN_INPUT_NAME_FRAGMENTS = (
-    "ela",
+    "query",
     "function",
     "algorithm",
     "selected",
@@ -39,6 +35,7 @@ FORBIDDEN_INPUT_NAME_FRAGMENTS = (
 
 def predict_external_test(
     *,
+    query_id: str,
     dataset_path: Path,
     training_summary_path: Path,
     output_dir: Path,
@@ -49,11 +46,13 @@ def predict_external_test(
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
     training_summary = json.loads(training_summary_path.read_text(encoding="utf-8"))
+    validate_query_payload(training_summary, query_id=query_id, artifact="Decision training summary")
     feature_columns = _feature_columns(training_summary)
     model_path = _model_path(training_summary, model_name)
     threshold = _threshold(training_summary, model_name, threshold_mode)
 
     dataset = pq.read_table(dataset_path).to_pandas()
+    validate_query_frame(dataset, query_id=query_id, artifact="external Decision dataset")
     _check_dataset(dataset, feature_columns, expected_split)
 
     model = joblib.load(model_path)
@@ -81,6 +80,9 @@ def predict_external_test(
     input_contract = _input_contract(feature_columns, expected_split)
     summary = {
         "experiment": "cec2017_external_test_controller_prediction",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "dataset": str(dataset_path),
         "training_summary": str(training_summary_path),
         "model_name": model_name,
@@ -102,7 +104,7 @@ def predict_external_test(
             "external_rows_used_for_imputer_or_scaler_fit": 0,
             "external_rows_used_for_threshold_fit": 0,
             "decision_input_uses_only_behavior_features": True,
-            "ela_features_used_as_decision_input": False,
+            "query_features_used_as_decision_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
         },
     }
@@ -217,7 +219,7 @@ def _prediction_frame(
     output.insert(1, "model_name", model_name)
     output.insert(2, "model_family", model_family)
     output["decision_score"] = scores.astype(float)
-    output[f"decision_run_ela_{threshold_mode}"] = scores > threshold
+    output[f"decision_run_query_{threshold_mode}"] = scores > threshold
     output[f"decision_utility_{threshold_mode}"] = np.where(scores > threshold, output[TARGET_COLUMN], 0.0)
     return output
 
@@ -245,7 +247,7 @@ def _input_contract(feature_columns: list[str], expected_split: str) -> pd.DataF
 
 
 def _markdown_report(*, summary: dict[str, Any], input_contract: pd.DataFrame, predictions: pd.DataFrame) -> str:
-    call_column = f"decision_run_ela_{summary['threshold_mode']}"
+    call_column = f"decision_run_query_{summary['threshold_mode']}"
     call_rate = float(predictions[call_column].mean()) if len(predictions) else 0.0
     return "\n".join(
         [
@@ -258,7 +260,7 @@ def _markdown_report(*, summary: dict[str, Any], input_contract: pd.DataFrame, p
             f"- Model: `{summary['model_name']}`.",
             f"- Threshold mode: `{summary['threshold_mode']}`.",
             f"- External test rows: {summary['rows']}.",
-            f"- Controller ELA call rate: {call_rate:.6g}.",
+            f"- Controller Query call rate: {call_rate:.6g}.",
             "- CEC2017 rows were not used for model fitting, preprocessing fitting, or threshold fitting.",
             "",
             "## Input contract",
@@ -286,19 +288,24 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Predict a frozen BBOB-trained controller on an external test split.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--training-summary", type=Path, default=DEFAULT_TRAINING_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--training-summary", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
     parser.add_argument("--expected-split", default=DEFAULT_EXPECTED_SPLIT)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    external_root = query_root / args.expected_split
 
     predict_external_test(
-        dataset_path=args.dataset,
-        training_summary_path=args.training_summary,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or external_root / "materialized_test_data/decision_dataset.parquet",
+        training_summary_path=args.training_summary
+        or query_root / "full_training/full_decision_model_training_summary.json",
+        output_dir=args.output_dir or external_root / "external_test_prediction",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,
         expected_split=args.expected_split,

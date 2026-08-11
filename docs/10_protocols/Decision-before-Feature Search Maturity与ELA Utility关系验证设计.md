@@ -1,11 +1,13 @@
-# Decision-before-Feature Search Maturity与ELA Utility关系验证设计
+# Decision-before-Feature Search Maturity与Query Utility关系验证设计
+
+> 实现同步（2026-08-11）：旧 BBOB 消融同时依赖重建式 continuation 标签和identity-dependent behavior，不能作为当前证据。完整状态trajectory与permutation-invariant behavior重生成后须重新执行 maturity-aware 消融、外部评价和统计区间估计。
 
 ## 1. 文档定位
 
 本文档用于验证 Decision-before-Feature 框架中的核心理论假设：
 
-> 搜索行为不是简单描述优化过程，而是能够反映当前问题是否已经具备进行Landscape
-> Analysis的价值。
+> 搜索行为不是简单描述优化过程，而是能够反映当前问题是否已具备执行所评估固定
+> landscape-analysis query 的价值。
 
 整体关系：
 
@@ -21,7 +23,7 @@
 
             v
 
-    ELA Utility
+    Query Utility
 
             |
 
@@ -34,7 +36,7 @@
 证明 Search Maturity 不是人为构造的概念，而是连接：
 
 -   Optimization Behavior
--   Landscape Analysis Decision
+-   Fixed-query Decision
 
 之间的有效中间状态。
 
@@ -42,7 +44,7 @@
 
 # 2. 核心理论假设
 
-## H1: Search Behavior包含ELA价值信息
+## H1: Search Behavior 包含固定 query 的效用信息
 
 优化过程中的行为状态：
 
@@ -50,11 +52,11 @@ $$ s_t $$
 
 能够预测：
 
-$$ U_{ELA} $$
+$$ U_{query} $$
 
 即：
 
-$$ s_t \rightarrow U_{ELA} $$
+$$ s_t \rightarrow U_{query} $$
 
 ------------------------------------------------------------------------
 
@@ -64,7 +66,7 @@ $$ s_t \rightarrow U_{ELA} $$
 
 例如：
 
--   entropy
+-   population Wasserstein change
 -   diversity
 -   stagnation
 
@@ -84,7 +86,7 @@ $$ M_t $$
 
 ------------------------------------------------------------------------
 
-## H3: ELA Utility与Search Maturity存在结构关系
+## H3: Query Utility与Search Maturity存在结构关系
 
 不是简单：
 
@@ -98,7 +100,7 @@ $$ M \uparrow \Rightarrow U \uparrow $$
 
 倒U关系：
 
-    ELA Utility
+    Query Utility
 
           ^
           |
@@ -137,7 +139,7 @@ BBOB训练集。
 不同FE阶段：
 
 -   behavior state
--   ELA Utility
+-   Query Utility
 
 ------------------------------------------------------------------------
 
@@ -160,8 +162,9 @@ BBOB训练集。
 输入：
 
 -   diversity下降趋势
--   entropy变化
--   movement稳定性
+-   population Wasserstein变化率的稳定程度
+-   covariance spectral concentration
+-   centroid shift coherence
 
 输出：
 
@@ -197,13 +200,13 @@ $$ M_t=ES_t(1-XS_t) $$
 
 # 5. 关系验证实验
 
-# Experiment 1: Behavior Feature与ELA Utility相关性
+# Experiment 1: Behavior Feature与Query Utility相关性
 
 ## 目标
 
 验证：
 
-单个行为指标是否包含ELA价值信息。
+单个行为指标是否包含固定 query 的效用信息。
 
 ------------------------------------------------------------------------
 
@@ -213,13 +216,13 @@ $$ M_t=ES_t(1-XS_t) $$
 
 Spearman correlation：
 
-$$ \rho(feature,U_{ELA}) $$
+$$ \rho(feature,U_{query}) $$
 
 分析：
 
 -   improvement rate
 -   diversity
--   entropy
+-   population and fitness distribution change
 -   stagnation
 
 ------------------------------------------------------------------------
@@ -234,13 +237,13 @@ $$ \rho(feature,U_{ELA}) $$
 
 ------------------------------------------------------------------------
 
-# Experiment 2: Search Maturity与ELA Utility关系
+# Experiment 2: Search Maturity与Query Utility关系
 
 ## 目标
 
 验证：
 
-Maturity是否比单指标更接近ELA价值。
+Maturity 是否比单指标更接近固定 query 的效用。
 
 ------------------------------------------------------------------------
 
@@ -248,7 +251,7 @@ Maturity是否比单指标更接近ELA价值。
 
 计算：
 
-$$ \rho(M,U_{ELA}) $$
+$$ \rho(M,U_{query}) $$
 
 并绘制：
 
@@ -262,15 +265,15 @@ $$ \rho(M,U_{ELA}) $$
 
 低成熟：
 
-ELA价值低。
+固定 query 的效用较低。
 
 中成熟：
 
-ELA价值最高。
+固定 query 的效用达到较高区间。
 
 高成熟：
 
-ELA价值下降。
+固定 query 的效用下降。
 
 ------------------------------------------------------------------------
 
@@ -280,7 +283,7 @@ ELA价值下降。
 
 验证：
 
-Search Maturity是否可以指导ELA决策。
+Search Maturity 是否可以指导固定 query 的调用决策。
 
 ------------------------------------------------------------------------
 
@@ -294,7 +297,7 @@ Search Maturity是否可以指导ELA决策。
 
 $$ M_t>\theta $$
 
-执行ELA。
+执行固定 query。
 
 ------------------------------------------------------------------------
 
@@ -414,7 +417,7 @@ Maturity。
 
 ## Figure 3
 
-Maturity vs ELA Utility
+Maturity vs Query Utility
 
 展示：
 
@@ -522,7 +525,7 @@ Maturity是否等价于convergence？
 
             v
 
-    ELA Utility
+    Query Utility
 
             |
 

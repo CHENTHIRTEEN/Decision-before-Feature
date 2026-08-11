@@ -1,0 +1,17 @@
+[project]
+name = "decision-before-feature-pflacco-query"
+version = "0.1.0"
+description = "Isolated pflacco 1.2.2 feature extractor for fixed landscape queries"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy==1.24.3",
+    "pandas==2.0.3",
+    "pflacco==1.2.2",
+    "pyarrow==14.0.2",
+    "scikit-learn==1.2.2",
+    "scipy==1.10.1",
+]
+
+[build-system]
+requires = ["setuptools>=68,<76"]
+build-backend = "setuptools.build_meta"

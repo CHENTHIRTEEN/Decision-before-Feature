@@ -5,22 +5,21 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_COLUMNS, BEHAVIOR_FEATURE_COLUMNS, BEHAVIOR_METADATA_COLUMNS
+from behavior.features import BEHAVIOR_COLUMNS, BEHAVIOR_FEATURE_COLUMNS, BEHAVIOR_METADATA_COLUMNS, extract_behavior_rows
 from trajectory.validation import validate_trajectory_file
 
 
 FORBIDDEN_COLUMN_FRAGMENTS = (
-    "ela",
+    "query",
     "utility",
     "p_skip",
-    "p_ela",
+    "p_query",
     "cost",
     "inertia",
     "c1",
     "c2",
     "mutation",
     "strategy",
-    "covariance",
     "sigma",
     "algorithm_id",
     "function_id",
@@ -28,11 +27,10 @@ FORBIDDEN_COLUMN_FRAGMENTS = (
 
 BOUNDED_FEATURE_COLUMNS = (
     "bf_improvement_frequency_w02",
-    "bf_directional_entropy_w05",
+    "bf_covariance_spectral_concentration",
     "bf_stagnation_w10",
-    "bf_direction_consistency_w05",
-    "bf_success_rate_w02",
-    "bf_best_improvement_ratio_w02",
+    "bf_centroid_shift_coherence_w05",
+    "bf_fitness_quantile_improvement_fraction_w02",
     "bf_search_maturity",
     "bf_search_maturity_linear",
     "bf_population_overlap_w05",
@@ -43,9 +41,9 @@ NON_NEGATIVE_FEATURE_COLUMNS = (
     "bf_diversity_mean_pairwise",
     "bf_fitness_diversity",
     "bf_fitness_diversity_rel",
-    "bf_movement_magnitude",
-    "bf_movement_diversity",
-    "bf_improvement_variance_w02",
+    "bf_population_wasserstein_rate_w05",
+    "bf_centroid_shift_rate_w05",
+    "bf_fitness_wasserstein_rate_w02",
     "bf_elite_concentration",
 )
 
@@ -69,7 +67,8 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
         raise ValueError(f"unexpected behavior columns: {sorted(unexpected)}")
     _check_forbidden_columns(columns)
 
-    for trajectory_row, behavior_row in zip(trajectory_rows, behavior_rows):
+    expected_rows = extract_behavior_rows([trajectory_row.copy() for trajectory_row in trajectory_rows])
+    for trajectory_row, behavior_row, expected_row in zip(trajectory_rows, behavior_rows, expected_rows, strict=True):
         for column in BEHAVIOR_METADATA_COLUMNS:
             if behavior_row[column] != trajectory_row[column]:
                 raise ValueError(f"metadata column {column} differs from trajectory input")
@@ -97,6 +96,12 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
             value = behavior_row[column]
             if value is not None and not isfinite(float(value)):
                 raise ValueError(f"{column} must be finite or null")
+            expected = expected_row[column]
+            if value is None or expected is None:
+                if value is not None or expected is not None:
+                    raise ValueError(f"{column} does not match the current trajectory; regenerate behavior")
+            elif float(value) != float(expected):
+                raise ValueError(f"{column} does not match the current trajectory; regenerate behavior")
 
     return {"rows": len(behavior_rows)}
 

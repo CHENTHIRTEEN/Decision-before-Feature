@@ -13,7 +13,9 @@
 
 核心研究问题：
 
-> 在黑盒优化中，Landscape Analysis本身是否值得执行？
+> 在黑盒优化中，所评估的固定 landscape-analysis query 是否值得执行？
+
+第一篇论文的主 query 固定为 `descriptor_cheap`；standard/broad 只用于预先定义的配置稳健性，结论不外推到其他 landscape representation。
 
 ---
 
@@ -47,7 +49,7 @@ ELA用于：
 
 大量研究集中于：
 
-- 新ELA Feature设计
+- 新Query Feature设计
 - 更强Algorithm Selector
 - 更复杂Machine Learning模型
 
@@ -61,10 +63,10 @@ ELA用于：
 
 但是：
 
-ELA存在额外成本：
+固定 query 存在额外成本：
 
 $$
-C_{ELA}
+C_{query}
 $$
 
 包括：
@@ -76,12 +78,12 @@ $$
 对于部分问题：
 
 $$
-Benefit_{ELA}<Cost_{ELA}
+Benefit_{query}<Cost_{query}
 $$
 
 因此：
 
-执行ELA本身也是一个优化决策。
+执行该固定 query 本身也是一个优化决策。
 
 ---
 
@@ -95,7 +97,7 @@ $$
 
 本文：
 
-    Should landscape analysis be performed?
+    Should the evaluated fixed query be performed?
 
 形成两阶段决策：
 
@@ -129,7 +131,7 @@ $$
 
     ↓
 
-    ELA Utility Prediction
+    Query Utility Prediction
 
     |
 
@@ -141,7 +143,7 @@ $$
 
     |                 |
 
-    Skip ELA          Run ELA
+    No-query          Run Query
 
     |                 |
 
@@ -161,7 +163,7 @@ Analysis Selection Problem。
 
 贡献：
 
-将Landscape Analysis从固定步骤转变为可优化决策。
+将所评估的固定 landscape-analysis query 从固定步骤转变为可优化决策。
 
 创新点：
 
@@ -181,7 +183,7 @@ Problem → Decide Feature → Algorithm
 
 提出：
 
-利用优化过程动态行为预测ELA价值。
+利用优化过程动态行为预测所评估固定 query 的价值。
 
 输入：
 
@@ -191,13 +193,16 @@ Search Behavior State。
 
 - Improvement rate
 - Population diversity
-- Directional entropy
+- Population Wasserstein change
+- Centroid shift coherence
+- Covariance spectral concentration
+- Fitness distribution change
 - Stagnation
 - Communication
 
 输出：
 
-ELA Utility。
+Query Utility。
 
 ---
 
@@ -242,8 +247,10 @@ Utility-based decision。
 定义：
 
 $$
-U_{ELA} = PerformanceGain - \lambda Cost
+U_{query} = PerformanceGain - \lambda_T TimeCost - \lambda_M MemoryCost
 $$
+
+等总 FE 协议下，query sampling FE 已通过减少 Query continuation budget 计入 PerformanceGain，不重复扣除。
 
 实现：
 
@@ -304,7 +311,7 @@ ELA成为AAS重要工具。
 
 提出本文观点。
 
-Landscape Analysis should also be optimized.
+Whether to execute the evaluated fixed landscape-analysis query should itself be treated as a resource-aware decision.
 
 ---
 
@@ -341,7 +348,7 @@ Landscape Analysis should also be optimized.
 
 强调：
 
-现有ELA默认always-on。
+现有 feature-based selection 通常默认 landscape information 已被获取。
 
 ---
 
@@ -421,7 +428,7 @@ $$
 展开：
 
 $$
-U= PerformanceGain - \lambda Cost
+U=PerformanceGain-\lambda_T TimeCost-\lambda_M MemoryCost.
 $$
 
 ---
@@ -447,7 +454,8 @@ Feature groups：
 
 ## Behavior
 
-- entropy
+- population distribution change
+- fitness distribution change
 - stagnation
 
 ---
@@ -465,7 +473,7 @@ Feature groups：
 
 ---
 
-# 4.3 ELA Utility Prediction
+# 4.3 Query Utility Prediction
 
 模型：
 
@@ -476,7 +484,7 @@ behavior state
 输出：
 
 $$
-\hat U_{ELA}
+\hat U_{query}
 $$
 
 ---
@@ -487,7 +495,7 @@ $$
 
     if predicted utility > 0:
 
-    execute ELA
+    execute the fixed query
 
     else:
 
@@ -499,7 +507,7 @@ $$
 
 ## RQ1
 
-ELA是否总有收益？
+主 `descriptor_cheap` query 是否在所有状态都有净收益？
 
 实验：
 
@@ -509,7 +517,7 @@ Cost-benefit analysis。
 
 ## RQ2
 
-Behavior是否包含ELA价值信息？
+Behavior 是否包含固定 query 的效用信息？
 
 实验：
 
@@ -523,8 +531,8 @@ Decision-before-Feature是否有效？
 
 Baseline：
 
-- Never ELA
-- Always ELA
+- Never Query
+- Always Query
 - Traditional AAS
 - Random Decision
 
@@ -556,7 +564,7 @@ SHAP解释。
 
 证明：
 
-ELA存在negative utility。
+主 `descriptor_cheap` query 存在 `U_{cheap}\leq0` 的状态。
 
 ---
 
@@ -564,7 +572,7 @@ ELA存在negative utility。
 
 证明：
 
-behavior可以预测ELA收益。
+behavior 可以预测固定 query 的效用。
 
 ---
 
@@ -588,7 +596,7 @@ behavior可以预测ELA收益。
 
 解释：
 
-什么搜索状态适合ELA。
+什么搜索状态适合执行固定 query。
 
 ---
 
@@ -596,7 +604,7 @@ behavior可以预测ELA收益。
 
 讨论：
 
-## 为什么不是新的ELA Feature？
+## 为什么不是新的Query Feature？
 
 因为：
 
@@ -604,7 +612,7 @@ behavior可以预测ELA收益。
 
 而是：
 
-Feature是否值得计算。
+所评估固定 query 的特征是否值得计算。
 
 ---
 
@@ -616,7 +624,7 @@ NeurELA：
 
 本文：
 
-决定何时值得分析。
+决定何时值得执行所评估的固定 query。
 
 二者互补。
 
@@ -624,7 +632,7 @@ NeurELA：
 
 ## 局限
 
-- 依赖offline oracle
+- 依赖离线效用标签生成
 - 当前针对continuous optimization
 - Portfolio有限
 
@@ -640,7 +648,7 @@ Decision-before-Feature。
 
 核心贡献：
 
-将Landscape Analysis本身纳入优化决策。
+将所评估的固定 landscape-analysis query 纳入优化决策。
 
 未来：
 

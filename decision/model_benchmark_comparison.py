@@ -33,11 +33,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC, LinearSVR
 
 from behavior.features import BEHAVIOR_FEATURE_GROUPS
+from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from decision.train_full_decision_model import (
     AUXILIARY_LABEL_COLUMN,
-    DEFAULT_DATASET_PATH,
-    DEFAULT_READINESS_SUMMARY_PATH,
-    DEFAULT_SCHEMA_PATH,
     METADATA_COLUMNS,
     TARGET_COLUMN,
     TOP_K_FRACTIONS,
@@ -45,13 +43,11 @@ from decision.train_full_decision_model import (
     VALIDATION_SPLIT,
     _check_dataset,
     _check_family_split,
-    _check_readiness,
     _feature_columns,
-    _read_readiness_summary,
 )
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/model_benchmark_comparison")
 THRESHOLD_TOP_FRACTIONS = (0.05, 0.10, 0.20)
 EPS = 1e-12
 
@@ -67,9 +63,9 @@ class ModelSpec:
 
 def run_model_benchmark_comparison(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
-    readiness_summary_path: Path,
     output_dir: Path,
     feature_group: str,
     random_seed: int,
@@ -78,10 +74,10 @@ def run_model_benchmark_comparison(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    readiness = _read_readiness_summary(readiness_summary_path)
+    validate_query_payload(schema, query_id=query_id, artifact="Decision schema")
+    validate_query_frame(dataset, query_id=query_id, artifact="Decision dataset")
     feature_columns = _feature_columns(schema, feature_group)
     _check_dataset(dataset, feature_columns)
-    _check_readiness(readiness, dataset_path)
 
     train = dataset[dataset["split"] == TRAIN_SPLIT].copy()
     validation = dataset[dataset["split"] == VALIDATION_SPLIT].copy()
@@ -190,9 +186,11 @@ def run_model_benchmark_comparison(
 
     summary = {
         "experiment": "phase1_refined_sampling_model_benchmark_comparison",
+        "query_id": query_id,
+        "query_protocol": get_query_spec(query_id).protocol,
+        "sample_design_id": get_query_spec(query_id).sample_design_id,
         "dataset": str(dataset_path),
         "schema": str(schema_path),
-        "readiness_summary": str(readiness_summary_path),
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
         "feature_group": feature_group,
@@ -223,7 +221,7 @@ def run_model_benchmark_comparison(
             "decision_input_uses_only_behavior_features": True,
             "metadata_used_as_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
-            "ela_features_used_as_input": False,
+            "query_features_used_as_input": False,
             "validation_rows_used_for_imputer_scaler_model_or_threshold_fit": 0,
         },
         "summary_layers": ["all", "label_source", "dimension", "FE_ratio"],
@@ -719,7 +717,7 @@ def _prediction_frame(
     output["decision_score"] = scores.astype(float)
     for threshold_mode, threshold in thresholds.items():
         calls = scores > threshold
-        output[f"decision_run_ela_{threshold_mode}"] = calls
+        output[f"decision_run_query_{threshold_mode}"] = calls
         output[f"decision_utility_{threshold_mode}"] = np.where(calls, output[TARGET_COLUMN], 0.0)
     return output
 
@@ -771,7 +769,7 @@ def _decision_row(
 ) -> dict[str, Any]:
     observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
     positive = observed > 0.0
-    calls = frame[f"decision_run_ela_{threshold_mode}"].to_numpy(dtype=bool)
+    calls = frame[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
     decision_utility = np.where(calls, observed, 0.0)
     captured_positive = positive & calls
     unhelpful_calls = (~positive) & calls
@@ -783,8 +781,8 @@ def _decision_row(
         **_common_fields(frame, layer, group),
         "threshold_mode": threshold_mode,
         "threshold": float(threshold),
-        "decision_ela_call_rows": call_rows,
-        "decision_ela_call_rate": float(np.mean(calls)),
+        "decision_query_call_rows": call_rows,
+        "decision_query_call_rate": float(np.mean(calls)),
         "mean_observed_utility_under_calls": float(np.mean(observed[calls])) if call_rows else 0.0,
         "positive_rows_captured": int(np.sum(captured_positive)),
         "positive_row_capture_rate": float(np.sum(captured_positive) / max(positive_rows, 1)),
@@ -797,8 +795,8 @@ def _decision_row(
         "unhelpful_call_cost_sum": float(-np.sum(observed[unhelpful_calls])),
         "decision_utility_sum": float(np.sum(decision_utility)),
         "decision_mean_utility": float(np.mean(decision_utility)),
-        "always_ela_mean_utility": float(np.mean(observed)),
-        "never_ela_mean_utility": 0.0,
+        "always_query_mean_utility": float(np.mean(observed)),
+        "never_query_mean_utility": 0.0,
         "best_observed_action_mean_utility": float(np.mean(np.maximum(observed, 0.0))),
     }
 
@@ -955,7 +953,7 @@ def _best_row(frame: pd.DataFrame, criterion: str, metric: str, *, ascending: bo
         "spearman",
         "average_precision_u_gt_zero",
         "decision_mean_utility",
-        "decision_ela_call_rate",
+        "decision_query_call_rate",
         "utility_capture_rate",
         "precision_u_gt_zero_under_calls",
         "top_k_u_gt_zero_rate",
@@ -1118,7 +1116,7 @@ def _markdown_report(
                     [
                         "model_name",
                         "objective",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "decision_mean_utility",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -1134,7 +1132,7 @@ def _markdown_report(
                     [
                         "model_name",
                         "objective",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "decision_mean_utility",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -1166,7 +1164,7 @@ def _markdown_report(
                     [
                         "model_name",
                         "objective",
-                        "decision_ela_call_rate",
+                        "decision_query_call_rate",
                         "decision_mean_utility",
                         "positive_row_capture_rate",
                         "utility_capture_rate",
@@ -1227,23 +1225,28 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare Decision Model algorithms on BBOB train/validation data.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--readiness-summary", type=Path, default=DEFAULT_READINESS_SUMMARY_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--feature-group", choices=sorted(BEHAVIOR_FEATURE_GROUPS), default="primary_with_maturity")
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
+    query_root = decision_query_root(args.query_id)
+    materialized = query_root / "materialized_training_data"
+    dataset = args.dataset or materialized / "decision_dataset.parquet"
+    schema = args.schema or materialized / "decision_dataset_schema.json"
+    output_dir = args.output_dir or query_root / "model_benchmark_comparison"
     if args.report_only:
-        write_report_from_existing_outputs(output_dir=args.output_dir)
+        write_report_from_existing_outputs(output_dir=output_dir)
         return
     run_model_benchmark_comparison(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        readiness_summary_path=args.readiness_summary,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=dataset,
+        schema_path=schema,
+        output_dir=output_dir,
         feature_group=args.feature_group,
         random_seed=args.random_seed,
         overwrite=args.overwrite,

@@ -13,15 +13,13 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-DEFAULT_DATASET_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset.parquet")
-DEFAULT_SCHEMA_PATH = Path("results/decision/phase1_refined_sampling/materialized_training_data/decision_dataset_schema.json")
-DEFAULT_OUTPUT_DIR = Path("results/decision/phase1_refined_sampling/training_pipeline_contract_check")
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_ela_lamT_1"
-AUXILIARY_LABEL_COLUMN = "need_ela_lamT_1"
+TARGET_COLUMN = "u_query_lamT_1"
+AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
 METADATA_COLUMNS = (
     "split",
     "problem_id",
@@ -31,8 +29,24 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    "query_id",
+    "query_protocol",
+    "sample_design_id",
     "default_algorithm",
+    "selection_reference_default_algorithm",
+    "selection_reference_protocol",
+    "selector_prediction_source",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "best_observed_algorithm",
+    "selected_matches_best_observed",
+    "potential_gain_raw",
+    "selector_regret_raw",
+    "skip_switches_from_prefix",
+    "no_query_transition_mode",
+    "query_transition_mode",
     "label_source",
 )
 FORBIDDEN_X_COLUMNS = {
@@ -43,30 +57,30 @@ FORBIDDEN_X_COLUMNS = {
     "function_id",
     "FE_total",
     "FE_prefix",
-    "FE_analysis",
-    "FE_skip_optimization",
-    "FE_ela_optimization",
+    "FE_query",
+    "FE_no_query_optimization",
+    "FE_query_optimization",
     "p_skip",
-    "p_ela",
+    "p_query",
     "performance_gain_raw",
     "performance_gain_norm",
-    "runtime_analysis",
+    "runtime_query",
     "runtime_selection",
-    "runtime_skip_optimization",
-    "runtime_ela_optimization",
+    "runtime_no_query_optimization",
+    "runtime_query_optimization",
     "time_cost_norm",
     "memory_cost_norm",
-    "u_ela_lamT_0",
-    "u_ela_lamT_025",
-    "u_ela_lamT_05",
-    "u_ela_lamT_2",
-    "need_ela_lamT_0",
-    "need_ela_lamT_025",
-    "need_ela_lamT_05",
-    "need_ela_lamT_2",
+    "u_query_lamT_0",
+    "u_query_lamT_025",
+    "u_query_lamT_05",
+    "u_query_lamT_2",
+    "need_query_lamT_0",
+    "need_query_lamT_025",
+    "need_query_lamT_05",
+    "need_query_lamT_2",
 }
 FORBIDDEN_X_NAME_FRAGMENTS = (
-    "ela",
+    "query",
     "function",
     "algorithm",
     "selected",
@@ -80,6 +94,7 @@ EPS = 1e-12
 
 def check_training_pipeline_contract(
     *,
+    query_id: str,
     dataset_path: Path,
     schema_path: Path,
     output_dir: Path,
@@ -88,6 +103,9 @@ def check_training_pipeline_contract(
     _check_output_paths(output_dir, overwrite)
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    spec = get_query_spec(query_id)
+    if schema.get("query_id") != query_id or schema.get("query_protocol") != spec.protocol:
+        raise ValueError("Decision schema does not match the requested query protocol")
 
     input_columns = _input_columns(schema)
     _check_columns(dataset, schema, input_columns)
@@ -240,6 +258,14 @@ def _check_splits(train: pd.DataFrame, validation: pd.DataFrame) -> None:
         raise ValueError(f"missing train split rows: {TRAIN_SPLIT}")
     if validation.empty:
         raise ValueError(f"missing validation split rows: {VALIDATION_SPLIT}")
+    for name, frame in ((TRAIN_SPLIT, train), (VALIDATION_SPLIT, validation)):
+        if not (frame["prefix_algorithm"].astype(str) == frame["default_algorithm"].astype(str)).all():
+            raise ValueError(f"{name} must use the train-derived SBS as both prefix and default")
+        if frame["skip_switches_from_prefix"].astype(bool).any():
+            raise ValueError(f"{name} must not switch algorithms on the no-query path")
+        invalid_no_action = frame["selected_equals_prefix"].astype(bool) & (frame[TARGET_COLUMN].astype(float) > 0.0)
+        if invalid_no_action.any():
+            raise ValueError(f"{name} contains positive utility without an optimizer action change")
 
 
 def _x_legality_summary(input_columns: list[str]) -> pd.DataFrame:
@@ -499,16 +525,19 @@ def _float_or_none(value: Any) -> float | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check Decision Model training pipeline preprocessing contract without model training.")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA_PATH)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
+    parser.add_argument("--dataset", type=Path, default=None)
+    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    materialized = Path("results/decision") / args.query_id / "materialized_training_data"
     check_training_pipeline_contract(
-        dataset_path=args.dataset,
-        schema_path=args.schema,
-        output_dir=args.output_dir,
+        query_id=args.query_id,
+        dataset_path=args.dataset or materialized / "decision_dataset.parquet",
+        schema_path=args.schema or materialized / "decision_dataset_schema.json",
+        output_dir=args.output_dir or Path("results/decision") / args.query_id / "training_pipeline_contract_check",
         overwrite=args.overwrite,
     )
 

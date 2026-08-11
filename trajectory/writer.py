@@ -20,6 +20,7 @@ TRAJECTORY_SCHEMA = pa.schema(
         ("population", pa.list_(pa.list_(pa.float64()))),
         ("fitness", pa.list_(pa.float64())),
         ("best_fitness", pa.float64()),
+        ("optimizer_state_mode", pa.string()),
     ]
 )
 
@@ -32,4 +33,3 @@ def write_parquet(records: list[TrajectoryRecord], output_path: str | Path) -> P
     table = pa.Table.from_pylist([record.__dict__ for record in records], schema=TRAJECTORY_SCHEMA)
     pq.write_table(table, path)
     return path
-

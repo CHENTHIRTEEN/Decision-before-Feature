@@ -1,5 +1,7 @@
 # Decision-before-Feature 实验数据生成与算法无关行为建模设计
 
+> 实现同步（2026-08-11）：旧 72 个 BBOB trajectory/behavior shards 由重建式 continuation 与 identity-dependent behavior 生成，已撤回。完整状态与三档 query 一致性检查通过后，仍须从 trajectory 开始全量重生成；本轮修订未启动该重生成。
+
 ## 1. 文档定位
 
 本文档补充 Decision-before-Feature 框架中的数据生成部分。
@@ -63,12 +65,12 @@ Offline trajectory collection + supervised decision learning。
 
 Decision模型需要预测：
 
-$$ U_{ELA} $$
+$$ U_{query} $$
 
 该值需要比较：
 
--   Skip ELA
--   Run ELA
+-   No-query
+-   Run Query
 
 因此必须事后计算。
 
@@ -95,7 +97,7 @@ $$ U_{ELA} $$
 最终性能提升无法区分来自：
 
 -   控制器
--   ELA
+-   固定 query
 -   算法变化
 -   随机因素
 
@@ -113,7 +115,7 @@ $$ U_{ELA} $$
 
 学习：
 
-> 搜索行为是否包含足够信息判断ELA价值。
+> 搜索行为是否包含足够信息判断所评估固定 query 的价值。
 
 因此采集：
 
@@ -209,7 +211,8 @@ $$ D_t $$
 包括：
 
 -   variance
--   centroid movement
+-   centroid shift
+-   covariance spectral concentration
 
 ------------------------------------------------------------------------
 
@@ -222,8 +225,14 @@ $$ D_t $$
 ### Exploration
 
 -   diversity change
--   movement range
--   entropy
+-   population Wasserstein change rate
+-   centroid shift coherence
+
+### Fitness distribution
+
+-   quantile improvement fraction
+-   mean distribution improvement rate
+-   fitness Wasserstein rate
 
 ### Exploitation
 
@@ -419,7 +428,13 @@ diversity,
 
 improvement_rate,
 
-entropy,
+population_wasserstein_rate,
+
+centroid_shift_coherence,
+
+covariance_spectral_concentration,
+
+fitness_distribution_change,
 
 distance_decay,
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from math import ceil, log, sqrt
+from math import ceil, sqrt
 from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+from scipy.optimize import linear_sum_assignment
 
 from trajectory.validation import validate_trajectory_file
 
@@ -32,7 +33,7 @@ BASE_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_improvement_frequency_w02",
     "bf_diversity_mean_pairwise",
     "bf_diversity_change_w05",
-    "bf_directional_entropy_w05",
+    "bf_covariance_spectral_concentration",
     "bf_distance_decay_w10",
     "bf_stagnation_w10",
     "bf_convergence_rate_w10",
@@ -41,12 +42,12 @@ BASE_BEHAVIOR_FEATURE_COLUMNS = (
 PRIMARY_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_fitness_diversity",
     "bf_fitness_diversity_rel",
-    "bf_movement_magnitude",
-    "bf_movement_diversity",
-    "bf_direction_consistency_w05",
-    "bf_success_rate_w02",
-    "bf_improvement_variance_w02",
-    "bf_best_improvement_ratio_w02",
+    "bf_population_wasserstein_rate_w05",
+    "bf_centroid_shift_rate_w05",
+    "bf_centroid_shift_coherence_w05",
+    "bf_fitness_quantile_improvement_fraction_w02",
+    "bf_fitness_distribution_improvement_rate_w02",
+    "bf_fitness_wasserstein_rate_w02",
     "bf_elite_concentration",
     "bf_best_fitness_slope_w05",
     "bf_diversity_slope_w05",
@@ -122,12 +123,11 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
             short_anchor = _find_anchor(ordered, index, WINDOW_SHORT)
             medium_anchor = _find_anchor(ordered, index, WINDOW_MEDIUM)
             long_anchor = _find_anchor(ordered, index, WINDOW_LONG)
-            previous_row = ordered[index - 1] if index > 0 else None
 
             metadata = {column: row[column] for column in BEHAVIOR_METADATA_COLUMNS}
             current_ratio = float(row["FE_ratio"])
-            movement = _movement_stats(row, previous_row)
-            short_improvement = _rowwise_improvement_stats(row, short_anchor)
+            population_change = _population_set_change_stats(row, medium_anchor)
+            fitness_change = _fitness_distribution_change_stats(row, short_anchor)
             features = {
                 "bf_fe_ratio": current_ratio,
                 "bf_improvement_rate_w02": _improvement_rate(row, short_anchor),
@@ -137,7 +137,7 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                     stats[index]["diversity"],
                     _anchor_stat(stats, medium_anchor, "diversity"),
                 ),
-                "bf_directional_entropy_w05": _directional_entropy(row, medium_anchor),
+                "bf_covariance_spectral_concentration": stats[index]["covariance_spectral_concentration"],
                 "bf_distance_decay_w10": _relative_decay(
                     stats[index]["distance_to_best"],
                     _anchor_stat(stats, long_anchor, "distance_to_best"),
@@ -151,12 +151,12 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                 ),
                 "bf_fitness_diversity": stats[index]["fitness_diversity"],
                 "bf_fitness_diversity_rel": stats[index]["fitness_diversity_rel"],
-                "bf_movement_magnitude": movement["magnitude"],
-                "bf_movement_diversity": movement["diversity"],
-                "bf_direction_consistency_w05": _direction_consistency(row, medium_anchor),
-                "bf_success_rate_w02": short_improvement["success_rate"],
-                "bf_improvement_variance_w02": short_improvement["variance"],
-                "bf_best_improvement_ratio_w02": short_improvement["best_ratio"],
+                "bf_population_wasserstein_rate_w05": population_change["wasserstein_rate"],
+                "bf_centroid_shift_rate_w05": population_change["centroid_shift_rate"],
+                "bf_centroid_shift_coherence_w05": population_change["centroid_shift_coherence"],
+                "bf_fitness_quantile_improvement_fraction_w02": fitness_change["quantile_improvement_fraction"],
+                "bf_fitness_distribution_improvement_rate_w02": fitness_change["distribution_improvement_rate"],
+                "bf_fitness_wasserstein_rate_w02": fitness_change["wasserstein_rate"],
                 "bf_elite_concentration": _elite_concentration(row, stats[index]["diversity"]),
                 "bf_best_fitness_slope_w05": _window_slope(ordered, stats, index, medium_anchor, "best_fitness"),
                 "bf_diversity_slope_w05": _window_slope(ordered, stats, index, medium_anchor, "diversity"),
@@ -189,23 +189,35 @@ def _checkpoint_stats(row: dict) -> dict[str, float]:
         "distance_to_best": _mean_distance_to_population_best(population, fitness, dimension),
         "fitness_diversity": _fitness_diversity(fitness),
         "fitness_diversity_rel": _relative_fitness_diversity(fitness),
+        "covariance_spectral_concentration": _covariance_spectral_concentration(population),
     }
 
 
 def _population(row: dict) -> np.ndarray:
+    population, _ = _checkpoint_arrays(row)
+    return population
+
+
+def _fitness(row: dict) -> np.ndarray:
+    _, fitness = _checkpoint_arrays(row)
+    return fitness
+
+
+def _checkpoint_arrays(row: dict) -> tuple[np.ndarray, np.ndarray]:
     population = np.asarray(row["population"], dtype=float)
     if population.ndim != 2:
         raise ValueError("population must be two-dimensional")
     if population.shape[1] != int(row["dimension"]):
         raise ValueError("population width must match dimension")
-    return population
-
-
-def _fitness(row: dict) -> np.ndarray:
     fitness = np.asarray(row["fitness"], dtype=float).reshape(-1)
-    if fitness.shape[0] != len(row["population"]):
+    if fitness.shape[0] != population.shape[0]:
         raise ValueError("fitness length must match population rows")
-    return fitness
+    # Stabilize floating-point reductions under row permutations without defining
+    # any correspondence between individuals at different checkpoints.
+    sort_keys = [fitness]
+    sort_keys.extend(population[:, axis] for axis in reversed(range(population.shape[1])))
+    order = np.lexsort(tuple(sort_keys))
+    return population[order], fitness[order]
 
 
 def _mean_pairwise_distance(population: np.ndarray, dimension: int) -> float:
@@ -294,82 +306,80 @@ def _anchor_stats(stats: list[dict[str, float]], anchor: dict | None) -> dict[st
     return stats[anchor["_behavior_index"]]
 
 
-def _directional_entropy(current: dict, anchor: dict | None) -> float | None:
+def _population_set_change_stats(current: dict, anchor: dict | None) -> dict[str, float | None]:
+    missing = {
+        "wasserstein_rate": None,
+        "centroid_shift_rate": None,
+        "centroid_shift_coherence": None,
+    }
     if anchor is None:
-        return None
+        return missing
     current_population = _population(current)
     anchor_population = _population(anchor)
-    if current_population.shape != anchor_population.shape:
-        return None
+    if current_population.shape != anchor_population.shape or current_population.shape[0] == 0:
+        return missing
+    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    if ratio_delta <= 0.0:
+        return missing
 
-    displacement = current_population - anchor_population
-    norms = np.linalg.norm(displacement, axis=1)
-    valid = norms > EPS
-    if not np.any(valid):
-        return None
-
-    mean_displacement = np.mean(displacement[valid], axis=0)
-    mean_norm = float(np.linalg.norm(mean_displacement))
-    if mean_norm <= EPS:
-        return None
-
-    cosines = np.clip(displacement[valid] @ mean_displacement / (norms[valid] * mean_norm), -1.0, 1.0)
-    counts = np.zeros(5, dtype=float)
-    counts[0] = float(np.sum(cosines < -0.5))
-    counts[1] = float(np.sum((cosines >= -0.5) & (cosines < 0.0)))
-    counts[2] = float(np.sum((cosines >= 0.0) & (cosines < 0.5)))
-    counts[3] = float(np.sum(cosines >= 0.5))
-    probabilities = counts[counts > 0.0] / float(np.sum(counts))
-    if probabilities.size == 0:
-        return None
-    return float(-np.sum(probabilities * np.log(probabilities)) / log(5.0))
-
-
-def _direction_consistency(current: dict, anchor: dict | None) -> float | None:
-    if anchor is None:
-        return None
-    current_population = _population(current)
-    anchor_population = _population(anchor)
-    if current_population.shape != anchor_population.shape:
-        return None
-
-    displacement = current_population - anchor_population
-    norms = np.linalg.norm(displacement, axis=1)
-    valid = norms > EPS
-    if not np.any(valid):
-        return None
-    unit_vectors = displacement[valid] / norms[valid, None]
-    return _clip_unit(float(np.linalg.norm(np.mean(unit_vectors, axis=0))))
-
-
-def _movement_stats(current: dict, previous: dict | None) -> dict[str, float | None]:
-    if previous is None:
-        return {"magnitude": 0.0, "diversity": 0.0}
-    current_population = _population(current)
-    previous_population = _population(previous)
-    if current_population.shape != previous_population.shape:
-        return {"magnitude": None, "diversity": None}
     dimension = int(current["dimension"])
-    distances = np.linalg.norm(current_population - previous_population, axis=1) / sqrt(dimension)
-    return {"magnitude": float(np.mean(distances)), "diversity": float(np.std(distances))}
+    pairwise_distances = (
+        np.linalg.norm(anchor_population[:, None, :] - current_population[None, :, :], axis=2) / sqrt(dimension)
+    )
+    anchor_indices, current_indices = linear_sum_assignment(pairwise_distances)
+    wasserstein_distance = float(np.mean(pairwise_distances[anchor_indices, current_indices]))
+    centroid_shift = float(
+        np.linalg.norm(np.mean(current_population, axis=0) - np.mean(anchor_population, axis=0)) / sqrt(dimension)
+    )
+    coherence = 0.0 if wasserstein_distance <= EPS else _clip_unit(centroid_shift / wasserstein_distance)
+    return {
+        "wasserstein_rate": float(wasserstein_distance / ratio_delta),
+        "centroid_shift_rate": float(centroid_shift / ratio_delta),
+        "centroid_shift_coherence": coherence,
+    }
 
 
-def _rowwise_improvement_stats(current: dict, anchor: dict | None) -> dict[str, float | None]:
+def _fitness_distribution_change_stats(current: dict, anchor: dict | None) -> dict[str, float | None]:
+    missing = {
+        "quantile_improvement_fraction": None,
+        "distribution_improvement_rate": None,
+        "wasserstein_rate": None,
+    }
     if anchor is None:
-        return {"success_rate": None, "variance": None, "best_ratio": None}
+        return missing
     current_fitness = _fitness(current)
     anchor_fitness = _fitness(anchor)
-    if current_fitness.shape != anchor_fitness.shape:
-        return {"success_rate": None, "variance": None, "best_ratio": None}
-    threshold = EPS * np.maximum(1.0, np.abs(anchor_fitness))
-    raw_improvements = anchor_fitness - current_fitness
-    improvements = np.maximum(raw_improvements, 0.0)
-    total = float(np.sum(improvements))
+    if current_fitness.shape != anchor_fitness.shape or current_fitness.size == 0:
+        return missing
+    ratio_delta = float(current["FE_ratio"]) - float(anchor["FE_ratio"])
+    if ratio_delta <= 0.0:
+        return missing
+
+    anchor_quantiles = np.sort(anchor_fitness)
+    current_quantiles = np.sort(current_fitness)
+    quantile_improvements = anchor_quantiles - current_quantiles
+    threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
+    scale = max(float(np.mean(np.abs(anchor_quantiles))), EPS)
     return {
-        "success_rate": float(np.mean(raw_improvements > threshold)),
-        "variance": float(np.var(improvements)),
-        "best_ratio": float(np.max(improvements) / total) if total > EPS else 0.0,
+        "quantile_improvement_fraction": float(np.mean(quantile_improvements > threshold)),
+        "distribution_improvement_rate": float(np.mean(quantile_improvements) / scale / ratio_delta),
+        "wasserstein_rate": float(np.mean(np.abs(quantile_improvements)) / scale / ratio_delta),
     }
+
+
+def _covariance_spectral_concentration(population: np.ndarray) -> float:
+    population_size, dimension = population.shape
+    available_rank = min(dimension, population_size - 1)
+    if available_rank <= 1:
+        return 0.0
+    centered = population - np.mean(population, axis=0)
+    eigenvalues = np.maximum(np.linalg.eigvalsh(centered.T @ centered), 0.0)
+    total = float(np.sum(eigenvalues))
+    if total <= EPS:
+        return 0.0
+    herfindahl = float(np.sum(eigenvalues * eigenvalues) / (total * total))
+    concentration = (available_rank * herfindahl - 1.0) / (available_rank - 1.0)
+    return _clip_unit(concentration)
 
 
 def _elite_concentration(current: dict, population_diversity: float) -> float:
@@ -432,13 +442,23 @@ def _best_distance_fitness_corr(current: dict) -> float | None:
 
 def _maturity_features(features: dict[str, float | None]) -> dict[str, float | None]:
     diversity_stabilization = _positive_saturation(_negated(features["bf_diversity_slope_w05"]))
-    entropy_stabilization = _one_minus_unit(features["bf_directional_entropy_w05"])
-    direction_stability = _unit_interval(features["bf_direction_consistency_w05"])
-    exploration_stabilization = _mean_optional(
-        diversity_stabilization,
-        entropy_stabilization,
-        direction_stability,
-    )
+    population_stabilization = _inverse_positive_saturation(features["bf_population_wasserstein_rate_w05"])
+    covariance_structure = _unit_interval(features["bf_covariance_spectral_concentration"])
+    centroid_coherence = _unit_interval(features["bf_centroid_shift_coherence_w05"])
+    if (
+        diversity_stabilization is None
+        or population_stabilization is None
+        or covariance_structure is None
+        or centroid_coherence is None
+    ):
+        exploration_stabilization = None
+    else:
+        exploration_stabilization = _mean_optional(
+            diversity_stabilization,
+            population_stabilization,
+            covariance_structure,
+            centroid_coherence,
+        )
 
     stagnation = _unit_interval(features["bf_stagnation_w10"])
     improvement_saturation = _inverse_positive_saturation(features["bf_improvement_rate_w02"])
@@ -449,10 +469,10 @@ def _maturity_features(features: dict[str, float | None]) -> dict[str, float | N
 
     exploration = _mean_optional(
         _positive_saturation(features["bf_diversity_mean_pairwise"]),
-        _unit_interval(features["bf_directional_entropy_w05"]),
-        _positive_saturation(features["bf_movement_magnitude"]),
+        _one_minus_unit(features["bf_covariance_spectral_concentration"]),
+        _positive_saturation(features["bf_population_wasserstein_rate_w05"]),
     )
-    exploitation = _mean_optional(direction_stability, local_concentration, distance_decay, convergence)
+    exploitation = _mean_optional(centroid_coherence, local_concentration, distance_decay, convergence)
 
     if exploration_stabilization is None or exploitation_saturation is None:
         maturity = None

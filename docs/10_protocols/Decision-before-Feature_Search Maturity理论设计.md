@@ -1,5 +1,7 @@
 # Decision-before-Feature Search Maturity 理论设计
 
+> 实现同步（2026-08-11）：Search Maturity 已改用 permutation-invariant 集合统计。旧 maturity 字段依赖identity-dependent behavior，相关消融与模型结果已失效；新数据重生成前不能评价该公式的预测作用。
+
 ## 1. 研究定位
 
 Search Maturity（搜索成熟度）是 Decision-before-Feature
@@ -32,12 +34,12 @@ Search Maturity（搜索成熟度）是 Decision-before-Feature
        |
        v
 
-    Should Landscape Analysis be performed?
+    Should the evaluated fixed landscape query be performed?
 
 Search Maturity 的目标不是预测优化结果，而是判断：
 
-> 当前优化过程是否已经产生足够的信息，使额外Landscape
-> Analysis具有正向收益。
+> 当前优化过程是否已经产生足够的信息，使所评估固定 query 的
+> $U_{query}$ 大于 0。
 
 ------------------------------------------------------------------------
 
@@ -67,7 +69,7 @@ Search Maturity回答：
 
 但是：
 
-ELA可能没有价值。
+当前固定 query 可能没有价值。
 
 一个复杂多峰问题：
 
@@ -117,11 +119,11 @@ $$ s_t \rightarrow p $$
 
 ## H2
 
-存在一个搜索阶段，使Landscape Analysis收益最大。
+可能存在一个搜索阶段，使当前固定 query 的效用较高。
 
 即：
 
-$$ U_{ELA}(t) $$
+$$ U_{query}(t) $$
 
 不是单调函数。
 
@@ -129,11 +131,11 @@ $$ U_{ELA}(t) $$
 
 ## H3
 
-Search Maturity可以作为ELA决策依据。
+Search Maturity 可以作为固定 query 决策的候选依据。
 
 即：
 
-$$ M_t \rightarrow U_{ELA} $$
+$$ M_t \rightarrow U_{query} $$
 
 ------------------------------------------------------------------------
 
@@ -211,7 +213,7 @@ $$ M_t=f(convergence) $$
 
 因为：
 
-收敛越高不代表越值得ELA。
+收敛越高不代表越值得执行固定 query。
 
 例如：
 
@@ -236,8 +238,30 @@ Search Maturity由两个因素共同决定。
 输入：
 
 -   diversity下降速度
--   entropy变化
--   trajectory稳定性
+-   population Wasserstein变化率的稳定程度
+-   covariance spectral concentration
+-   centroid shift coherence
+
+当前可执行形式令：
+
+$$
+g_+(z)=\frac{\max(z,0)}{1+\max(z,0)},
+\qquad
+g_-(z)=\frac{1}{1+\max(z,0)}.
+$$
+
+则：
+
+$$
+ES_t=\operatorname{mean}\left(
+g_+(-\text{diversity slope}),
+g_-(\text{population Wasserstein rate}),
+\text{covariance spectral concentration},
+\text{centroid shift coherence}
+\right).
+$$
+
+当5%窗口anchor不存在时，$ES_t$ 与由其派生的maturity为缺失值，不使用当前集合形状单独填充时间变化信息。
 
 定义：
 
@@ -261,6 +285,8 @@ $$ ES_t \in [0,1]$$
 -   improvement decay
 -   local concentration
 
+当前 $XS_t$ 仍由stagnation、improvement-rate saturation、distance decay、convergence rate和elite concentration的变换均值构成，不引入算法内部状态。
+
 定义：
 
 $$ XS_t \in [0,1]$$
@@ -276,6 +302,27 @@ $$ XS_t \in [0,1]$$
 定义：
 
 $$ M_t=ES_t(1-XS_t) $$
+
+辅助字段 `bf_explore_exploit_ratio` 使用：
+
+$$
+E_t=\operatorname{mean}\left(
+g_+(\text{diversity}),
+1-\text{covariance spectral concentration},
+g_+(\text{population Wasserstein rate})
+\right),
+$$
+
+$$
+X_t=\operatorname{mean}\left(
+\text{centroid shift coherence},
+g_-(\text{elite concentration}),
+g_+(\text{distance decay}),
+g_+(\text{convergence rate})
+\right),
+\qquad
+R_t=\frac{E_t}{X_t+\epsilon}.
+$$
 
 解释：
 
@@ -344,9 +391,9 @@ z表示潜在成熟状态。
 
 ## 方法C：Supervised Estimation
 
-使用ELA Utility作为监督：
+使用Query Utility作为监督：
 
-$$ g(s_t)\rightarrow U_{ELA} $$
+$$ g(s_t)\rightarrow U_{query} $$
 
 间接获得成熟度。
 
@@ -358,7 +405,7 @@ $$ g(s_t)\rightarrow U_{ELA} $$
 
 ## Experiment 1
 
-Search Maturity与ELA Utility存在关系。
+Search Maturity与Query Utility存在关系。
 
 分析：
 
@@ -401,4 +448,4 @@ Behavior Analysis
 
 和
 
-Landscape Analysis Decision。
+Fixed Landscape Query Decision。
