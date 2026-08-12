@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 from experiments.phase1_batch_common import load_config, selected_dimensions, selected_functions, split_name
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCHEMA_FIELDS
 from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
 
 
@@ -66,6 +67,15 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         raise ValueError("selection reference query identity does not match the requested utility target")
     if str(row.get("sample_design_id")) != spec.sample_design_id:
         raise ValueError("selection reference and query spec use different query-FE budgets")
+    missing_sampling = set(SAMPLING_METADATA_COLUMNS).difference(row)
+    if missing_sampling:
+        raise ValueError(
+            "selection reference is missing dynamic-sampling metadata: "
+            f"{sorted(missing_sampling)}"
+        )
+    actual_fe_ratio = int(row["FE"]) / int(row["FE_total"])
+    if float(row["FE_ratio"]) != actual_fe_ratio:
+        raise ValueError("selection-reference FE_ratio must equal the actual FE / FE_total")
 
     prefix_algorithm = str(row["prefix_algorithm"])
     default_algorithm = str(row["default_algorithm"])
@@ -138,7 +148,8 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "prefix_algorithm": prefix_algorithm,
         "seed": int(row["seed"]),
         "FE": int(row["FE"]),
-        "FE_ratio": float(row["FE_ratio"]),
+        "FE_ratio": float(actual_fe_ratio),
+        **{column: row[column] for column in SAMPLING_METADATA_COLUMNS},
         "query_id": query_id,
         "query_protocol": spec.protocol,
         "query_feature_columns": str(row["query_feature_columns"]),
@@ -204,6 +215,7 @@ def utility_schema() -> pa.Schema:
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
+        *SAMPLING_METADATA_SCHEMA_FIELDS,
         ("query_id", pa.string()),
         ("query_protocol", pa.string()),
         ("query_feature_columns", pa.string()),

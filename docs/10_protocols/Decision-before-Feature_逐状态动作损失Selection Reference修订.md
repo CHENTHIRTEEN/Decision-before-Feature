@@ -17,7 +17,7 @@
 | 对每个共享状态运行全部候选动作 | 增加离线数据生成成本，但仍属于 offline trajectory collection，不是在线 controller 训练 | 接受，作为正式 Selection Reference 标签来源 |
 | 把 `continue current` 加入动作集合 | 与“同算法原生 continuation、跨算法 Population Transfer”完全一致 | 接受；它是 prefix algorithm 的语义动作，不与同名算法动作重复计数 |
 | 预测连续的 \(\widehat L(s_t,a)\) | 保留选错动作的严重程度，比 multiclass label 更适合效用计算 | 接受；实现预测逐状态归一化动作损失 |
-| 将 remaining budget 连续输入模型 | 与固定 checkpoint ratio 不冲突 | 接受；删除 nearest-bucket 选择逻辑 |
+| 将 remaining budget 连续输入模型 | 与冻结动态采样状态不冲突 | 接受；删除 nearest-bucket 选择逻辑 |
 | 将 function ID、dimension、prefix algorithm ID 放入 Decision 输入 | 违反算法无关 Decision 输入边界 | 拒绝；这些字段只作 metadata 和分层报告 |
 | 将 query features 放入 Selection Reference | Selection Reference 是 Query 后的固定 query-specific selector | 接受；query features 不进入 Decision Model |
 | 将算法无关 behavior 放入 Selection Reference | 它描述当前 population、历史和成熟度，且 Query 前已经可得 | 接受，但必须增加 state-only selector 消融，分离 behavior 自身的选择信息 |

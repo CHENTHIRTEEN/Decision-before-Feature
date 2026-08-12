@@ -13,6 +13,7 @@ from behavior.features import (
     extract_behavior_rows,
 )
 from trajectory.validation import validate_trajectory_file
+from trajectory.window_statistics import WINDOW_RATIOS
 
 
 FORBIDDEN_COLUMN_FRAGMENTS = (
@@ -57,6 +58,8 @@ CORRELATION_FEATURE_COLUMNS = (
     "bf_best_distance_fitness_corr",
 )
 
+EPS = 1e-12
+
 
 def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict]) -> dict[str, int]:
     if len(trajectory_rows) != len(behavior_rows):
@@ -82,6 +85,7 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
             raise ValueError("bf_fe_ratio must match FE_ratio")
         if behavior_row["bf_diversity_mean_pairwise"] < 0.0:
             raise ValueError("bf_diversity_mean_pairwise must be non-negative")
+        _check_fitness_iqr_consistency(trajectory_row, behavior_row)
 
         for suffix in ("w02", "w05", "w10"):
             ratio_column = f"effective_window_ratio_{suffix}"
@@ -102,7 +106,7 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
                     abs_tol=1e-15,
                 ):
                     raise ValueError(f"effective {suffix} window ratio must equal FE span / FE_total")
-                nominal = {"w02": 0.02, "w05": 0.05, "w10": 0.10}[suffix]
+                nominal = WINDOW_RATIOS[suffix]
                 population_size = len(trajectory_row["population"])
                 target_fe = int(round(nominal * int(trajectory_row["FE_total"])))
                 if not target_fe <= int(fe) < target_fe + population_size:
@@ -144,6 +148,43 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
                 raise ValueError(f"{column} does not match the current trajectory; regenerate behavior")
 
     return {"rows": len(behavior_rows)}
+
+
+def _check_fitness_iqr_consistency(trajectory_row: dict, behavior_row: dict) -> None:
+    statistics = trajectory_row["window_statistics"]
+    behavior_ratio = float(behavior_row["bf_fitness_diversity_rel"])
+    baselines = []
+    current_iqrs = []
+    ratios = []
+    for item in statistics:
+        baseline = float(item["fitness_iqr_baseline"])
+        current_iqr = float(item["fitness_iqr_current"])
+        ratio = float(item["fitness_iqr_rel"])
+        values = (baseline, current_iqr, ratio)
+        if not all(isfinite(value) for value in values):
+            raise ValueError("fitness IQR window statistics must be finite")
+        if baseline < 0.0 or current_iqr < 0.0 or ratio < 0.0:
+            raise ValueError("fitness IQR window statistics must be non-negative")
+        expected_ratio = current_iqr / max(baseline, EPS)
+        if not isclose(ratio, expected_ratio, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError("fitness_iqr_rel must equal current IQR / initialization IQR")
+        baselines.append(baseline)
+        current_iqrs.append(current_iqr)
+        ratios.append(ratio)
+
+    for values, name in (
+        (baselines, "fitness_iqr_baseline"),
+        (current_iqrs, "fitness_iqr_current"),
+        (ratios, "fitness_iqr_rel"),
+    ):
+        if not all(isclose(value, values[0], rel_tol=1e-12, abs_tol=1e-12) for value in values[1:]):
+            raise ValueError(f"{name} must be identical across w02/w05/w10")
+    if not isclose(behavior_ratio, ratios[0], rel_tol=1e-12, abs_tol=1e-12):
+        raise ValueError("bf_fitness_diversity_rel must equal trajectory fitness_iqr_rel")
+
+    history_ratio = float(trajectory_row["native_update_history"][-1]["fitness_iqr_rel"])
+    if not isclose(behavior_ratio, history_ratio, rel_tol=1e-12, abs_tol=1e-12):
+        raise ValueError("bf_fitness_diversity_rel must equal the current native-update IQR ratio")
 
 
 def validate_behavior_file(input_path: str | Path, output_path: str | Path) -> dict[str, int]:

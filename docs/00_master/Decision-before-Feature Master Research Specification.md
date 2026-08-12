@@ -516,19 +516,19 @@ Function-family split。
 
 ---
 
-# 12. Checkpoint Protocol
+# 12. Dynamic State Sampling Protocol
 
 禁止：
 
 固定100 FE。
 
-采用：
+采用冻结协议 `phase1_dynamic_budget_event_v1`。候选监测网格为 `0.20–0.60`、步长 `0.01`，必选预算里程碑为：
 
-FE ratio。
+    20%, 22%, 24%, 26%, 28%, 30%, 34%, 38%, 42%, 46%, 50%, 60%
 
-正式 phase1 checkpoint ratios：
+事件状态由 improvement resume、stagnation onset、covariance effective-rank change、elite migration 和 diversity recovery 的冻结阈值触发。每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；若同一 update 跨过的监测点含预算里程碑，则以该里程碑为合并行名义节点，附着事件但不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；若不含里程碑，则以最新跨过的监测点为名义节点。冻结的 `population_size=40` 与 `FE_total=1000D` 保证一次 update 的 ratio 跨度不超过 `0.01`，不会同时跨过两个预算里程碑。每阶段最多 2 个 event-only 状态，event-only 实际 FE-ratio 间隔至少 `0.02`；被 gap/quota 抑制落盘的 crossing 仍推进再武装状态。每个 run 输出 12–18 个状态。
 
-    20%, 25%, 28%, 30%, 35%, 40%, 45%, 50%, 55%, 60%
+`FE_ratio` 必须等于实际 `FE/FE_total`，名义里程碑保存为 `budget_milestone_ratio`。跨表状态键使用整数 `FE`，不使用浮点 ratio。首轮离线样本不由模型分数选择，不做事后样本重加权。阈值 Q10 邻近带只能在模型冻结后作 online 附加复查，且所有比较策略必须共享相同 decision opportunities。
 
 Selection Reference 将扣除 query sampling FE 后的 `remaining_budget_ratio` 作为连续输入，不使用 nearest bucket。
 
@@ -637,25 +637,16 @@ Decision-before-Feature 是否减少无效 query 调用？
 
 # 16. Required Ablations
 
-## A1
+正式 feature-group 消融固定为：
 
-Without Search Maturity
+| 组 | 输入范围 | 字段数 |
+|---|---|---:|
+| T0 | 仅 `bf_fe_ratio`，即 $X=\{FE\_ratio\}$ | 1 |
+| B1 | core permutation-invariant behavior | 19 |
+| B2 | B1 + DynamoRep-lite longitudinal set dynamics | 25 |
+| B3 | B2 + movement/maturity behavior | 31 |
 
-## A2
-
-Without Exploration Features
-
-## A3
-
-Without Exploitation Features
-
-## A4
-
-Algorithm-specific features
-
-验证：
-
-算法无关行为表示优势。
+四组使用相同的 Decision dataset、function-family split、同名模型、train-only preprocessing 与 threshold 过程。`all_candidates` 仅是 B3 的兼容别名，不含 3 个 `diagnostic_only` 字段，也不作为第五个独立组。算法特定参数仍禁止进入 Decision 输入；如需研究算法身份信息，必须另列扩展实验，不能混入本冻结消融。
 
 ---
 

@@ -419,19 +419,19 @@ f_{\mathrm{best}}(t-k)-f_{\mathrm{best}}(t)
 }{k}.
 $$
 
-若目标值尺度差异较大，建议使用相对形式：
+本项目的活动实现使用 shift-invariant 稳健形式：
 
 $$
-IR_t^{\mathrm{rel}}
+IR_t^{\mathrm{IQR}}
 =
 \frac{
 f_{\mathrm{best}}(t-k)-f_{\mathrm{best}}(t)
 }{
-\left|f_{\mathrm{best}}(t-k)\right|+\varepsilon
+\operatorname{IQR}(f_{\mathrm{init}})+\varepsilon
 }.
 $$
 
-改进历史作为行为指标的思想可引用 [R12]；窗口和归一化形式是本文实现选择。
+其中 $f_{\mathrm{init}}$ 是优化器初始化后、任何原生 update 前的已评估 population fitness。改进历史作为行为指标的思想可引用 [R12]；窗口与 IQR 归一化形式是本文实现选择。
 
 ---
 

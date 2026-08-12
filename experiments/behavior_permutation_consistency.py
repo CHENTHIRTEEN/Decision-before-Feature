@@ -13,9 +13,10 @@ from behavior.validation import validate_behavior_rows
 from benchmarks import make_problem
 from optimizers import OptimizerSettings, run_optimizer
 from optimizers.registry import SUPPORTED_ALGORITHMS
+from trajectory.sampling import SAMPLING_PROTOCOL
+from trajectory.window_statistics import WINDOW_RATIOS
 
 
-DEFAULT_CHECKPOINT_RATIOS = (0.20, 0.25, 0.28, 0.30, 0.35, 0.40)
 PERMUTATION_STREAM_CODE = 20260812
 
 
@@ -31,7 +32,7 @@ def check_population_permutation_consistency(
 ) -> list[dict[str, int | str | bool]]:
     settings = OptimizerSettings(
         population_size=population_size,
-        checkpoint_ratios=DEFAULT_CHECKPOINT_RATIOS,
+        sampling_protocol=SAMPLING_PROTOCOL,
     )
     compared_columns = BEHAVIOR_WINDOW_METADATA_COLUMNS + BEHAVIOR_FEATURE_COLUMNS
     summaries = []
@@ -45,7 +46,7 @@ def check_population_permutation_consistency(
             }
         )
         try:
-            records = run_optimizer(
+            run_result = run_optimizer(
                 algorithm=algorithm,
                 problem=problem,
                 seed=seed,
@@ -55,7 +56,7 @@ def check_population_permutation_consistency(
         finally:
             problem.close()
 
-        trajectory_rows = [record.__dict__.copy() for record in records]
+        trajectory_rows = [record.__dict__.copy() for record in run_result.trajectory_records]
         original = extract_behavior_rows([row.copy() for row in trajectory_rows])
         validate_behavior_rows(trajectory_rows, original)
 
@@ -90,12 +91,11 @@ def _assert_strict_native_update_windows(
     algorithm: str,
     population_size: int,
 ) -> None:
-    nominal_ratios = {"w02": 0.02, "w05": 0.05, "w10": 0.10}
     for row in trajectory_rows:
         history_fes = {int(item["FE"]) for item in row["native_update_history"]}
         for statistic in row["window_statistics"]:
             suffix = str(statistic["suffix"])
-            target_span = int(round(nominal_ratios[suffix] * int(row["FE_total"])))
+            target_span = int(round(WINDOW_RATIOS[suffix] * int(row["FE_total"])))
             actual_span = int(row["FE"]) - int(statistic["anchor_FE"])
             if int(statistic["anchor_FE"]) not in history_fes:
                 raise ValueError(f"{algorithm} {suffix} anchor is not a recorded native update")
@@ -130,7 +130,7 @@ def main() -> None:
     parser.add_argument("--dimension", type=int, default=10)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--population-size", type=int, default=40)
-    parser.add_argument("--fe-total", type=int, default=2000)
+    parser.add_argument("--fe-total", type=int, default=4000)
     args = parser.parse_args()
     summaries = check_population_permutation_consistency(
         algorithms=tuple(args.algorithm or SUPPORTED_ALGORITHMS),

@@ -12,9 +12,10 @@ import pyarrow.parquet as pq
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -30,6 +31,7 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
     "query_id",
     "query_protocol",
     "sample_design_id",
@@ -224,8 +226,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 def _input_columns(schema: dict[str, Any]) -> list[str]:
     columns = list(schema.get("input_columns", []))
-    if columns != list(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
+    if columns != list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+        raise ValueError(
+            "schema input_columns must exactly equal SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
+        )
     return columns
 
 
@@ -295,7 +299,7 @@ def _x_legality_summary(input_columns: list[str]) -> pd.DataFrame:
         [
             {
                 "check": "x_columns_equal_behavior_feature_columns",
-                "passed": input_columns == list(BEHAVIOR_FEATURE_COLUMNS),
+                "passed": input_columns == list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
                 "detail": ",".join(input_columns),
             },
             {

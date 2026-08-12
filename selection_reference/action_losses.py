@@ -12,7 +12,13 @@ import pyarrow.parquet as pq
 
 from benchmarks import make_problem
 from benchmarks.core import Problem
-from experiments.phase1_batch_common import algorithms, fe_total_for_dimension, load_config, make_shards
+from experiments.phase1_batch_common import (
+    algorithms,
+    fe_total_for_dimension,
+    load_config,
+    make_shards,
+    require_complete_shard_outputs,
+)
 from landscape_queries.specs import SAMPLE_DESIGN_SPECS, get_sample_design_spec
 from optimizers import (
     NO_QUERY_TRANSFER_EVENT,
@@ -25,11 +31,12 @@ from optimizers import (
 )
 from optimizers.state import OptimizerState
 from selection_reference.common import split_name, train_derived_sbs
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCHEMA_FIELDS
 
 
 EPS = 1e-12
 MIN_LABEL_RATIO = 0.12
-ACTION_LOSS_PROTOCOL = "shared_state_query_budget_native_continue_or_population_transfer_v2"
+ACTION_LOSS_PROTOCOL = "shared_state_query_budget_native_continue_or_population_transfer_v3"
 STATE_KEY_COLUMNS = (
     "split",
     "problem_id",
@@ -74,9 +81,8 @@ def generate_state_action_losses(
     problem_cache: dict[tuple[int, int, int], Problem] = {}
     try:
         for shard in make_shards(config, only_functions, only_dimensions):
+            require_complete_shard_outputs(shard)
             trajectory_path = shard.output_path
-            if not trajectory_path.exists():
-                raise FileNotFoundError(f"missing trajectory shard: {trajectory_path}")
             trajectory_rows = pq.read_table(trajectory_path).to_pylist()
             rows, used_states = _evaluate_shard(
                 split=split,
@@ -214,6 +220,15 @@ def _evaluate_shard(
             if not _eligible_for_action_loss(trajectory_row, config, sample_design.sample_design_id):
                 continue
             fe_total = fe_total_for_dimension(config, dimension)
+            actual_fe_ratio = float(checkpoint_fe / fe_total)
+            if float(trajectory_row["FE_ratio"]) != actual_fe_ratio:
+                raise ValueError("trajectory FE_ratio must equal the actual FE / FE_total")
+            missing_sampling = set(SAMPLING_METADATA_COLUMNS).difference(trajectory_row)
+            if missing_sampling:
+                raise ValueError(
+                    "trajectory row is missing dynamic-sampling metadata: "
+                    f"{sorted(missing_sampling)}"
+                )
             fe_query = sample_design.sample_size(dimension)
             if fe_query != int(round(sample_design.fe_ratio * fe_total)):
                 raise ValueError("query sample budget does not match FE_total")
@@ -255,8 +270,12 @@ def _evaluate_shard(
                 "no_query_algorithm": default_algorithm,
                 "seed": seed,
                 "FE": checkpoint_fe,
-                "FE_ratio": float(trajectory_row["FE_ratio"]),
+                "FE_ratio": actual_fe_ratio,
                 "FE_total": fe_total,
+                **{
+                    column: trajectory_row[column]
+                    for column in SAMPLING_METADATA_COLUMNS
+                },
                 "sample_design_id": sample_design.sample_design_id,
                 "sample_design_protocol": sample_design.protocol,
                 "FE_query": fe_query,
@@ -346,6 +365,7 @@ def _schema() -> pa.Schema:
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
         ("FE_total", pa.int64()),
+        *SAMPLING_METADATA_SCHEMA_FIELDS,
         ("sample_design_id", pa.string()),
         ("sample_design_protocol", pa.string()),
         ("FE_query", pa.int64()),

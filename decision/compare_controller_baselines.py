@@ -12,39 +12,27 @@ import pyarrow.parquet as pq
 
 from decision.model_protocol import ACTIVE_MODEL_NAMES, FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.query_contract import decision_query_root, validate_query_frame
+from decision.sampling_opportunities import (
+    STATE_KEY_COLUMNS,
+    assert_aligned_decision_opportunities,
+    assert_unique_state_keys,
+    with_sampling_opportunity_type,
+)
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
 DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_EXPECTED_SPLIT = "bbob_validation"
 TARGET_COLUMN = "u_query_lamT_1"
-PREDICTION_ALIGNMENT_COLUMNS = (
-    "split",
-    "problem_id",
-    "family",
-    "dimension",
-    "prefix_algorithm",
-    "seed",
-    "FE",
-    "FE_ratio",
-    "default_algorithm",
-    "no_query_algorithm",
-    "selected_algorithm",
-    "selected_action",
-    "selected_equals_default",
-    "selected_equals_prefix",
-    "handoff_required",
-    "handoff_type",
-    "selector_target_transform",
-    TARGET_COLUMN,
-)
 GROUP_LAYERS = {
     "overall": [],
     "selected_equals_default": ["selected_equals_default"],
     "selected_equals_prefix": ["selected_equals_prefix"],
     "handoff_required": ["handoff_required"],
-    "FE_ratio": ["FE_ratio"],
+    "sampling_phase": ["sampling_phase"],
+    "sampling_opportunity_type": ["sampling_opportunity_type"],
     "dimension": ["dimension"],
     "prefix_algorithm": ["prefix_algorithm"],
     "family": ["family"],
@@ -128,6 +116,7 @@ def compare_controller_baselines(
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(predictions)),
+        "decision_opportunity_set": "all accepted dynamic budget-milestone and causal-event rows",
         "policies": sorted(policies["policy_name"].unique().tolist()),
         "outputs": {
             "policy_summary": str(output_dir / "controller_baseline_policy_summary.parquet"),
@@ -144,6 +133,7 @@ def compare_controller_baselines(
             "query_features_used_as_decision_input": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
             "time_only_rows_match_current_controller_rows": True,
+            "all_policies_use_identical_decision_opportunities": True,
         },
         "scope_notes": [
             "The comparison is expressed in the current U_query label space.",
@@ -215,6 +205,7 @@ def _read_predictions(
         "seed",
         "FE",
         "FE_ratio",
+        *SAMPLING_METADATA_COLUMNS,
         "default_algorithm",
         "no_query_algorithm",
         "selected_algorithm",
@@ -246,7 +237,9 @@ def _read_predictions(
         raise ValueError(f"controller baseline comparison expects {expected_split} prediction rows")
     if not np.isfinite(frame[TARGET_COLUMN].to_numpy(dtype=float)).all():
         raise ValueError(f"{TARGET_COLUMN} contains non-finite values")
-    return frame.sort_values(list(PREDICTION_ALIGNMENT_COLUMNS)).reset_index(drop=True)
+    frame = with_sampling_opportunity_type(frame, artifact="controller prediction table")
+    assert_unique_state_keys(frame, artifact="controller prediction table")
+    return frame.sort_values(list(STATE_KEY_COLUMNS)).reset_index(drop=True)
 
 
 def validate_time_only_training_summary(path: Path, query_id: str) -> None:
@@ -257,8 +250,8 @@ def validate_time_only_training_summary(path: Path, query_id: str) -> None:
     spec = get_query_spec(query_id)
     if summary.get("query_id") != query_id or summary.get("query_protocol") != spec.protocol:
         raise ValueError("time-only training summary does not match the requested query protocol")
-    if summary.get("feature_group") != "time_only":
-        raise ValueError("time-only predictions must come from feature_group=time_only")
+    if summary.get("feature_group") != "T0":
+        raise ValueError("time-only predictions must come from the canonical feature_group=T0")
     if list(summary.get("feature_columns", [])) != ["bf_fe_ratio"]:
         raise ValueError("time-only training summary must use only bf_fe_ratio")
     if tuple(summary.get("models_trained", [])) != ACTIVE_MODEL_NAMES:
@@ -268,8 +261,12 @@ def validate_time_only_training_summary(path: Path, query_id: str) -> None:
 
 
 def _check_prediction_alignment(current: pd.DataFrame, time_only: pd.DataFrame) -> None:
-    if len(current) != len(time_only):
-        raise ValueError("current and time-only prediction tables must have identical row counts")
+    assert_aligned_decision_opportunities(
+        current,
+        time_only,
+        reference_artifact="current-controller predictions",
+        candidate_artifact="time-only predictions",
+    )
     string_columns = (
         "split",
         "problem_id",
@@ -293,7 +290,7 @@ def _check_prediction_alignment(current: pd.DataFrame, time_only: pd.DataFrame) 
     for column in boolean_columns:
         if not np.array_equal(current[column].to_numpy(dtype=bool), time_only[column].to_numpy(dtype=bool)):
             raise ValueError(f"current and time-only prediction rows disagree on {column}")
-    for column in ("FE_ratio", TARGET_COLUMN):
+    for column in (TARGET_COLUMN,):
         if not np.allclose(
             current[column].to_numpy(dtype=float),
             time_only[column].to_numpy(dtype=float),
@@ -338,6 +335,8 @@ def _policy_frames(
             "seed",
             "FE",
             "FE_ratio",
+            "sampling_phase",
+            "sampling_opportunity_type",
             "default_algorithm",
             "no_query_algorithm",
             "selected_algorithm",
@@ -394,7 +393,8 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "group": _group_label(group),
         "family": group.get("family"),
         "dimension": group.get("dimension"),
-        "FE_ratio": group.get("FE_ratio"),
+        "sampling_phase": group.get("sampling_phase"),
+        "sampling_opportunity_type": group.get("sampling_opportunity_type"),
         "prefix_algorithm": group.get("prefix_algorithm"),
         "selected_equals_default": group.get("selected_equals_default"),
         "selected_equals_prefix": group.get("selected_equals_prefix"),
@@ -675,9 +675,9 @@ def main() -> None:
     compare_controller_baselines(
         query_id=args.query_id,
         predictions_path=args.predictions
-        or query_root / "feature_group_ablation/primary_with_maturity/validation_predictions.parquet",
+        or query_root / "feature_group_ablation/B3/validation_predictions.parquet",
         time_only_predictions_path=args.time_only_predictions
-        or query_root / "feature_group_ablation/time_only/validation_predictions.parquet",
+        or query_root / "feature_group_ablation/T0/validation_predictions.parquet",
         output_dir=args.output_dir or query_root / "controller_baseline_comparison",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

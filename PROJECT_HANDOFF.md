@@ -22,16 +22,18 @@
 - 全 prefix 标签只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化；
 - No-query 或 Query 分支只有在目标算法不同于 prefix 时才执行一次 population transfer 初始化；
 - 标签显式区分 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `skip_switches_from_prefix`；
-- 在线主协议与 dense decision-check 都使用同一连续状态；
+- 在线主协议使用与离线训练相同的动态输出状态，全部策略共享同一连续状态与 decision opportunities；
 - 真实 BBOB 上的 checkpoint 保存/恢复与不中断运行逐状态完全一致。
 - behavior 的跨 checkpoint 空间变化使用经验 Wasserstein、centroid shift 与集合协方差形状，fitness 变化使用排序后的经验分位数；不保存 individual ID 或 ancestry。
 - trajectory 保存 `FE_total`、完成的 `native_updates`、三个窗口的轻量集合/fitness 统计和最近10%预算内的逐 update 标量历史；w02/w05/w10 anchor 从逐次完整原生 update 中选择，量化误差小于一次 update。behavior 保存实际 `effective_window_ratio_*`、`effective_window_fe_*`、`effective_native_updates_*`，这些窗口测量 metadata 不进入 Decision 输入。
-- `behavior-permutation-check` 已在真实 BBOB 上对四种优化器逐 checkpoint 独立打乱 population 行序，25 个行为特征与9个窗口测量字段保持逐值一致。
-- Selection Reference 协议已升级为 v3：动作集合为 `continue_current` 加其余三个 portfolio algorithms，固定多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，remaining budget 连续输入，train 行使用 function-family cross-fitting；旧静态 bucket classifier 不再生成正式标签。
+- 行为字段合同已冻结为 34 个唯一输出、31 个正式输入和 3 个诊断字段，`T0/B1/B2/B3=1/19/25/31`。`bf_fitness_diversity_rel` 是唯一的相对 IQR 字段，baseline 为优化器初始化后、任何原生 update 前的已评估 population IQR。
+- `behavior-permutation-check` 在真实 BBOB 上对四种优化器逐状态独立打乱 population 行序，冻结行为特征与 9 个窗口测量字段必须保持逐值一致。
+- 主采样协议为 `phase1_dynamic_budget_event_v1`：`0.20–0.60` 步长 `0.01` 的候选监测网格、12 个预算里程碑加状态事件，每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；里程碑合并行不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`，每个 run 输出 12–18 个状态。
+- Selection Reference 当前协议为 `query_specific_statewise_action_loss_regression_v5`：动作集合为 `continue_current` 加其余三个 portfolio algorithms，固定多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，remaining budget 连续输入，train 行使用 function-family cross-fitting；旧静态 bucket classifier 不再生成正式标签。
 - Utility label 增加 `best_observed_algorithm/loss`、`potential_gain_raw` 与 `selector_regret_raw`；handoff 影响和 query sampling FE 均不重复扣除。
 - Selection Reference、Utility、Decision dataset 与在线策略输出统一保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required`、`no_query_algorithm` 和 `handoff_type`；活动分析不再生成 selected-vs-default 字符串分层。
 - 三档 `LandscapeQuerySpec`、共享/独立 LHS 样本边界、隔离 pflacco 1.2.2 提取和 query-generic 数据契约已实现。
-- query-sensitive 的模型比较、阈值、baseline、成本—性能和外部评价命令均要求显式 `--query-id`，并从 query-specific 目录读取；dense decision-check 使用独立输出目录。
+- query-sensitive 的模型比较、阈值、baseline、成本—性能和外部评价命令均要求显式 `--query-id`，并从 query-specific 目录读取；模型冻结后的 Q10 邻近带复查使用独立输出目录。
 - Decision feature-group、baseline 与成本—性能比较已加入 `time_only_controller`：数学输入 `X={FE_ratio}`，实现列仅为逐行等于 `FE_ratio` 的 `bf_fe_ratio`；Time-only 与主 Controller 的预测文件、模型名、逐状态样本和实际推理时间分别核对。
 - Decision Model 活动候选已收敛为 LDA、Logistic Regression 与 Ridge；主选择使用 BBOB-train 嵌套 function-family OOF decision utility，完整 train 的 family-OOF 分数冻结 `oof_utility` 阈值，BBOB-validation 只作冻结评价。连续 Utility RMSE 只对 Ridge 计算。
 - 真实 BBOB 10D 上 cheap/standard 共享样本检查与 broad 52 列提取检查均已通过；40D cheap 距离计算使用等价的低内存 `pdist`/`cKDTree` 路径并通过真实提取检查。
@@ -69,8 +71,16 @@ optimizer seeds: 1 ... 30
 algorithms: de, pso, cmaes, shade
 population_size: 40
 FE_total: 1000 * dimension
-checkpoint_ratios: 0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+sampling_protocol: phase1_dynamic_budget_event_v1
+monitor_grid: 0.20--0.60, step 0.01
+budget_milestones: 0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42, 0.46, 0.50, 0.60
+states_per_run: 12--18
+final_performance: one row per problem_id/algorithm/seed at FE=FE_total
 ```
+
+`final_performance.parquet` 与上述 `0.20–0.60` decision trajectory 分开保存。SBS 只读取完整预算终值表：先按 `problem_id × algorithm` 对全部 seeds 的 `best_fitness` 取算术均值，再在每个 problem 内按越小越好排名，最后按 algorithm 跨 problem 平均排名；平均排名并列时按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。不得从 trajectory 的最后一个 decision state 推导 SBS。
+
+trajectory 与 `final_performance.parquet` 作为同一 shard 输出 pair 发布；覆盖采集期间不得并发运行 behavior extraction、SBS 或其他下游读取。中断后若 pair 为 missing/partial，必须用 `--overwrite` 成对重生成。
 
 正式配置：
 
@@ -89,9 +99,9 @@ Decision dataset：
 
 当前主输入候选：
 
-- `time_only` 只含 `bf_fe_ratio`，是判断 Controller 是否只学习调用阶段的强制 baseline；
-- `primary_with_maturity`，23 个 permutation-invariant 算法无关行为字段；
-- `all_candidates` 含诊断字段，不能作为主输入组；
+- 正式 feature-group 消融只包含 `T0/B1/B2/B3=1/19/25/31`；T0 只含 `bf_fe_ratio`，用于判断 Controller 是否只学习调用阶段；
+- 旧 `primary_with_maturity` 的 23 字段计数只属于本节已撤回结果；当前 `primary_with_maturity` 与 `all_candidates` 都是 B3 的兼容别名，严格等于 31 个正式输入；
+- `all_candidates` 不含 `diagnostic_only` 的 3 个字段，也不是独立的第五个正式消融组；
 - function、dimension、algorithm、query feature 和优化器内部参数不进入模型输入。
 
 统一模型比较的最佳可部署策略：
@@ -171,7 +181,7 @@ preliminary/min_support 的关键归因矩阵与说明文档保存在 `docs/arch
 ## 绝对约束
 
 - 不访问项目目录之外的历史文件。
-- 不改变 function-family split、正式 checkpoint ratios 或等总 FE 预算。
+- 不改变 function-family split、冻结的 `phase1_dynamic_budget_event_v1` 采样参数或等总 FE 预算。
 - 不将 query features、function id、dimension、algorithm id 或优化器内部参数放入 Decision 输入。
 - 不使用测试 benchmark 拟合 preprocessing、模型或 threshold。
 - 不使用 BBOB-validation 选择 Decision 模型或 threshold；活动候选只允许 LDA、Logistic Regression 与 Ridge。
@@ -194,5 +204,5 @@ preliminary/min_support 的关键归因矩阵与说明文档保存在 `docs/arch
 可直接复制的下一步 prompt：
 
 ```text
-请阅读 AGENTS.md、README.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md 与三档 Landscape Query 协议。三档 query 与完整状态一致性检查已通过；现在按正式配置重生成 BBOB train/validation 的 72 个 trajectory shards 与 permutation-invariant behavior。随后生成共享的 `lhs_50d` action losses 和独立的 `lhs_100d` action losses，分别构建 `descriptor_cheap`、`pflacco_standard`、`pflacco_broad` 的 Selector、Utility labels、Decision dataset/model 与 baselines。每档 Selector 必须使用四个唯一动作、多输出 Random Forest、`statewise_minmax_observed_action_loss`，并逐行核对 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `handoff_type`。每档 Decision Model 只比较固定的 LDA、Logistic Regression 与 Ridge，以 BBOB-train 嵌套 function-family OOF decision utility 选择模型，并用完整 BBOB-train family-OOF 分数冻结 `oof_utility` threshold；BBOB-validation 只作评价。每档必须同表报告 `time_only_controller`（`X={FE_ratio}`，实现列仅 `bf_fe_ratio`）与主 Controller，使用同名模型、相同 OOF 过程、held-out family 和外部评价口径。必须逐阶段运行一致性命令并检查 query_id/query_protocol/sample_design_id、FE_query、p_query、runtime_query、Utility 分解和 function-family split，不得混用不同预算或旧 `results/ela` artifact，不得修改 checkpoint ratios、算法池、等总 FE 或 Decision 输入边界。
+请阅读 AGENTS.md、README.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md 与三档 Landscape Query 协议。三档 query 与完整状态一致性检查已通过；现在按 `phase1_dynamic_budget_event_v1` 重生成 BBOB train/validation 的 72 个 trajectory shards 与 permutation-invariant behavior。每个 run 必须包含 12 个里程碑并在冻结事件规则下产生 12–18 个状态；`FE_ratio=FE/FE_total`，状态连接使用整数 `FE`，不用浮点 ratio 作键。随后生成共享的 `lhs_50d` action losses 和独立的 `lhs_100d` action losses，分别构建 `descriptor_cheap`、`pflacco_standard`、`pflacco_broad` 的 Selector、Utility labels、Decision dataset/model 与 baselines。每档 Selector 必须使用四个唯一动作、多输出 Random Forest、`statewise_minmax_observed_action_loss`，并逐行核对 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `handoff_type`。每档 Decision Model 只比较固定的 LDA、Logistic Regression 与 Ridge，以 BBOB-train 嵌套 function-family OOF decision utility 选择模型，并用完整 BBOB-train family-OOF 分数冻结 `oof_utility` threshold；BBOB-validation 只作评价。每档必须同表报告 `time_only_controller`（`X={FE_ratio}`，实现列仅 `bf_fe_ratio`）与主 Controller，使用同名模型、相同 OOF 过程、held-out family 和外部评价口径。必须逐阶段运行一致性命令，检查 sampling metadata、整数 FE 状态键双向覆盖、query_id/query_protocol/sample_design_id、FE_query、p_query、runtime_query、Utility 分解和 function-family split，不得混用不同预算或旧 `results/ela` artifact，不得修改冻结采样参数、算法池、等总 FE 或 Decision 输入边界。
 ```

@@ -148,7 +148,7 @@ $$ p_{query}=0.5 $$
 
 固定 query + ML Selector。
 
-正式实现使用与 Proposed Method 完全相同的逐状态 action-loss regression Selector，只是按预定 checkpoint 总是调用，不使用 Decision Module。不得为该 baseline 单独保留静态 problem classifier 或 nearest bucket。
+正式实现使用与 Proposed Method 完全相同的逐状态 action-loss regression Selector，只是在 `phase1_dynamic_budget_event_v1` 输出的共享 decision opportunities 上总是调用，不使用 Decision Module。不得为该 baseline 单独保留静态 problem classifier、nearest bucket 或不同的决策机会集合。
 
 不包含Decision Module。
 
@@ -164,11 +164,13 @@ Decision-before-Feature。
 
 ## 定义
 
-整个训练集合中平均性能最佳算法。
+SBS 只从 BBOB-train 的完整预算 `final_performance.parquet` 计算。该表与 `0.20–0.60` decision trajectory 分开保存；每个 `problem_id × algorithm × seed` 在 `FE=FE_total` 恰好一行。冻结计算顺序为：
 
-例如：
+1. 对每个 `problem_id × algorithm` 的全部 optimizer seeds 的 `best_fitness` 取算术均值；
+2. 在每个 problem 内按 `best_fitness` 越小越好对四个算法排名，并列使用平均排名；
+3. 对每个 algorithm 跨 problem 计算平均排名，选择平均排名最小者；若最终平均排名并列，按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。
 
-DE/CMA-ES/SHADE中选择一个。
+不得从 trajectory 的最后一个 decision state（最大仅约为 `FE_ratio=0.60`）估计完整预算 SBS，也不得先跨 problem 平均原始 loss。
 
 ### 作用
 
@@ -301,7 +303,7 @@ Always Query天然占优势。
 
 ## 5.4 算法切换后的初始化公平性
 
-所有会在 checkpoint 后调用 selector 的方法：
+所有会在共享动态采样状态后调用 selector 的方法：
 
 - Always Query；
 - Random Analysis 中的 Run Query 分支；
@@ -490,53 +492,9 @@ problem × algorithm
 
 # 11. Ablation Protocol
 
-必须包括：
+正式 feature-group 消融固定为 `T0/B1/B2/B3=1/19/25/31`。T0 是只保留 `FE_ratio` 的 Time-only Controller；B1、B2、B3 依次增加冻结的算法无关行为信息。`all_candidates` 仅是 B3 的兼容代码别名，不含诊断字段，也不增加第五个正式组。
 
-## Ablation A
-
-Time-only Controller：只保留 `FE_ratio`，去除其余Behavior Feature。
-
-验证：
-
-完整行为信息是否提供阶段之外的增量预测价值。
-
-------------------------------------------------------------------------
-
-## Ablation B
-
-去除Search Maturity。
-
-直接：
-
-Behavior → Utility。
-
-验证：
-
-中间状态价值。
-
-------------------------------------------------------------------------
-
-## Ablation C
-
-不同Decision模型。
-
-比较：
-
--   LDA
--   Logistic Regression
--   Ridge
-
-候选只按 BBOB-train nested function-family OOF decision utility 选择；BBOB-validation 不参与选模或 threshold 拟合。连续 Utility RMSE 只对 Ridge 报告。
-
-------------------------------------------------------------------------
-
-## Ablation D
-
-不同Utility定义。
-
-比较：
-
-不同lambda。
+四组必须使用相同 Decision dataset、decision opportunities、function-family split、同名模型、train-only preprocessing、threshold 与评价指标。LDA、Logistic Regression、Ridge 属于固定模型候选比较；不同 $\lambda$ 属于预先定义的效用敏感性分析，二者均不得伪装成额外 feature group。
 
 ------------------------------------------------------------------------
 

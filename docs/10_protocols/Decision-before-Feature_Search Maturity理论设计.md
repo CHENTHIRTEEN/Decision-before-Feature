@@ -250,7 +250,7 @@ g_+(z)=\frac{\max(z,0)}{1+\max(z,0)},
 g_-(z)=\frac{1}{1+\max(z,0)}.
 $$
 
-其中 fitness 相关输入优先使用 shift-invariant 稳健尺度：以初始 checkpoint 的 fitness IQR 作为 baseline，而不是直接用均值或原始标准差。这样可避免目标函数整体平移导致的数值漂移。movement / direction / success 类逐个体量只在可稳定保留身份语义的算法上作为诊断信息；主成熟度只接受 permutation-invariant 的集合级代理量。DynamoRep-lite 中的 `robust_fitness_iqr_rel`、`fitness_spread_slope_w05`、`population_centroid_shift_w05`、`elite_centroid_shift_w05`、`covariance_trace_ratio_w05`、`covariance_effective_rank_w05` 与 `diversity_recovery_w05` 可作为候选补充输入，但仍必须在 budget-normalized checkpoint 层面计算。`bf_best_distance_fitness_corr` 与 `bf_population_overlap_w05` 仅保留为诊断字段，不进入 Search Maturity 主体计算。
+其中 fitness 相关输入使用 shift-invariant 稳健尺度：以优化器初始化后、任何原生 update 前的已评估 population fitness IQR 作为 baseline，而不是以首个输出状态、均值或原始标准差作尺度。`bf_fitness_diversity_rel` 是唯一的当前 IQR 相对初始化 IQR 字段；另一旧字段在文档定义上与其重复，代码却错误地以当前 IQR 自归一化为近常数，现已删除。movement / direction / success 类逐个体量只在可稳定保留身份语义的算法上作为诊断信息；主成熟度只接受 permutation-invariant 的集合级代理量。DynamoRep-lite 其余六项为 `bf_fitness_spread_slope_w05`、`bf_population_centroid_shift_w05`、`bf_elite_centroid_shift_w05`、`bf_covariance_trace_ratio_w05`、`bf_covariance_effective_rank_w05` 与 `bf_diversity_recovery_w05`，并在完整原生 update 历史上按预算归一化窗口计算。`bf_best_distance_fitness_corr` 与 `bf_population_overlap_w05` 仅保留为诊断字段，不进入 Search Maturity 主体计算。
 
 则：
 

@@ -43,6 +43,24 @@ prefix_algorithm
 seed
 FE
 FE_ratio
+sampling_protocol
+sampling_phase
+sampling_triggers
+is_budget_milestone
+budget_milestone_ratio
+is_event_sample
+monitor_target_ratio
+event_index_in_phase
+event_improvement_resume
+event_stagnation_onset
+event_rank_change
+event_elite_migration
+event_diversity_recovery
+event_improvement_resume_metric
+event_stagnation_onset_metric
+event_rank_change_metric
+event_elite_migration_metric
+event_diversity_recovery_metric
 default_algorithm
 no_query_algorithm
 selection_reference_default_algorithm
@@ -59,6 +77,14 @@ no_query_transition_mode
 query_transition_mode
 handoff_type
 ```
+
+跨 trajectory、behavior、action-loss、Selection Reference、Utility label 与 Decision dataset 的状态键固定为：
+
+```text
+(split, problem_id, family, dimension, prefix_algorithm, seed, FE)
+```
+
+`FE` 是整数实际评价数；`FE_ratio=FE/FE_total` 只作 metadata 和允许的阶段特征，不作 join key。`budget_milestone_ratio` 是可缺失的名义里程碑，不得覆盖实际 `FE_ratio`。
 
 主表要求 `prefix_algorithm == default_algorithm == train-derived SBS`。No-query 原生继续该完整状态；Query 选择 prefix 时同样原生继续，选择其他算法时使用一次 population-transfer initialization。全 prefix 数据只能进入独立 cross-probe 稳健性分析。
 
@@ -195,6 +221,8 @@ Selector 可以使用 behavior、当前 query 的固定 feature columns 与连�
 - `p_query != selected_action_loss`；
 - 性能分解、时间成本或布尔标签无法逐行重算；
 - BBOB train/validation 存在 group-level extraction failure；
-- BBOB-train 某个 query feature 整列缺失。
+- BBOB-train 某个 query feature 整列缺失；
+- eligible behavior、action-loss、Selection Reference 与 Utility label 的整数 FE 状态键集合不能双向完全对应；
+- sampling metadata 缺失或 `FE_ratio != FE/FE_total`。
 
 旧 `results/ela/`、旧 ELA 标签名和缺少新协议字段的模型均为撤回结果，不提供别名或兼容读取。

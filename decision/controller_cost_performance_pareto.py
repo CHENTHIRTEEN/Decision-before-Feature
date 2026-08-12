@@ -14,7 +14,14 @@ import pyarrow.parquet as pq
 from decision.compare_controller_baselines import validate_time_only_training_summary
 from decision.model_protocol import FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.query_contract import decision_query_root, validate_query_frame
+from decision.sampling_opportunities import (
+    STATE_KEY_COLUMNS,
+    assert_aligned_decision_opportunities,
+    assert_unique_state_keys,
+    with_sampling_opportunity_type,
+)
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
@@ -22,13 +29,9 @@ DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 TARGET_COLUMN = "u_query_lamT_1"
 EPS = 1e-12
 IDENTITY_COLUMNS = [
-    "split",
-    "problem_id",
-    "family",
-    "dimension",
-    "prefix_algorithm",
-    "seed",
-    "FE",
+    *STATE_KEY_COLUMNS,
+]
+ALIGNMENT_COLUMNS = [
     "FE_ratio",
     "default_algorithm",
     "no_query_algorithm",
@@ -40,13 +43,14 @@ IDENTITY_COLUMNS = [
     "handoff_type",
     "selector_target_transform",
 ]
-PREDICTION_IDENTITY_COLUMNS = [*IDENTITY_COLUMNS]
+PREDICTION_IDENTITY_COLUMNS = [*IDENTITY_COLUMNS, *ALIGNMENT_COLUMNS]
 GROUP_LAYERS = {
     "overall": [],
     "selected_equals_default": ["selected_equals_default"],
     "selected_equals_prefix": ["selected_equals_prefix"],
     "handoff_required": ["handoff_required"],
-    "FE_ratio": ["FE_ratio"],
+    "sampling_phase": ["sampling_phase"],
+    "sampling_opportunity_type": ["sampling_opportunity_type"],
     "dimension": ["dimension"],
     "prefix_algorithm": ["prefix_algorithm"],
     "family": ["family"],
@@ -182,6 +186,7 @@ def run_controller_cost_performance_pareto(
         "random_repetitions": random_repetitions,
         "random_seed": random_seed,
         "rows": int(len(frame)),
+        "decision_opportunity_set": "all accepted dynamic budget-milestone and causal-event rows",
         "outputs": {
             "policy_summary": str(output_dir / "cost_performance_policy_summary.parquet"),
             "pareto_points": str(output_dir / "cost_performance_pareto_points.parquet"),
@@ -200,6 +205,7 @@ def run_controller_cost_performance_pareto(
             "decision_input_uses_query_features": False,
             "function_id_algorithm_id_or_optimizer_internal_parameters_used_as_input": False,
             "time_only_input_is_bf_fe_ratio_only": True,
+            "all_policies_use_identical_decision_opportunities": True,
         },
         "metric_direction": {
             "final_performance_mean": "lower_is_better",
@@ -289,6 +295,8 @@ def _read_validation_labels(utility_root: Path, query_id: str) -> pd.DataFrame:
     validate_query_frame(frame, query_id=query_id, artifact="validation utility labels")
     required = {
         *IDENTITY_COLUMNS,
+        *ALIGNMENT_COLUMNS,
+        *SAMPLING_METADATA_COLUMNS,
         "p_skip",
         "p_query",
         "performance_gain_norm",
@@ -302,6 +310,8 @@ def _read_validation_labels(utility_root: Path, query_id: str) -> pd.DataFrame:
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"validation utility labels missing columns: {missing}")
+    frame = with_sampling_opportunity_type(frame, artifact="validation utility labels")
+    assert_unique_state_keys(frame, artifact="validation utility labels")
     return frame
 
 
@@ -310,14 +320,28 @@ def _read_predictions(path: Path, model_name: str, threshold_mode: str, query_id
         raise FileNotFoundError(path)
     frame = pq.read_table(path).to_pandas()
     validate_query_frame(frame, query_id=query_id, artifact="validation predictions")
-    required = {*PREDICTION_IDENTITY_COLUMNS, "model_name", f"decision_run_query_{threshold_mode}"}
+    required = {
+        *PREDICTION_IDENTITY_COLUMNS,
+        *SAMPLING_METADATA_COLUMNS,
+        "model_name",
+        f"decision_run_query_{threshold_mode}",
+    }
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"validation predictions missing columns: {missing}")
     frame = frame[frame["model_name"] == model_name].copy()
     if frame.empty:
         raise ValueError(f"no validation predictions for model_name={model_name}")
-    return frame[[*PREDICTION_IDENTITY_COLUMNS, f"decision_run_query_{threshold_mode}"]].reset_index(drop=True)
+    frame = with_sampling_opportunity_type(frame, artifact="validation predictions")
+    assert_unique_state_keys(frame, artifact="validation predictions")
+    return frame[
+        [
+            *PREDICTION_IDENTITY_COLUMNS,
+            *SAMPLING_METADATA_COLUMNS,
+            "sampling_opportunity_type",
+            f"decision_run_query_{threshold_mode}",
+        ]
+    ].reset_index(drop=True)
 
 
 def _resolve_prediction_model_name(path: Path, requested_model_name: str) -> str:
@@ -344,7 +368,20 @@ def _prediction_seconds_per_row(path: Path, model_name: str) -> float:
 
 
 def _join_labels_and_predictions(labels: pd.DataFrame, predictions: pd.DataFrame) -> pd.DataFrame:
-    result = labels.merge(predictions, on=IDENTITY_COLUMNS, how="left", validate="one_to_one")
+    assert_aligned_decision_opportunities(
+        labels,
+        predictions,
+        reference_artifact="validation utility labels",
+        candidate_artifact="current-controller predictions",
+    )
+    _check_action_alignment(labels, predictions, "current-controller predictions")
+    decision_columns = [column for column in predictions.columns if column.startswith("decision_run_query_")]
+    result = labels.merge(
+        predictions[[*IDENTITY_COLUMNS, *decision_columns]],
+        on=IDENTITY_COLUMNS,
+        how="left",
+        validate="one_to_one",
+    )
     missing = result.filter(like="decision_run_query_").isna().any(axis=1)
     if bool(missing.any()):
         raise ValueError(f"missing controller predictions for {int(missing.sum())} utility-label rows")
@@ -360,10 +397,17 @@ def _join_time_only_predictions(
 ) -> pd.DataFrame:
     source_column = f"decision_run_query_{threshold_mode}"
     time_only_column = "decision_run_query_time_only"
+    assert_aligned_decision_opportunities(
+        frame,
+        predictions,
+        reference_artifact="validation utility labels",
+        candidate_artifact="time-only predictions",
+    )
+    _check_action_alignment(frame, predictions, "time-only predictions")
     time_only = predictions.rename(columns={source_column: time_only_column})
     result = frame.merge(
-        time_only[[*PREDICTION_IDENTITY_COLUMNS, time_only_column]],
-        on=PREDICTION_IDENTITY_COLUMNS,
+        time_only[[*IDENTITY_COLUMNS, time_only_column]],
+        on=IDENTITY_COLUMNS,
         how="left",
         validate="one_to_one",
     )
@@ -373,6 +417,23 @@ def _join_time_only_predictions(
     if len(result) != len(frame):
         raise ValueError("time-only prediction join changed row count")
     return result
+
+
+def _check_action_alignment(reference: pd.DataFrame, candidate: pd.DataFrame, artifact: str) -> None:
+    left = reference.sort_values(IDENTITY_COLUMNS).reset_index(drop=True)
+    right = candidate.sort_values(IDENTITY_COLUMNS).reset_index(drop=True)
+    for column in ALIGNMENT_COLUMNS:
+        if column == "FE_ratio":
+            equal = np.allclose(
+                left[column].to_numpy(dtype=float),
+                right[column].to_numpy(dtype=float),
+                rtol=0.0,
+                atol=1e-12,
+            )
+        else:
+            equal = np.array_equal(left[column].to_numpy(), right[column].to_numpy())
+        if not equal:
+            raise ValueError(f"validation utility labels and {artifact} disagree on {column}")
 
 
 def _policy_rows(
@@ -455,7 +516,8 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "group": _group_label(group),
         "family": group.get("family"),
         "dimension": group.get("dimension"),
-        "FE_ratio": group.get("FE_ratio"),
+        "sampling_phase": group.get("sampling_phase"),
+        "sampling_opportunity_type": group.get("sampling_opportunity_type"),
         "prefix_algorithm": group.get("prefix_algorithm"),
         "selected_equals_default": group.get("selected_equals_default"),
         "selected_equals_prefix": group.get("selected_equals_prefix"),
@@ -878,8 +940,8 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     query_root = decision_query_root(args.query_id)
-    feature_group_root = query_root / "feature_group_ablation/primary_with_maturity"
-    time_only_root = query_root / "feature_group_ablation/time_only"
+    feature_group_root = query_root / "feature_group_ablation/B3"
+    time_only_root = query_root / "feature_group_ablation/T0"
     run_controller_cost_performance_pareto(
         query_id=args.query_id,
         utility_root=args.utility_root or Path("results/utility_labels") / args.query_id,

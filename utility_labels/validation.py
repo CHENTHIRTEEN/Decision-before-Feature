@@ -8,6 +8,13 @@ import pyarrow.parquet as pq
 
 from landscape_queries.specs import get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from trajectory.sampling import (
+    EVENT_NAMES,
+    SAMPLING_METADATA_COLUMNS,
+    SAMPLING_PROTOCOL,
+    is_budget_milestone,
+    sampling_phase,
+)
 from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
 
 
@@ -21,6 +28,12 @@ def validate_utility_label_file(path: str | Path) -> dict[str, int]:
 
 
 def _validate_row(row: dict) -> None:
+    missing_sampling = set(SAMPLING_METADATA_COLUMNS).difference(row)
+    if missing_sampling:
+        raise ValueError(
+            "utility label is missing dynamic-sampling metadata: "
+            f"{sorted(missing_sampling)}"
+        )
     spec = get_query_spec(str(row["query_id"]))
     if str(row["query_protocol"]) != spec.protocol:
         raise ValueError("query_protocol does not match query_id")
@@ -32,6 +45,12 @@ def _validate_row(row: dict) -> None:
         raise ValueError("selector_target_transform does not match the frozen target transform")
     if int(row["FE_prefix"]) + int(row["FE_no_query_optimization"]) != int(row["FE_total"]):
         raise ValueError("no-query FE ledger is inconsistent")
+    if int(row["FE_prefix"]) != int(row["FE"]):
+        raise ValueError("FE_prefix must equal the sampled trajectory FE")
+    actual_fe_ratio = int(row["FE"]) / int(row["FE_total"])
+    if float(row["FE_ratio"]) != actual_fe_ratio:
+        raise ValueError("utility-label FE_ratio must equal the actual FE / FE_total")
+    _validate_sampling_metadata(row, actual_fe_ratio=actual_fe_ratio)
     if (
         int(row["FE_prefix"])
         + int(row["FE_query"])
@@ -131,6 +150,37 @@ def _validate_row(row: dict) -> None:
             raise ValueError(f"{utility_column} is inconsistent")
         if bool(row[need_column]) != (expected_utility > 0.0):
             raise ValueError(f"{need_column} must equal {utility_column} > 0")
+
+
+def _validate_sampling_metadata(row: dict, *, actual_fe_ratio: float) -> None:
+    if str(row["sampling_protocol"]) != SAMPLING_PROTOCOL:
+        raise ValueError("utility-label sampling_protocol is inconsistent")
+    target = float(row["monitor_target_ratio"])
+    if actual_fe_ratio + 1e-12 < target:
+        raise ValueError("utility-label sample FE precedes monitor_target_ratio")
+    if str(row["sampling_phase"]) != sampling_phase(target):
+        raise ValueError("utility-label sampling_phase is inconsistent")
+    milestone = bool(row["is_budget_milestone"])
+    if milestone != is_budget_milestone(target):
+        raise ValueError("utility-label budget milestone flag is inconsistent")
+    milestone_ratio = row["budget_milestone_ratio"]
+    if milestone:
+        if milestone_ratio is None or float(milestone_ratio) != target:
+            raise ValueError("utility-label budget_milestone_ratio is inconsistent")
+    elif milestone_ratio is not None:
+        raise ValueError("event-only utility labels must not define budget_milestone_ratio")
+    flags = {name: bool(row[f"event_{name}"]) for name in EVENT_NAMES}
+    if bool(row["is_event_sample"]) != any(flags.values()):
+        raise ValueError("utility-label is_event_sample is inconsistent")
+    expected_triggers = ["budget_milestone"] if milestone else []
+    expected_triggers.extend(name for name in EVENT_NAMES if flags[name])
+    if list(row["sampling_triggers"]) != expected_triggers:
+        raise ValueError("utility-label sampling_triggers are inconsistent")
+    event_index = row["event_index_in_phase"]
+    if milestone and event_index is not None:
+        raise ValueError("budget milestones must not consume the event-only quota")
+    if not milestone and event_index is None:
+        raise ValueError("event-only utility labels must define event_index_in_phase")
 
 
 def main() -> None:

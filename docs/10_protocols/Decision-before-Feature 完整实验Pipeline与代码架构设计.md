@@ -238,7 +238,7 @@ Optimizer:
 
 ## 4.2 输出
 
-每个checkpoint保存：
+每个动态采样状态保存：
 
     {
     problem_id,
@@ -259,6 +259,24 @@ Optimizer:
 
     native_updates,
 
+    sampling_protocol,
+
+    sampling_phase,
+
+    sampling_triggers,
+
+    is_budget_milestone,
+
+    budget_milestone_ratio,
+
+    is_event_sample,
+
+    monitor_target_ratio,
+
+    event_index_in_phase,
+
+    event_* flags and metrics,
+
 
     population,
 
@@ -271,20 +289,30 @@ Optimizer:
 
 ------------------------------------------------------------------------
 
-# 5. Checkpoint策略
+# 5. 动态状态采样策略
 
 禁止：
 
 固定100 FE。
 
-采用：
+正式 phase1 冻结为 `phase1_dynamic_budget_event_v1`：
 
-FE ratio。
+    monitor grid: 0.20--0.60, step 0.01
+    budget milestones:
+      0.20, 0.22, 0.24, 0.26, 0.28,
+      0.30, 0.34, 0.38, 0.42, 0.46,
+      0.50, 0.60
+    event-only cap: 2 per early/mid/late phase
+    event-only minimum actual FE-ratio gap: 0.02
+    states per run: 12--18
 
-正式 phase1：
+事件使用 improvement resume、stagnation onset、effective-rank change、elite migration 和 diversity recovery 的冻结阈值与再武装规则。每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；跨过的监测点含里程碑时，以该里程碑为合并行名义节点且不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；不含里程碑时，以最新跨过的监测点为名义节点。冻结的 `population_size=40` 与 `FE_total=1000D` 保证一次 update 不会同时跨过两个预算里程碑。被 gap/quota 抑制落盘的 crossing 仍推进再武装状态。同一完整 update 上的里程碑与多事件只输出一行。`FE_ratio=FE/FE_total`，名义里程碑单独写入 `budget_milestone_ratio`。
 
-    0.20, 0.25, 0.28, 0.30, 0.35,
-    0.40, 0.45, 0.50, 0.55, 0.60
+整数状态键冻结为 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`。浮点 `FE_ratio` 只作 metadata/模型阶段输入，不用作 join key。首轮离线采样不使用模型分数，且正式 estimator/threshold 的每行 `sample_weight=1`。模型冻结后的 Q10 阈值邻近带只用于 online 附加复查，所有策略共享同一附加机会集合。
+
+每次完整 optimizer run 还必须在同 shard 目录输出独立的 `final_performance.parquet`：每个 `problem_id × algorithm × seed` 仅有 `FE=FE_total` 的一行。该终值表与 decision trajectory 隔离，不进入 behavior extraction。训练集 SBS 只从该表计算，顺序固定为“每 problem/algorithm 对全部 seeds 取 `best_fitness` 算术均值 → 每 problem 内排名 → 每 algorithm 跨 problem 平均排名”；最终平均排名并列时按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。
+
+同一 shard 的 trajectory 与 `final_performance.parquet` 必须成对发布。覆盖采集期间不得并发启动 behavior extraction、SBS 或其他下游读取；中断留下的 missing/partial pair 必须成对重生成，不得补写单个文件。
 
 ------------------------------------------------------------------------
 

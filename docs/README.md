@@ -56,13 +56,21 @@
 
 ```text
 BBOB train/validation dimensions: 10, 20, 40
-checkpoint ratios: 0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+sampling protocol: phase1_dynamic_budget_event_v1
+monitor grid: 0.20--0.60, step 0.01
+budget milestones: 0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42, 0.46, 0.50, 0.60
+states per run: 12--18
+final performance: separate final_performance.parquet, one FE=FE_total row per problem_id/algorithm/seed
+behavior columns: 34 outputs / 31 formal inputs / 3 diagnostic-only
+feature groups: T0/B1/B2/B3 = 1/19/25/31
 target: u_query_lamT_1
 algorithm switch: population transfer
 Selection Reference: statewise action-loss regression with continuous remaining budget
 query sample reuse as optimizer population: false
 Decision X: algorithm-agnostic behavior only
 ```
+
+SBS 只从 BBOB-train 的完整预算终值表计算：先对每个 `problem_id × algorithm` 的全部 seeds 取 `best_fitness` 算术均值，再逐 problem 排名，最后跨 problem 平均排名；并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。`0.20–0.60` decision trajectory 不提供 SBS 终值；`all_candidates` 只是 B3 的兼容别名，不含诊断字段，也不增加正式消融组。
 
 ## 20_extensions
 

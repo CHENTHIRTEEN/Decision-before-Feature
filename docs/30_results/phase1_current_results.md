@@ -26,7 +26,7 @@
 | `U_ELA > 0` rows | 11,921 | 3,745 |
 | `U_ELA > 0` rate | 6.1322% | 5.7793% |
 
-旧模型曾使用 `primary_with_maturity` 的 23 个 `bf_*` 行为字段，但其中 7 个字段依赖跨 checkpoint 的行号对应关系，现已退出活动列契约。新实现仍保留 23 个主输入字段，但全部跨窗口计算改为 permutation-invariant 的种群或 fitness 分布统计；本页模型数值不得迁移到新列契约下解释。
+旧模型曾使用 `primary_with_maturity` 的 23 个 `bf_*` 行为字段，但其中 7 个字段依赖跨 checkpoint 的行号对应关系，现已退出活动列契约。当前实现的列契约为 34 个唯一输出、31 个正式输入与 3 个诊断字段，`T0/B1/B2/B3=1/19/25/31`；本页旧 23 字段模型数值不得迁移到当前列契约下解释。
 
 ## 3. 已撤回的模型比较记录
 
@@ -68,7 +68,7 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 - 9-field base 行为组的模型结论弱于扩展算法无关行为组；
 - `primary_with_maturity` 在 train-derived threshold 下明显改善 Ridge 决策效用；
-- `all_candidates` 含诊断字段，不得直接替代主输入组；
+- `all_candidates` 是当前 B3 的兼容别名，严格等于 31 个正式输入且不含 3 个诊断字段；它不是独立的第五个正式消融组；
 - `bf_best_distance_fitness_corr` 仍按近似 landscape proxy 的诊断字段处理，不作为主模型证据。
 
 ## 5. Baseline 与成本—性能结果的使用边界
@@ -87,12 +87,12 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 ## 6. 外部评价状态
 
-CEC2017 正式配置已经冻结：29 个函数、10D/30D/50D、30 seeds、等总 FE 预算和训练同口径 checkpoint ratios。
+CEC2017 正式配置已经冻结：29 个函数、10D/30D/50D、30 seeds、等总 FE 预算和训练同口径 `phase1_dynamic_budget_event_v1` 采样协议。
 
 当前已有的在线 CEC2017 结果只用于以下检查：
 
 - online score 分布；
-- main 与 dense decision-check frequency 的差异；
+- 旧 main 与 dense decision-check frequency 的差异（仅作已撤回历史记录，不是当前动态采样比较）；
 - zero 与 train-derived threshold 的触发差异；
 - 少量 function/dimension 对上的 targeted opportunity 诊断。
 

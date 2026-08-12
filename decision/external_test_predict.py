@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from decision.model_protocol import (
     FROZEN_THRESHOLD_MODE,
     SELECTED_MODEL_ALIAS,
@@ -144,8 +144,10 @@ def _feature_columns(training_summary: dict[str, Any]) -> list[str]:
     columns = [str(column) for column in training_summary.get("feature_columns", [])]
     if not columns:
         raise ValueError("training summary does not define feature_columns")
-    if not set(columns).issubset(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("training feature columns must be a subset of BEHAVIOR_FEATURE_COLUMNS")
+    if not set(columns).issubset(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+        raise ValueError(
+            "training feature columns must be a subset of SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
+        )
     forbidden = [
         column for column in columns if any(fragment in column.lower() for fragment in FORBIDDEN_INPUT_NAME_FRAGMENTS)
     ]
@@ -236,7 +238,7 @@ def _input_contract(feature_columns: list[str], expected_split: str) -> pd.DataF
         [
             {
                 "check": "x_columns_subset_of_behavior_feature_columns",
-                "passed": set(feature_columns).issubset(BEHAVIOR_FEATURE_COLUMNS),
+                "passed": set(feature_columns).issubset(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
                 "detail": ",".join(feature_columns),
             },
             {
@@ -312,7 +314,7 @@ def main() -> None:
         dataset_path=args.dataset or external_root / "materialized_test_data/decision_dataset.parquet",
         training_summary_path=args.training_summary
         or query_root
-        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json",
+        / "feature_group_ablation/B3/full_decision_model_training_summary.json",
         output_dir=args.output_dir or external_root / "external_test_prediction",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

@@ -1,4 +1,4 @@
-from optimizers.registry import run_optimizer
+from optimizers.registry import OptimizerRunResult, run_optimizer
 from optimizers.settings import OptimizerSettings
 from optimizers.state import (
     CMAESState,
@@ -17,6 +17,7 @@ __all__ = [
     "CMAESState",
     "DEState",
     "NO_QUERY_TRANSFER_EVENT",
+    "OptimizerRunResult",
     "OptimizerSettings",
     "PSOState",
     "SHADEState",

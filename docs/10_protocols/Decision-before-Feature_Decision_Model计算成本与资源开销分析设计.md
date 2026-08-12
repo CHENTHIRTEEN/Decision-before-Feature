@@ -94,26 +94,26 @@ decision-check frequency
 
 含义：
 
-- 每个 checkpoint 都是 behavior observation 点；
-- 每个 checkpoint 也是 controller、Random Analysis 和 Always Query 可以触发固定 query 的决策点；
-- Always Query 在当前 sampling protocol 的第一个 checkpoint 后触发；
+- 每个由冻结采样协议输出的 behavior state 都是 observation 点；
+- 每个输出状态也是 controller、Random Analysis 和 Always Query 共享的固定 query 决策机会；
+- Always Query 在当前 sampling protocol 的第一个输出状态后触发；
 - Random Analysis 在每个 decision-check point 独立判断是否触发；
 - controller 在每个 decision-check point 使用 behavior features 预测是否触发。
 
-主在线测评使用训练 / label 同口径 checkpoint ratios：
+主在线测评使用训练 / label 同口径的动态协议：
 
 ```text
-0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+sampling_protocol = phase1_dynamic_budget_event_v1
+monitor_grid = 0.20--0.60, step 0.01
+budget_milestones = 0.20, 0.22, 0.24, 0.26, 0.28,
+                    0.30, 0.34, 0.38, 0.42, 0.46,
+                    0.50, 0.60
+states_per_run = 12--18
 ```
 
-密集采样仅作为敏感性分析：
+同一完整原生 update 上的预算里程碑与多事件合并为一个决策机会。每阶段最多 2 个 event-only 状态，event-only 实际 FE-ratio 间隔至少 `0.02`。所有策略必须使用同一决策机会集合，不得为 controller 单独增加触发点。
 
-```text
-0.20, 0.225, 0.25, 0.275, 0.28, 0.30, 0.325, 0.35, 0.375,
-0.40, 0.425, 0.45, 0.475, 0.50, 0.525, 0.55, 0.575, 0.60
-```
-
-在 query 尚未触发时，密集 checkpoint 只观察同一个连续 optimizer state，不改变同 seed 的原生优化轨迹。密集采样仍只作为决策检查频率敏感性分析，因为额外检查点会改变 controller、Random Analysis 和 Always Query 的触发机会；它不替代主在线测评。
+首轮离线采样不由模型分数决定，每行 `sample_weight=1`。完整 BBOB-train family-OOF 上 `abs(score-threshold)` 的 Q10 邻近带只能在模型与 threshold 冻结后用于 online 附加复查；BBOB-validation 和外部测试不拟合该带宽，且该附加机会必须同时给予所有被比较策略。
 
 ------------------------------------------------------------------------
 

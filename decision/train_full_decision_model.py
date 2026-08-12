@@ -18,7 +18,10 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS, BEHAVIOR_FEATURE_GROUPS
+from behavior.features import (
+    BEHAVIOR_FEATURE_GROUPS,
+    SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+)
 from decision.model_protocol import (
     ACTIVE_MODEL_NAMES,
     FROZEN_THRESHOLD_MODE,
@@ -26,12 +29,14 @@ from decision.model_protocol import (
     INNER_OOF_FOLDS,
     MODEL_SELECTION_METRIC,
     OUTER_OOF_FOLDS,
+    THRESHOLD_NEIGHBORHOOD_QUANTILE,
     DecisionModelSpec,
     active_model_specs,
     decision_scores,
 )
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -47,6 +52,7 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
     "query_id",
     "query_protocol",
     "sample_design_id",
@@ -131,6 +137,10 @@ def train_full_decision_models(
     feature_group: str,
 ) -> dict[str, Any]:
     _check_output_paths(output_dir, overwrite)
+    if feature_group not in {"T0", "B1", "B2", "B3"}:
+        raise ValueError(
+            "formal Decision training outputs must use canonical feature groups T0/B1/B2/B3"
+        )
     dataset = pq.read_table(dataset_path).to_pandas()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     query_spec = get_query_spec(query_id)
@@ -182,6 +192,14 @@ def train_full_decision_models(
             scores=train_oof_scores,
             observed=train[TARGET_COLUMN].to_numpy(dtype=float),
         )
+        threshold_neighborhood_width = float(
+            np.quantile(
+                np.abs(train_oof_scores - frozen_threshold),
+                THRESHOLD_NEIGHBORHOOD_QUANTILE,
+            )
+        )
+        if not np.isfinite(threshold_neighborhood_width) or threshold_neighborhood_width < 0.0:
+            raise RuntimeError("OOF threshold-neighborhood width must be finite and non-negative")
 
         started = perf_counter()
         fitted = _fit_model(clone(spec.estimator), train, feature_columns, spec.objective)
@@ -208,6 +226,22 @@ def train_full_decision_models(
                 "oof_folds": 0 if threshold_mode == "zero" else FULL_TRAIN_OOF_FOLDS,
                 "in_sample_train_rows_used_for_threshold_fit": 0,
                 "validation_rows_used_for_threshold_fit": 0,
+                "threshold_neighborhood_quantile": (
+                    None
+                    if threshold_mode == "zero"
+                    else float(THRESHOLD_NEIGHBORHOOD_QUANTILE)
+                ),
+                "threshold_neighborhood_width": (
+                    None
+                    if threshold_mode == "zero"
+                    else threshold_neighborhood_width
+                ),
+                "threshold_neighborhood_source": (
+                    "not_applicable"
+                    if threshold_mode == "zero"
+                    else "full_train_family_oof_absolute_score_margin"
+                ),
+                "validation_rows_used_for_neighborhood_fit": 0,
             }
             for threshold_mode, threshold in thresholds.items()
         )
@@ -396,6 +430,12 @@ def train_full_decision_models(
             "outer_role": "unbiased_train-side_model_selection_evaluation",
             "inner_role": "outer-fold_threshold_fit",
             "full_train_oof_role": "frozen_threshold_fit_before_validation",
+            "threshold_neighborhood": {
+                "definition": "Q10(abs(full-train family-OOF score - frozen oof_utility threshold))",
+                "quantile": THRESHOLD_NEIGHBORHOOD_QUANTILE,
+                "role": "optional_post-training_online_review_only",
+                "validation_rows_used": 0,
+            },
         },
         "top_k_fractions": list(TOP_K_FRACTIONS),
         "preprocessing_contract": {
@@ -498,8 +538,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
     schema_columns = list(schema.get("input_columns", []))
-    if schema_columns != list(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
+    if schema_columns != list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+        raise ValueError(
+            "schema input_columns must exactly equal SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
+        )
     if feature_group not in BEHAVIOR_FEATURE_GROUPS:
         raise ValueError(f"unknown feature group: {feature_group}")
     columns = list(BEHAVIOR_FEATURE_GROUPS[feature_group])
@@ -517,6 +559,25 @@ def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
     if name_forbidden:
         raise ValueError(f"Decision input contains forbidden name fragments: {name_forbidden}")
     return columns
+
+
+def _validate_formal_feature_groups() -> None:
+    expected_counts = {"T0": 1, "B1": 19, "B2": 25, "B3": 31}
+    previous: tuple[str, ...] = ()
+    groups: list[frozenset[str]] = []
+    for name, expected_count in expected_counts.items():
+        columns = tuple(BEHAVIOR_FEATURE_GROUPS[name])
+        if len(columns) != expected_count or len(set(columns)) != expected_count:
+            raise RuntimeError(f"formal feature group {name} must have {expected_count} unique inputs")
+        if previous and columns[: len(previous)] != previous:
+            raise RuntimeError("formal feature groups T0/B1/B2/B3 must be ordered nested prefixes")
+        groups.append(frozenset(columns))
+        previous = columns
+    if len(set(groups)) != len(groups):
+        raise RuntimeError("formal feature groups T0/B1/B2/B3 must be distinct")
+
+
+_validate_formal_feature_groups()
 
 
 def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
@@ -844,7 +905,7 @@ def _model_input_contract(feature_columns: list[str], train: pd.DataFrame) -> pd
         [
             {
                 "check": "x_columns_subset_of_behavior_feature_columns",
-                "passed": set(feature_columns).issubset(BEHAVIOR_FEATURE_COLUMNS),
+                "passed": set(feature_columns).issubset(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
                 "detail": ",".join(feature_columns),
             },
             {
@@ -944,8 +1005,16 @@ def _layer_metric_summary(
             )
     for dimension, group in frame.groupby("dimension", dropna=False):
         rows.append(row_fn(group, "dimension", {"dimension": int(dimension)}, model_name, model_family))
-    for fe_ratio, group in frame.groupby("FE_ratio", dropna=False):
-        rows.append(row_fn(group, "FE_ratio", {"FE_ratio": float(fe_ratio)}, model_name, model_family))
+    for phase, group in frame.groupby("sampling_phase", dropna=False):
+        rows.append(
+            row_fn(
+                group,
+                "sampling_phase",
+                {"sampling_phase": str(phase)},
+                model_name,
+                model_family,
+            )
+        )
     for prefix_algorithm, group in frame.groupby("prefix_algorithm", dropna=False):
         rows.append(
             row_fn(
@@ -1104,8 +1173,8 @@ def _iter_layers(frame: pd.DataFrame) -> list[tuple[pd.DataFrame, str, dict[str,
             layers.append((group, relation, {relation: bool(relation_value)}))
     for dimension, group in frame.groupby("dimension", dropna=False):
         layers.append((group, "dimension", {"dimension": int(dimension)}))
-    for fe_ratio, group in frame.groupby("FE_ratio", dropna=False):
-        layers.append((group, "FE_ratio", {"FE_ratio": float(fe_ratio)}))
+    for phase, group in frame.groupby("sampling_phase", dropna=False):
+        layers.append((group, "sampling_phase", {"sampling_phase": str(phase)}))
     for prefix_algorithm, group in frame.groupby("prefix_algorithm", dropna=False):
         layers.append((group, "prefix_algorithm", {"prefix_algorithm": str(prefix_algorithm)}))
     return layers
@@ -1130,7 +1199,7 @@ def _common_fields(
         "selected_equals_prefix": group.get("selected_equals_prefix"),
         "handoff_required": group.get("handoff_required"),
         "dimension": group.get("dimension"),
-        "FE_ratio": group.get("FE_ratio"),
+        "sampling_phase": group.get("sampling_phase"),
         "prefix_algorithm": group.get("prefix_algorithm"),
         "rows": int(len(frame)),
         "u_gt_zero_rows": int(np.sum(positive)),
@@ -1425,8 +1494,8 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--feature-group",
-        choices=sorted(BEHAVIOR_FEATURE_GROUPS),
-        default="primary_with_maturity",
+        choices=("T0", "B1", "B2", "B3"),
+        default="B3",
     )
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--overwrite", action="store_true")

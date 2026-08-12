@@ -9,5 +9,5 @@ FE_total_by_dimension:
   40: 40000
 population_size: 40
 algorithms: [de, pso, cmaes, shade]
-checkpoint_ratios: [0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+sampling_protocol: phase1_dynamic_budget_event_v1
 output: results/phase1_refined_sampling/bbob_validation

@@ -4,11 +4,23 @@
 
 ## 1. 文档定位
 
-本文档定义 Decision-before-Feature 框架中的 Decision Model。
+本文档定义 Decision-before-Feature 框架中的 `decision model`。
+
+### 1.1 术语约定
+
+为与 `Behavior Feature Taxonomy` 和 `实验数据生成` 两份协议保持一致，本文统一采用以下术语：
+
+- `search trajectory`：单次优化运行中的状态序列；
+- `behavior state`：从 `search trajectory` 聚合得到的低成本输入表示；
+- `query utility`：固定 query 在当前状态下的效用值，记为 $U_{query}$；
+- `decision model`：基于 `behavior state` 预测 `query utility` 的模型；
+- `decision controller`：输出是否执行 query 的控制器；
+- `online evaluation`：在流式状态接口上进行推理、阈值判定与切换评估；
+- `decision score`：用于 query 决策的连续分数，记为 $s(x)$。
 
 目标：
 
-根据低成本搜索行为状态，在执行固定 query 之前预测：
+根据低成本 `behavior state`，在执行固定 query 之前预测：
 
 $$ U_{query} $$
 
@@ -18,9 +30,17 @@ $$ U_{query} $$
 
 核心：
 
-Decision Model不是优化器，而是：
+`decision model` 不是优化器，而是：
 
-Analysis Selection Controller。
+`decision controller`。
+
+## 1.2 术语对齐规则
+
+- 文中优先使用 `decision model` 指代监督学习组件；
+- 使用 `decision controller` 指代上线后的决策执行模块；
+- 使用 `behavior state` 指代面向模型输入的行为表示；
+- 使用 `search trajectory` 指代行为表示的原始来源；
+- 使用 `online evaluation` 指代部署态评估过程。
 
 ------------------------------------------------------------------------
 
@@ -84,7 +104,7 @@ $$ x_t $$
 
 包括：
 
-其中 fitness 相关输入采用 shift-invariant 稳健尺度，优先使用初始 checkpoint 的 fitness IQR 归一化，而不是均值或原始标准差，避免目标函数整体平移影响特征数值。movement / direction / success 类逐个体特征不作为主输入；若要纳入，只能通过集合层面的 permutation-invariant 代理量进入主模型，identity-aware 版本仅作算法特定诊断对照。DynamoRep-lite 的 `robust_fitness_iqr_rel`、`fitness_spread_slope_w05`、`population_centroid_shift_w05`、`elite_centroid_shift_w05`、`covariance_trace_ratio_w05`、`covariance_effective_rank_w05` 与 `diversity_recovery_w05` 可作为最紧凑的显式扩展候选组；`bf_best_distance_fitness_corr` 与 `bf_population_overlap_w05` 仅保留为 `diagnostic_only`。
+fitness 相关输入采用 shift-invariant 稳健尺度，以优化器初始化后、任何原生 update 前的已评估 population fitness IQR 归一化。`bf_fitness_diversity_rel` 是唯一的当前 IQR 相对初始化 IQR 字段；另一旧字段在文档定义上与其重复，代码却错误地以当前 IQR 自归一化为近常数，现已删除。DynamoRep-lite 的其余 6 项为 fitness-spread slope、population/elite centroid shift、covariance trace ratio、covariance effective rank 与 diversity recovery。当前行为输出/正式输入/诊断字段计数冻结为 34/31/3，`T0/B1/B2/B3=1/19/25/31`；T0 严格只含 `bf_fe_ratio`。
 
 ## Progress
 
@@ -378,13 +398,13 @@ $$
 
 逐行成立。使用 `bf_fe_ratio` 是为了保持活动模型输入来自 `BEHAVIOR_FEATURE_GROUPS`，不表示额外引入行为信息。
 
-`time_only` 必须与 `base`、`primary`、`primary_with_maturity`、`all_candidates` 使用：
+正式 feature-group 消融只比较 `T0/B1/B2/B3`（兼容代码入口分别为 `time_only`、`primary`/对应 B1 入口、`primary_with_dynamorep_lite`、`primary_with_maturity`）。`all_candidates` 严格等于 B3，只是兼容别名，不含诊断字段，也不单列为第五组。四组必须使用：
 
 - 完全相同的 materialized Decision dataset；
 - 完全相同的 BBOB train 与 held-out function-family validation；
 - 完全相同的三个固定模型候选和随机 seed；
 - 完全相同的 nested family-OOF 过程；
-- `primary_with_maturity` 选择出的同名模型；
+- B3 选择出的同名模型；
 - 仅由 train family-OOF 分数拟合的 decision threshold；
 - 完全相同的 Utility prediction、调用率、效用捕获和最终性能指标。
 
@@ -396,51 +416,13 @@ $$
 
 - 若完整行为模型在 held-out families 和外部 benchmark 上没有稳定优于 `time_only`，不能声称搜索行为提供了超出阶段信息的预测价值；
 - 若完整行为模型优于 `time_only`，只能说明所测行为变量提供了阶段之外的增量预测信息，仍需报告配对效应量与区间；
-- 不得依据 validation 上 `time_only` 的结果改变 checkpoint ratios、主 query 或调用预算。
+- 不得依据 validation 上 `time_only` 的结果改变 `phase1_dynamic_budget_event_v1` 采样参数、主 query 或调用预算。
+
+首轮离线 Decision 样本只来自冻结的预算里程碑与状态事件，不由模型分数决定，每行 `sample_weight=1`。冻结模型后的 online 附加复查可使用阈值邻近带，其带宽为完整 BBOB-train family-OOF 上 `abs(score-threshold)` 的第 10 百分位数。BBOB-validation 与外部测试不拟合带宽，controller 与全部 baselines 必须共享同一附加机会集合。
 
 ------------------------------------------------------------------------
 
-## Ablation A
-
-Direct Behavior Model
-
-vs
-
-Maturity-aware Model
-
-验证：
-
-Search Maturity。
-
-------------------------------------------------------------------------
-
-## Ablation B
-
-去除Exploration features
-
-验证：
-
-探索信息贡献。
-
-------------------------------------------------------------------------
-
-## Ablation C
-
-去除Exploitation features
-
-验证：
-
-开发信息贡献。
-
-------------------------------------------------------------------------
-
-## Ablation D
-
-加入Algorithm-specific features
-
-验证：
-
-算法无关设计优势。
+正式结果按 T0、B1、B2、B3 四个嵌套输入组报告，字段数分别为 1、19、25、31。T0 检验阶段信息；B1 到 B3 依次检验冻结行为集合提供的增量信息。`all_candidates` 与 `primary_with_maturity` 均映射到 B3，不重复报告；`diagnostic_only` 与算法特定参数不进入正式模型输入。若后续单独移除某个构念或引入算法身份信息，应作为预先定义的扩展实验，不得替代本冻结四组。
 
 ------------------------------------------------------------------------
 

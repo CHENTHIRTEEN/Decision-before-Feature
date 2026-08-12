@@ -10,9 +10,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import (
+    BEHAVIOR_FEATURE_COLUMNS,
+    DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
+    SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+)
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 DEFAULT_BEHAVIOR_ROOT = Path("results/phase1_refined_sampling")
@@ -38,6 +43,7 @@ METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
     "query_id",
     "query_protocol",
     "sample_design_id",
@@ -61,7 +67,11 @@ METADATA_COLUMNS = (
     "query_transition_mode",
     "handoff_type",
 )
-DATASET_COLUMNS = METADATA_COLUMNS + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN) + BEHAVIOR_FEATURE_COLUMNS
+DATASET_COLUMNS = (
+    METADATA_COLUMNS
+    + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN)
+    + BEHAVIOR_FEATURE_COLUMNS
+)
 FORBIDDEN_INPUT_COLUMNS = {
     "split",
     "problem_id",
@@ -125,6 +135,8 @@ FORBIDDEN_INPUT_COLUMNS = {
     "need_query_lamT_05",
     "need_query_lamT_1",
     "need_query_lamT_2",
+    *SAMPLING_METADATA_COLUMNS,
+    *DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
 }
 FORBIDDEN_INPUT_NAME_FRAGMENTS = (
     "query",
@@ -183,8 +195,36 @@ def materialize_decision_training_data(
     if behavior_duplicates:
         raise ValueError(f"behavior join keys must be unique; duplicate rows: {behavior_duplicates}")
 
+    utility_keys = utility[list(JOIN_KEY_COLUMNS)]
+    behavior_keys = behavior[list(JOIN_KEY_COLUMNS)]
+    utility_to_behavior = utility_keys.merge(
+        behavior_keys,
+        on=list(JOIN_KEY_COLUMNS),
+        how="left",
+        indicator=True,
+    )
+    behavior_to_utility = behavior_keys.merge(
+        utility_keys,
+        on=list(JOIN_KEY_COLUMNS),
+        how="left",
+        indicator=True,
+    )
+    utility_only = int(utility_to_behavior["_merge"].ne("both").sum())
+    behavior_only = int(behavior_to_utility["_merge"].ne("both").sum())
+    if utility_only or behavior_only:
+        raise ValueError(
+            "utility and behavior state-key coverage must be bidirectional; "
+            f"utility_only={utility_only}, behavior_only={behavior_only}"
+        )
+
+    behavior_join_columns = [
+        *JOIN_KEY_COLUMNS,
+        "FE_ratio",
+        *SAMPLING_METADATA_COLUMNS,
+        *BEHAVIOR_FEATURE_COLUMNS,
+    ]
     joined = utility.merge(
-        behavior[list(JOIN_KEY_COLUMNS) + ["FE_ratio", *BEHAVIOR_FEATURE_COLUMNS]],
+        behavior[behavior_join_columns],
         on=list(JOIN_KEY_COLUMNS),
         how="left",
         suffixes=("_utility", "_behavior"),
@@ -200,6 +240,7 @@ def materialize_decision_training_data(
     fe_ratio_mismatch_count = int((fe_ratio_delta > EPS).sum())
     if fe_ratio_mismatch_count:
         raise ValueError(f"FE_ratio mismatch after join for {fe_ratio_mismatch_count} rows")
+    _check_sampling_metadata_match(joined)
 
     cross_probe_dataset = _materialized_dataset(joined)
     _check_targets(cross_probe_dataset)
@@ -338,6 +379,7 @@ def _split_from_path(path: Path, root_marker: str) -> str:
 def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> None:
     utility_required = set(JOIN_KEY_COLUMNS) | {
         "FE_ratio",
+        *SAMPLING_METADATA_COLUMNS,
         "query_id",
         "query_protocol",
         "sample_design_id",
@@ -363,7 +405,11 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         TARGET_COLUMN,
         AUXILIARY_LABEL_COLUMN,
     }
-    behavior_required = set(JOIN_KEY_COLUMNS) | {"FE_ratio", *BEHAVIOR_FEATURE_COLUMNS}
+    behavior_required = set(JOIN_KEY_COLUMNS) | {
+        "FE_ratio",
+        *SAMPLING_METADATA_COLUMNS,
+        *BEHAVIOR_FEATURE_COLUMNS,
+    }
     missing_utility = sorted(utility_required.difference(utility.columns))
     missing_behavior = sorted(behavior_required.difference(behavior.columns))
     if missing_utility:
@@ -373,7 +419,7 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
 
 
 def _check_input_legality() -> None:
-    input_columns = list(BEHAVIOR_FEATURE_COLUMNS)
+    input_columns = list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS)
     exact_forbidden = sorted(set(input_columns).intersection(FORBIDDEN_INPUT_COLUMNS))
     pattern_forbidden = [
         column
@@ -397,6 +443,7 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "seed",
             "FE",
             "FE_ratio_utility",
+            *[f"{column}_utility" for column in SAMPLING_METADATA_COLUMNS],
             "query_id",
             "query_protocol",
             "sample_design_id",
@@ -421,16 +468,55 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "handoff_type",
             TARGET_COLUMN,
             AUXILIARY_LABEL_COLUMN,
-            *[f"{column}_behavior" for column in BEHAVIOR_FEATURE_COLUMNS],
+            *BEHAVIOR_FEATURE_COLUMNS,
         ]
     ].copy()
     dataset = dataset.rename(
         columns={
             "FE_ratio_utility": "FE_ratio",
-            **{f"{column}_behavior": column for column in BEHAVIOR_FEATURE_COLUMNS},
+            **{
+                f"{column}_utility": column
+                for column in SAMPLING_METADATA_COLUMNS
+            },
         }
     )
     return dataset[list(DATASET_COLUMNS)]
+
+
+def _check_sampling_metadata_match(joined: pd.DataFrame) -> None:
+    for column in SAMPLING_METADATA_COLUMNS:
+        left_column = f"{column}_utility"
+        right_column = f"{column}_behavior"
+        mismatches = sum(
+            not _metadata_values_equal(left, right)
+            for left, right in zip(
+                joined[left_column],
+                joined[right_column],
+                strict=True,
+            )
+        )
+        if mismatches:
+            raise ValueError(
+                "sampling metadata mismatch after utility-to-behavior join: "
+                f"{column} ({mismatches} rows)"
+            )
+
+
+def _metadata_values_equal(left: Any, right: Any) -> bool:
+    if _metadata_value_is_null(left) or _metadata_value_is_null(right):
+        return _metadata_value_is_null(left) and _metadata_value_is_null(right)
+    sequence_types = (list, tuple, np.ndarray)
+    if isinstance(left, sequence_types) or isinstance(right, sequence_types):
+        if not isinstance(left, sequence_types) or not isinstance(right, sequence_types):
+            return False
+        return tuple(left) == tuple(right)
+    return bool(left == right)
+
+
+def _metadata_value_is_null(value: Any) -> bool:
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return False
+    return bool(pd.isna(value))
 
 
 def _check_targets(dataset: pd.DataFrame) -> None:
@@ -561,7 +647,7 @@ def _join_summary(
 
 
 def _input_legality_summary() -> pd.DataFrame:
-    input_columns = list(BEHAVIOR_FEATURE_COLUMNS)
+    input_columns = list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS)
     exact_forbidden = sorted(set(input_columns).intersection(FORBIDDEN_INPUT_COLUMNS))
     pattern_forbidden = [
         column
@@ -572,7 +658,7 @@ def _input_legality_summary() -> pd.DataFrame:
         [
             {
                 "check": "input_columns_equal_behavior_feature_columns",
-                "passed": input_columns == list(BEHAVIOR_FEATURE_COLUMNS),
+                "passed": input_columns == list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
                 "detail": ",".join(input_columns),
             },
             {
@@ -592,13 +678,20 @@ def _input_legality_summary() -> pd.DataFrame:
 def _feature_null_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for split, split_frame in _group_with_overall(dataset, ["split"]):
-        rows.extend(_feature_rows(split_frame, split=split, fe_ratio=None))
-    for (split, fe_ratio), group in dataset.groupby(["split", "FE_ratio"], dropna=False):
-        rows.extend(_feature_rows(group, split=str(split), fe_ratio=float(fe_ratio)))
+        rows.extend(_feature_rows(split_frame, split=split, sampling_phase=None))
+    for (split, phase), group in dataset.groupby(["split", "sampling_phase"], dropna=False):
+        rows.extend(
+            _feature_rows(group, split=str(split), sampling_phase=str(phase))
+        )
     return pd.DataFrame(rows)
 
 
-def _feature_rows(frame: pd.DataFrame, *, split: str, fe_ratio: float | None) -> list[dict[str, Any]]:
+def _feature_rows(
+    frame: pd.DataFrame,
+    *,
+    split: str,
+    sampling_phase: str | None,
+) -> list[dict[str, Any]]:
     rows = []
     for column in BEHAVIOR_FEATURE_COLUMNS:
         values = pd.to_numeric(frame[column], errors="coerce")
@@ -611,7 +704,7 @@ def _feature_rows(frame: pd.DataFrame, *, split: str, fe_ratio: float | None) ->
         rows.append(
             {
                 "split": split,
-                "FE_ratio": fe_ratio,
+                "sampling_phase": sampling_phase,
                 "feature": column,
                 "rows": int(len(frame)),
                 "null_count": null_count,
@@ -744,7 +837,8 @@ def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
         "sample_design_id": str(dataset["sample_design_id"].iloc[0]),
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
-        "input_columns": list(BEHAVIOR_FEATURE_COLUMNS),
+        "input_columns": list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
+        "diagnostic_columns": list(DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS),
         "metadata_columns": list(METADATA_COLUMNS),
         "column_order": list(DATASET_COLUMNS),
         "column_dtypes": {column: str(dtype) for column, dtype in dataset.dtypes.items()},
@@ -768,6 +862,7 @@ def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
             "finite_extreme_values": "preserved without clipping, scaling, or replacement",
             "non_null_infinite_values": "not allowed",
             "row_inclusion": "the primary dataset retains only SBS-prefix rows; the cross-probe dataset retains all joined rows",
+            "diagnostic_behavior_columns": "retained in the dataset but excluded from Decision model inputs",
         },
         "excluded_from_decision_input": sorted(FORBIDDEN_INPUT_COLUMNS),
     }
@@ -789,7 +884,7 @@ def _markdown_report(
     schema_path: Path,
     protocol_scope_summary: pd.DataFrame,
 ) -> str:
-    overall_features = feature_null_summary[feature_null_summary["FE_ratio"].isna()]
+    overall_features = feature_null_summary[feature_null_summary["sampling_phase"].isna()]
     return "\n".join(
         [
             "# Decision Model training data materialization report",
@@ -806,7 +901,8 @@ def _markdown_report(
             "",
             "## Decision inputs and target",
             "",
-            f"- Input columns: `{', '.join(BEHAVIOR_FEATURE_COLUMNS)}`.",
+            f"- Input columns: `{', '.join(SELECTOR_BEHAVIOR_FEATURE_COLUMNS)}`.",
+            f"- Diagnostic-only columns retained outside X: `{', '.join(DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS)}`.",
             f"- Main regression target: `{TARGET_COLUMN}`.",
             f"- Auxiliary decision label: `{AUXILIARY_LABEL_COLUMN}`.",
             "- Metadata and stratification columns are retained only for reporting, splitting, and error analysis.",

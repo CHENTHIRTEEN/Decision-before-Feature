@@ -16,7 +16,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
@@ -167,8 +167,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 def _feature_columns(schema: dict[str, Any]) -> list[str]:
     columns = list(schema.get("input_columns", []))
-    if columns != list(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
+    if columns != list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+        raise ValueError(
+            "schema input_columns must exactly equal SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
+        )
     forbidden_fragments = ("query", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
     forbidden = [column for column in columns if any(fragment in column.lower() for fragment in forbidden_fragments)]
     if forbidden:

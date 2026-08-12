@@ -28,7 +28,7 @@ class NativeUpdateSnapshot:
 class NativeUpdateWindowRecorder:
     def __init__(self) -> None:
         self.snapshots: list[NativeUpdateSnapshot] = []
-        self._initial_snapshot: NativeUpdateSnapshot | None = None
+        self._initial_fitness_iqr: float | None = None
 
     def observe(
         self,
@@ -53,21 +53,30 @@ class NativeUpdateWindowRecorder:
             if snapshot.fe < previous.fe or snapshot.native_updates <= previous.native_updates:
                 raise ValueError("native-update snapshots must be strictly increasing")
         else:
-            self._initial_snapshot = snapshot
+            self._initial_fitness_iqr = _fitness_iqr(snapshot.fitness)
         self.snapshots.append(snapshot)
 
     def build(self, *, fe_total: int, problem_id: str, algorithm: str) -> tuple[list[dict], list[dict]]:
+        if not self.snapshots:
+            raise ValueError("native-update history must not be empty")
+        if self._initial_fitness_iqr is None:
+            raise ValueError("native-update normalization baseline is missing")
         windows, history = build_window_statistics(
             self.snapshots,
             fe_total=fe_total,
             problem_id=problem_id,
             algorithm=algorithm,
+            initial_fitness_iqr=self._initial_fitness_iqr,
         )
         retained_from_fe = int(history[0]["FE"])
         self.snapshots = [snapshot for snapshot in self.snapshots if snapshot.fe >= retained_from_fe]
-        if self.snapshots:
-            self._initial_snapshot = self.snapshots[0]
         return windows, history
+
+    @property
+    def current_snapshot(self) -> NativeUpdateSnapshot:
+        if not self.snapshots:
+            raise ValueError("native-update history must not be empty")
+        return self.snapshots[-1]
 
 
 def make_native_update_snapshot(
@@ -99,6 +108,7 @@ def build_window_statistics(
     fe_total: int,
     problem_id: str,
     algorithm: str,
+    initial_fitness_iqr: float,
 ) -> tuple[list[dict], list[dict]]:
     if not snapshots:
         raise ValueError("native-update history must not be empty")
@@ -126,23 +136,30 @@ def build_window_statistics(
                 anchor=anchor,
                 problem_id=problem_id,
                 algorithm=algorithm,
-                initial_fitness_iqr=_fitness_iqr(snapshots[0].fitness),
+                initial_fitness_iqr=initial_fitness_iqr,
             )
         )
 
     long_anchor = anchors["w10"]
-    history = [
-        {
-            "FE": int(snapshot.fe),
-            "FE_ratio": float(snapshot.fe / fe_total),
-            "native_updates": int(snapshot.native_updates),
-            "best_fitness": float(snapshot.best_fitness),
-            "diversity_mean_pairwise": _mean_pairwise_distance(snapshot.population, problem_id=problem_id),
-            "fitness_iqr": _fitness_iqr(snapshot.fitness),
-        }
-        for snapshot in snapshots
-        if snapshot.fe >= long_anchor.fe
-    ]
+    history = []
+    for snapshot in snapshots:
+        if snapshot.fe < long_anchor.fe:
+            continue
+        fitness_iqr = _fitness_iqr(snapshot.fitness)
+        history.append(
+            {
+                "FE": int(snapshot.fe),
+                "FE_ratio": float(snapshot.fe / fe_total),
+                "native_updates": int(snapshot.native_updates),
+                "best_fitness": float(snapshot.best_fitness),
+                "diversity_mean_pairwise": _mean_pairwise_distance(
+                    snapshot.population,
+                    problem_id=problem_id,
+                ),
+                "fitness_iqr": float(fitness_iqr),
+                "fitness_iqr_rel": float(fitness_iqr / max(initial_fitness_iqr, EPS)),
+            }
+        )
     if not history or int(history[0]["FE"]) != long_anchor.fe or int(history[-1]["FE"]) != current.fe:
         raise ValueError("native-update scalar history does not cover the strict 10% window")
     return windows, history
@@ -200,6 +217,7 @@ def _window_row(
         covariance_effective_rank_current,
         covariance_effective_rank_anchor,
     )
+    covariance_trace_ratio = covariance_trace_current / max(abs(covariance_trace_anchor), EPS)
 
     anchor_quantiles = np.sort(anchor_fitness)
     current_quantiles = np.sort(current_fitness)
@@ -230,9 +248,11 @@ def _window_row(
         "elite_centroid_shift": elite_centroid_shift,
         "covariance_trace_current": float(covariance_trace_current),
         "covariance_trace_anchor": float(covariance_trace_anchor),
+        "covariance_trace_ratio": float(covariance_trace_ratio),
         "covariance_trace_change": covariance_trace_change,
         "covariance_effective_rank_current": float(covariance_effective_rank_current),
         "covariance_effective_rank_anchor": float(covariance_effective_rank_anchor),
+        "covariance_effective_rank": float(covariance_effective_rank_current),
         "covariance_effective_rank_change": covariance_effective_rank_change,
         "fitness_quantile_improvement_fraction": float(np.mean(quantile_improvements > threshold)),
         "fitness_mean_improvement": float(np.mean(quantile_improvements)),

@@ -6,7 +6,9 @@
 
 截至 2026-08-12，四种优化器已改为完整状态推进：同一算法在 checkpoint 间保留内部状态与 RNG；只有 selector 确实切换算法时，才执行一次显式的 population transfer 初始化。可用 `uv run optimizer-state-check` 在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
 
-Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨窗口的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。运行时逐次记录完整原生 update 的轻量窗口统计，正式 checkpoint 的 w02/w05/w10 anchor 不再从稀疏 checkpoint 中选择；若名义 FE 不能整除一次原生 update，则取不晚于目标位置的最近完整 update，误差严格小于一次 update，并保存 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`。所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
+Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨窗口的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。运行时逐次记录完整原生 update 的轻量窗口统计，正式 behavior state 的 w02/w05/w10 anchor 不再从稀疏输出状态中选择；若名义 FE 不能整除一次原生 update，则取不晚于目标位置的最近完整 update，误差严格小于一次 update，并保存 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`。所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
+
+正式状态采样已冻结为 `phase1_dynamic_budget_event_v1`：在 `0.20–0.60` 上按 `0.01` 候选网格监测，保留 12 个预定义预算里程碑，并依据 improvement resume、stagnation onset、effective-rank change、elite migration 与 diversity recovery 补充事件状态；每个跨过至少一个 0.01 监测网格的完整原生 update 只判定一次事件。同一 update 跨过多个监测点时，若包含预算里程碑，则里程碑与事件合并为一行，且该行不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；若不含里程碑，则以最新跨过的监测点作为名义节点。每个 run 输出 12–18 个状态。`FE_ratio` 始终是实际 `FE/FE_total`，名义里程碑另存 `budget_milestone_ratio`，状态连接使用整数 `FE` 而非浮点 ratio。完整预算终值另存为每个 `problem_id × algorithm × seed` 在 `FE=FE_total` 恰好一行的 `final_performance.parquet`；该表与 `0.20–0.60` decision trajectory 分离，不能把 `0.60` 的最后一个 decision state 当作完整预算终值。
 
 Selection Reference 已改为逐共享状态候选动作损失回归：每个 state 对 `continue_current` 和其余三个 portfolio algorithm 分别进行真实 continuation，`remaining_budget_ratio` 作为连续输入；不再按静态 problem label 和 nearest performance bucket 选择算法。固定的多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，训练行使用按 function family 的交叉拟合预测，验证与外部评价加载仅由 BBOB train 拟合的 selector model。
 
@@ -26,15 +28,15 @@ Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。�
 - 验证：BBOB 10D / 20D / 40D，按 function family 与训练集隔离。
 - 外部测试：CEC2017、CEC2022，工程问题作为后续外部验证。
 - 算法池：DE、PSO、CMA-ES、SHADE。
-- 主 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
+- 主采样协议：`phase1_dynamic_budget_event_v1`；12 个必选预算里程碑为 `0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42, 0.46, 0.50, 0.60`，事件状态使每个 run 总计 12–18 行。
 - 主 query 固定为 `descriptor_cheap`：16 个自定义低成本描述符，使用 `lhs_50d`，即 5% 总 FE。
 - `pflacco_standard`（37 维，`lhs_50d`）与 `pflacco_broad`（52 维，`lhs_100d`，10% 总 FE）只用于预先定义的配置稳健性实验；不得根据 validation 结果改选主 query。
 - Decision 输入仅来自 permutation-invariant 的算法无关搜索行为；function、dimension、algorithm、query feature 和优化器内部状态只能作为 metadata 或分层报告字段。
-- Decision feature-group 消融固定包含 `time_only`：数学输入 `X={FE_ratio}`，实现为逐行等于 `FE_ratio` 的 `bf_fe_ratio`，用于检验 Controller 是否只学习了调用阶段。
+- Decision feature-group 正式消融固定为 `T0/B1/B2/B3=1/19/25/31`；T0 的数学输入是 `X={FE_ratio}`，实现为逐行等于 `FE_ratio` 的 `bf_fe_ratio`。`all_candidates` 仅是 B3 的兼容别名，不含 3 个诊断字段，也不作为第五个独立消融组。
 - Decision Model 活动候选严格为 LDA、Logistic Regression、Ridge；主选择指标为 nested function-family OOF decision utility。AUROC、Average Precision、Spearman 为辅助指标，连续 Utility RMSE 只对 Ridge 定义。
 - BBOB-validation 不参与 preprocessing、模型、候选选择或 threshold 拟合；部署阈值模式固定为 `oof_utility`。
 - 主效用标签为 `u_query_lamT_1`；query 的 FE 成本通过减少后续优化预算体现，不重复扣除。
-- 第一篇论文主 probe/default 固定为训练集 SBS；No-query 原生继续当前 SBS 的完整 checkpoint state。
+- 第一篇论文主 probe/default 固定为训练集 SBS；SBS 只从 BBOB-train 的完整预算 `final_performance.parquet` 计算：先在每个 `problem_id × algorithm` 上对全部 seeds 的 `best_fitness` 取算术均值，再在每个 problem 内对算法排名，最后按算法跨 problem 平均排名；平均排名并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。No-query 原生继续当前 SBS 的完整 checkpoint state。
 - Query 后选择当前 prefix 时原生继续；选择其他算法时采用一次 checkpoint population transfer；query 采样点不并入后续优化 population。
 - 多 prefix 行单独用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主 Decision 数据。
 - 标签显式保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 和 `skip_switches_from_prefix`，不再生成含义模糊的 selected-vs-default 字符串分层。

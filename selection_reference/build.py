@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -20,6 +21,7 @@ from selection_reference.model import (
     selection_rows,
 )
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
 def build_selection_reference(
@@ -136,6 +138,18 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         raise ValueError("selection reference requires exactly four unique portfolio algorithms")
     if reference.duplicated(key).any():
         raise ValueError("selection reference contains duplicate shared-state keys")
+    missing_sampling = set(SAMPLING_METADATA_COLUMNS).difference(reference.columns)
+    if missing_sampling:
+        raise ValueError(
+            "selection reference is missing dynamic-sampling metadata: "
+            f"{sorted(missing_sampling)}"
+        )
+    expected_fe_ratio = reference["FE"].astype(float) / reference["FE_total"].astype(float)
+    if not np.array_equal(
+        reference["FE_ratio"].to_numpy(dtype=float),
+        expected_fe_ratio.to_numpy(dtype=float),
+    ):
+        raise ValueError("selection-reference FE_ratio must equal the actual FE / FE_total")
     if set(reference["selected_algorithm"].astype(str)).difference(portfolio):
         raise ValueError("selection reference selected an algorithm outside the portfolio")
     if not (reference["no_query_algorithm"].astype(str) == reference["default_algorithm"].astype(str)).all():

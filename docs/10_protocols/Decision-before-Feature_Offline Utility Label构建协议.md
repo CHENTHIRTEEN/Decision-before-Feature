@@ -46,7 +46,11 @@ Offline Utility Label。
 
 在生成 Utility 前，必须先对每个共享状态完整运行唯一候选动作集合：`continue_current` 加其余三个 portfolio algorithms。动作表保存 raw loss、逐状态 normalized action loss、transition mode、best observed action 和 action runtime；随后只用 BBOB train states 拟合连续预算 Selector。
 
-Trajectory Parquet 保存正式 checkpoint 的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates`、三个名义窗口的轻量集合/fitness 统计、最近10%预算内的逐 update 标量历史和 `optimizer_state_mode`，不把逐 update 的 RNG、velocity、evolution path、archive 等完整内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个 checkpoint 对 population、fitness、best-so-far 与 `native_updates` 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一 checkpoint 不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
+Trajectory Parquet 按 `phase1_dynamic_budget_event_v1` 保存输出状态的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates`、三个名义窗口的轻量集合/fitness 统计、最近10%预算内的逐 update 标量历史、`optimizer_state_mode` 与全部 sampling metadata，不把逐 update 的 RNG、velocity、evolution path、archive 等完整内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个整数 `FE` 状态上对 population、fitness、best-so-far、`native_updates` 与 sampling metadata 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一状态不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
+
+正式状态键为 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`。eligible behavior、action-loss、Selection Reference 与 Utility label 必须在该键上双向完全覆盖；不使用浮点 `FE_ratio` 作 join key。
+
+首轮离线状态采样不使用 decision score，每行 `sample_weight=1`。完整 BBOB-train family-OOF 上的 Q10 threshold-neighborhood 仅在模型与 threshold 冻结后用于 online 附加复查，BBOB-validation 与外部测试不参与带宽拟合，所有策略共享相同决策机会。
 
 ## Strategy A: No-query
 

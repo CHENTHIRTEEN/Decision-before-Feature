@@ -312,7 +312,7 @@ $$
 r_t=\frac{FE_t}{FE_{max}}
 $$
 
-令anchor检查点a满足：
+令 anchor 为逐次完整原生 update 历史中满足下式的最近 update：
 
 $$
 r_a \le r_t-w
@@ -323,10 +323,12 @@ $$
 $$
 I_t^{(w)}=
 \frac{f_{best}(a)-f_{best}(t)}
-{\max(|f_{best}(a)|,\epsilon)}
+{\max(\operatorname{IQR}(f_{init}),\epsilon)}
 \cdot
 \frac{1}{r_t-r_a}
 $$
+
+其中 $f_{init}$ 是优化器初始化后、任何原生 update 前已评估 population 的 fitness 向量。该 IQR 也是所有 shift-invariant fitness-change rate 的共享稳健尺度。
 
 ---
 

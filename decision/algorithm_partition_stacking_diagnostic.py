@@ -16,7 +16,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
@@ -245,8 +245,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 def _feature_columns(schema: dict[str, Any]) -> list[str]:
     columns = list(schema.get("input_columns", []))
-    if columns != list(BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError("schema input_columns must exactly equal BEHAVIOR_FEATURE_COLUMNS")
+    if columns != list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+        raise ValueError(
+            "schema input_columns must exactly equal SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
+        )
     forbidden_fragments = ("query", "function", "algorithm", "selected", "default", "family", "problem", "dimension")
     forbidden = [column for column in columns if any(fragment in column.lower() for fragment in forbidden_fragments)]
     if forbidden:
@@ -471,7 +473,7 @@ def _evaluation_layers(validation: pd.DataFrame) -> dict[str, list[tuple[str, np
         "skip_switches_from_prefix": [],
         "prefix_algorithm": [],
         "dimension": [],
-        "FE_ratio": [],
+        "sampling_phase": [],
     }
     for value in (False, True):
         layers["selected_equals_default"].append(
@@ -504,8 +506,13 @@ def _evaluation_layers(validation: pd.DataFrame) -> dict[str, list[tuple[str, np
         )
     for dimension in sorted(validation["dimension"].astype(int).unique().tolist()):
         layers["dimension"].append((f"dimension={dimension}", validation["dimension"].to_numpy(dtype=int) == dimension))
-    for ratio in sorted(validation["FE_ratio"].astype(float).unique().tolist()):
-        layers["FE_ratio"].append((f"FE_ratio={ratio:.2f}", np.isclose(validation["FE_ratio"].to_numpy(dtype=float), ratio)))
+    for phase in sorted(validation["sampling_phase"].astype(str).unique().tolist()):
+        layers["sampling_phase"].append(
+            (
+                f"sampling_phase={phase}",
+                validation["sampling_phase"].astype(str).to_numpy() == phase,
+            )
+        )
     return layers
 
 

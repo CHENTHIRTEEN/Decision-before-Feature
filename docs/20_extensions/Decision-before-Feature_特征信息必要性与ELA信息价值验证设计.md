@@ -34,7 +34,7 @@ $$
 
 配置稳健性问题是：
 
-> 在不改变 Decision 输入边界、function-family split、checkpoint ratios、算法池和等总 FE 原则时，效用与调用决策是否随预定义 query 配置改变？
+> 在不改变 Decision 输入边界、function-family split、`phase1_dynamic_budget_event_v1` 采样参数、算法池和等总 FE 原则时，效用与调用决策是否随预定义 query 配置改变？
 
 分别报告：
 
@@ -89,7 +89,7 @@ Decision Model 本身仍只接收算法无关 behavior；上述 feature 增量�
 同一 trajectory 的 checkpoint 高度相关，不能把所有行当作独立样本。分层单位为：
 
 ```text
-function family -> function instance -> dimension -> optimizer seed -> checkpoint
+function family -> function instance -> dimension -> optimizer seed -> sampled state (integer FE)
 ```
 
 每档 query 至少报告：

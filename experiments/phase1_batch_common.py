@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
 from optimizers.registry import SUPPORTED_ALGORITHMS
+from optimizers.settings import OptimizerSettings
+from trajectory.sampling import get_sampling_spec
+
+
+FROZEN_PHASE1_POPULATION_SIZE = 40
+FROZEN_PHASE1_FE_PER_DIMENSION = 1000
+SUPPORTED_PHASE1_SUITES = ("bbob", "cec2017", "cec2022")
 
 
 @dataclass(frozen=True)
@@ -18,6 +26,38 @@ class Shard:
     @property
     def family(self) -> str:
         return family_name(self.suite, self.function)
+
+    @property
+    def final_performance_path(self) -> Path:
+        return self.output_path.with_name("final_performance.parquet")
+
+
+ShardOutputPairState = Literal["complete", "missing", "partial"]
+
+
+def shard_output_pair_state(shard: Shard) -> ShardOutputPairState:
+    trajectory_exists = shard.output_path.exists()
+    final_performance_exists = shard.final_performance_path.exists()
+    if trajectory_exists and final_performance_exists:
+        return "complete"
+    if not trajectory_exists and not final_performance_exists:
+        return "missing"
+    return "partial"
+
+
+def require_complete_shard_outputs(shard: Shard) -> None:
+    state = shard_output_pair_state(shard)
+    if state == "complete":
+        return
+    if state == "missing":
+        raise FileNotFoundError(
+            "missing trajectory and complete-budget final-performance shard pair: "
+            f"{shard.output_path.parent}"
+        )
+    raise FileNotFoundError(
+        "incomplete shard output pair; trajectory and complete-budget final performance "
+        f"must both exist: {shard.output_path.parent}"
+    )
 
 
 def load_config(path: Path) -> dict:
@@ -32,7 +72,10 @@ def as_int_list(config: dict, name: str) -> list[int]:
     values = config.get(name)
     if not isinstance(values, list) or not values:
         raise ValueError(f"{name} must be a non-empty list")
-    return [int(value) for value in values]
+    integers = [int(value) for value in values]
+    if len(integers) != len(set(integers)):
+        raise ValueError(f"{name} must not contain duplicate values")
+    return integers
 
 
 def algorithms(config: dict) -> list[str]:
@@ -43,7 +86,52 @@ def algorithms(config: dict) -> list[str]:
     unsupported = sorted(set(names).difference(SUPPORTED_ALGORITHMS))
     if unsupported:
         raise ValueError(f"unsupported algorithms: {unsupported}")
+    if tuple(names) != SUPPORTED_ALGORITHMS:
+        raise ValueError(
+            "formal algorithm portfolio must be exactly de, pso, cmaes, shade in frozen order"
+        )
     return names
+
+
+def validate_dynamic_collection_config(config: dict) -> None:
+    suite = str(config.get("suite", "")).lower()
+    if suite not in SUPPORTED_PHASE1_SUITES:
+        raise ValueError(
+            "phase1 dynamic collection supports suites: bbob, cec2017, cec2022"
+        )
+    if "checkpoint_ratios" in config:
+        raise ValueError(
+            "checkpoint_ratios is not part of the frozen dynamic protocol; "
+            "use sampling_protocol instead"
+        )
+
+    sampling_protocol = get_sampling_spec(
+        str(config.get("sampling_protocol", ""))
+    ).protocol
+    population_size = int(config["population_size"])
+    if population_size != FROZEN_PHASE1_POPULATION_SIZE:
+        raise ValueError(
+            "formal phase1 population_size must be exactly "
+            f"{FROZEN_PHASE1_POPULATION_SIZE}"
+        )
+
+    algorithms(config)
+    as_int_list(config, "functions")
+    as_int_list(config, "instances")
+    dimensions = as_int_list(config, "dimensions")
+    as_int_list(config, "seeds")
+    for dimension in dimensions:
+        fe_total = fe_total_for_dimension(config, dimension)
+        expected_fe_total = FROZEN_PHASE1_FE_PER_DIMENSION * dimension
+        if fe_total != expected_fe_total:
+            raise ValueError(
+                f"formal phase1 FE_total for {dimension}D must be "
+                f"{expected_fe_total}, got {fe_total}"
+            )
+        OptimizerSettings(
+            population_size=population_size,
+            sampling_protocol=sampling_protocol,
+        ).validate(fe_total)
 
 
 def fe_total_for_dimension(config: dict, dimension: int) -> int:

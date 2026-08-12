@@ -10,12 +10,14 @@ import pyarrow.parquet as pq
 
 from benchmarks.factory import problem_bounds
 from trajectory.validation import validate_trajectory_file
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCHEMA_FIELDS
+from trajectory.window_statistics import WINDOW_RATIOS
 
 
 EPS = 1e-12
-WINDOW_SHORT = 0.02
-WINDOW_MEDIUM = 0.05
-WINDOW_LONG = 0.10
+WINDOW_SHORT = WINDOW_RATIOS["w02"]
+WINDOW_MEDIUM = WINDOW_RATIOS["w05"]
+WINDOW_LONG = WINDOW_RATIOS["w10"]
 
 BEHAVIOR_METADATA_COLUMNS = (
     "problem_id",
@@ -25,6 +27,7 @@ BEHAVIOR_METADATA_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
 )
 
 BEHAVIOR_WINDOW_METADATA_COLUMNS = (
@@ -69,7 +72,6 @@ PRIMARY_BEHAVIOR_FEATURE_COLUMNS = (
 )
 
 DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS = (
-    "bf_robust_fitness_iqr_rel",
     "bf_fitness_spread_slope_w05",
     "bf_population_centroid_shift_w05",
     "bf_elite_centroid_shift_w05",
@@ -80,7 +82,6 @@ DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS = (
 
 MOTION_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_population_chamfer_distance_w05",
-    "bf_elite_centroid_shift_w05",
     "bf_covariance_trace_change_w05",
     "bf_covariance_effective_rank_change_w05",
 )
@@ -92,6 +93,7 @@ MATURITY_BEHAVIOR_FEATURE_COLUMNS = (
 )
 
 DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS = (
+    "bf_fitness_diversity",
     "bf_population_overlap_w05",
     "bf_best_distance_fitness_corr",
 )
@@ -105,16 +107,76 @@ BEHAVIOR_FEATURE_COLUMNS = (
     + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
 )
 
+SELECTOR_BEHAVIOR_FEATURE_COLUMNS = (
+    BASE_BEHAVIOR_FEATURE_COLUMNS
+    + PRIMARY_BEHAVIOR_FEATURE_COLUMNS
+    + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS
+    + MOTION_BEHAVIOR_FEATURE_COLUMNS
+    + MATURITY_BEHAVIOR_FEATURE_COLUMNS
+)
+
 BEHAVIOR_FEATURE_GROUPS = {
     "time_only": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
+    "T0": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
     "base": BASE_BEHAVIOR_FEATURE_COLUMNS,
+    "B1": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
     "primary": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
+    "B2": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_dynamorep_lite": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
+    "B3": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "diagnostic_only": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
-    "all_candidates": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
+    "all_candidates": SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
 }
+
+_EXPECTED_FEATURE_COUNTS = {
+    "all": 34,
+    "selector": 31,
+    "diagnostic": 3,
+    "T0": 1,
+    "B1": 19,
+    "B2": 25,
+    "B3": 31,
+}
+
+
+def _validate_behavior_feature_contract() -> None:
+    collections = {
+        "all": BEHAVIOR_FEATURE_COLUMNS,
+        "selector": SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+        "diagnostic": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
+        **{name: BEHAVIOR_FEATURE_GROUPS[name] for name in ("T0", "B1", "B2", "B3")},
+    }
+    for name, columns in collections.items():
+        expected_count = _EXPECTED_FEATURE_COUNTS[name]
+        if len(columns) != expected_count or len(set(columns)) != expected_count:
+            raise RuntimeError(
+                f"behavior feature contract {name} must contain {expected_count} unique columns"
+            )
+
+    if SELECTOR_BEHAVIOR_FEATURE_COLUMNS != BEHAVIOR_FEATURE_GROUPS["B3"]:
+        raise RuntimeError("selector behavior columns must exactly equal B3")
+    if BEHAVIOR_FEATURE_COLUMNS != (
+        SELECTOR_BEHAVIOR_FEATURE_COLUMNS + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
+    ):
+        raise RuntimeError("behavior output columns must equal selector plus diagnostic columns")
+    if set(SELECTOR_BEHAVIOR_FEATURE_COLUMNS).intersection(DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS):
+        raise RuntimeError("selector and diagnostic behavior columns must be disjoint")
+
+    aliases = {
+        "time_only": "T0",
+        "primary": "B1",
+        "primary_with_dynamorep_lite": "B2",
+        "primary_with_maturity": "B3",
+        "all_candidates": "B3",
+    }
+    for alias, canonical in aliases.items():
+        if BEHAVIOR_FEATURE_GROUPS[alias] != BEHAVIOR_FEATURE_GROUPS[canonical]:
+            raise RuntimeError(f"behavior feature group {alias} must exactly equal {canonical}")
+
+
+_validate_behavior_feature_contract()
 
 BEHAVIOR_COLUMNS = BEHAVIOR_METADATA_COLUMNS + BEHAVIOR_WINDOW_METADATA_COLUMNS + BEHAVIOR_FEATURE_COLUMNS
 
@@ -127,6 +189,7 @@ BEHAVIOR_SCHEMA = pa.schema(
         ("seed", pa.int64()),
         ("FE", pa.int64()),
         ("FE_ratio", pa.float64()),
+        *SAMPLING_METADATA_SCHEMA_FIELDS,
         ("effective_window_ratio_w02", pa.float64()),
         ("effective_window_fe_w02", pa.int64()),
         ("effective_native_updates_w02", pa.int64()),
@@ -160,7 +223,7 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
         ordered = sorted(group, key=lambda item: item["FE"])
         for index, row in enumerate(ordered):
             row["_behavior_index"] = index
-        initial_fitness_iqr = _fitness_shift_invariant_baseline(ordered[0])
+        initial_fitness_iqr = float(_window_statistic(ordered[0], "w05", WINDOW_MEDIUM)["fitness_iqr_baseline"])
         stats = [_checkpoint_stats(row, initial_fitness_iqr=initial_fitness_iqr) for row in ordered]
         for index, row in enumerate(ordered):
             short_window = _window_statistic(row, "w02", WINDOW_SHORT)
@@ -212,7 +275,6 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                     medium_window,
                     "diversity_mean_pairwise",
                 ),
-                "bf_robust_fitness_iqr_rel": _robust_fitness_iqr_rel(row),
                 "bf_fitness_spread_slope_w05": _window_slope(native_history, medium_window, "fitness_iqr_rel"),
                 "bf_population_centroid_shift_w05": float(medium_window["centroid_shift_distance"]),
                 "bf_elite_centroid_shift_w05": float(medium_window["elite_centroid_shift"]),
@@ -325,10 +387,6 @@ def _shift_invariant_fitness_diversity(fitness: np.ndarray, *, initial_fitness_i
 
 def _fitness_shift_invariant_baseline(row: dict) -> float:
     return _fitness_iqr(_fitness(row))
-
-
-def _robust_fitness_iqr_rel(row: dict) -> float:
-    return float(_fitness_iqr(_fitness(row)) / max(_fitness_shift_invariant_baseline(row), EPS))
 
 
 def _diversity_recovery(current: dict, window: dict) -> float:

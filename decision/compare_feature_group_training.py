@@ -16,7 +16,8 @@ from decision.query_contract import decision_query_root, validate_query_payload
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
-FEATURE_GROUP_ORDER = ("time_only", "base", "primary", "primary_with_maturity", "all_candidates")
+FEATURE_GROUP_ORDER = ("T0", "B1", "B2", "B3")
+EXPECTED_FEATURE_COUNTS = {"T0": 1, "B1": 19, "B2": 25, "B3": 31}
 TOP_K_FRACTION = 0.10
 
 
@@ -30,21 +31,41 @@ def compare_feature_group_training(
     _check_output_paths(output_dir, overwrite)
     group_payloads = [_read_group_outputs(input_root, group, query_id) for group in FEATURE_GROUP_ORDER]
     _check_group_comparability(group_payloads)
+    selected_model_name = str(group_payloads[-1]["summary"].get("selected_model_name", ""))
+    if not selected_model_name:
+        raise ValueError("B3 training summary must identify the nested-OOF selected model")
 
     regression = pd.concat([payload["regression"] for payload in group_payloads], ignore_index=True)
     score = pd.concat([payload["score"] for payload in group_payloads], ignore_index=True)
     decision = pd.concat([payload["decision"] for payload in group_payloads], ignore_index=True)
     ranking = pd.concat([payload["ranking"] for payload in group_payloads], ignore_index=True)
-    best = _best_summary(score, decision, ranking)
+    formal_regression = regression[regression["model_name"].astype(str) == selected_model_name].copy()
+    formal_score = score[score["model_name"].astype(str) == selected_model_name].copy()
+    formal_decision = decision[decision["model_name"].astype(str) == selected_model_name].copy()
+    formal_ranking = ranking[ranking["model_name"].astype(str) == selected_model_name].copy()
+    if any(frame.empty for frame in (formal_score, formal_decision, formal_ranking)):
+        raise ValueError("every formal feature group must contain the B3-selected model")
+    for name, frame in (
+        ("score", formal_score),
+        ("decision", formal_decision),
+        ("ranking", formal_ranking),
+    ):
+        if set(frame["feature_group"].astype(str)) != set(FEATURE_GROUP_ORDER):
+            raise ValueError(
+                f"{name} outputs do not cover T0/B1/B2/B3 for the B3-selected model"
+            )
     feature_groups = _feature_group_summary(group_payloads)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_frame(feature_groups, output_dir / "feature_group_inputs")
-    _write_frame(regression, output_dir / "feature_group_regression_summary")
-    _write_frame(score, output_dir / "feature_group_score_summary")
-    _write_frame(decision, output_dir / "feature_group_decision_summary")
-    _write_frame(ranking, output_dir / "feature_group_ranking_summary")
-    _write_frame(best, output_dir / "feature_group_best_summary")
+    _write_frame(formal_regression, output_dir / "feature_group_regression_summary")
+    _write_frame(formal_score, output_dir / "feature_group_score_summary")
+    _write_frame(formal_decision, output_dir / "feature_group_decision_summary")
+    _write_frame(formal_ranking, output_dir / "feature_group_ranking_summary")
+    _write_frame(regression, output_dir / "feature_group_candidate_diagnostic_regression")
+    _write_frame(score, output_dir / "feature_group_candidate_diagnostic_score")
+    _write_frame(decision, output_dir / "feature_group_candidate_diagnostic_decision")
+    _write_frame(ranking, output_dir / "feature_group_candidate_diagnostic_ranking")
 
     summary = {
         "experiment": "phase1_refined_sampling_feature_group_ablation",
@@ -53,6 +74,8 @@ def compare_feature_group_training(
         "sample_design_id": get_query_spec(query_id).sample_design_id,
         "input_root": str(input_root),
         "feature_groups": FEATURE_GROUP_ORDER,
+        "formal_comparison_model_name": selected_model_name,
+        "formal_comparison_model_source": "B3 nested function-family OOF selection on BBOB-train",
         "time_only_baseline": {
             "mathematical_input": ["FE_ratio"],
             "implementation_input": ["bf_fe_ratio"],
@@ -66,7 +89,10 @@ def compare_feature_group_training(
             "score": str(output_dir / "feature_group_score_summary.parquet"),
             "decision": str(output_dir / "feature_group_decision_summary.parquet"),
             "ranking": str(output_dir / "feature_group_ranking_summary.parquet"),
-            "best": str(output_dir / "feature_group_best_summary.parquet"),
+            "candidate_diagnostic_regression": str(output_dir / "feature_group_candidate_diagnostic_regression.parquet"),
+            "candidate_diagnostic_score": str(output_dir / "feature_group_candidate_diagnostic_score.parquet"),
+            "candidate_diagnostic_decision": str(output_dir / "feature_group_candidate_diagnostic_decision.parquet"),
+            "candidate_diagnostic_ranking": str(output_dir / "feature_group_candidate_diagnostic_ranking.parquet"),
             "report": str(output_dir / "feature_group_ablation_report.md"),
             "summary": str(output_dir / "feature_group_ablation_summary.json"),
         },
@@ -86,11 +112,11 @@ def compare_feature_group_training(
     report_path.write_text(
         _markdown_report(
             feature_groups=feature_groups,
-            regression=regression,
-            score=score,
-            decision=decision,
-            ranking=ranking,
-            best=best,
+            regression=formal_regression,
+            score=formal_score,
+            decision=formal_decision,
+            ranking=formal_ranking,
+            selected_model_name=selected_model_name,
         ),
         encoding="utf-8",
     )
@@ -99,7 +125,6 @@ def compare_feature_group_training(
     print(f"wrote feature group regression summary to {output_dir / 'feature_group_regression_summary.parquet'}")
     print(f"wrote feature group decision summary to {output_dir / 'feature_group_decision_summary.parquet'}")
     print(f"wrote feature group ranking summary to {output_dir / 'feature_group_ranking_summary.parquet'}")
-    print(f"wrote feature group best summary to {output_dir / 'feature_group_best_summary.parquet'}")
     print(f"wrote feature group ablation report to {report_path}")
     return summary
 
@@ -116,8 +141,14 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "feature_group_decision_summary.parquet",
         output_dir / "feature_group_ranking_summary.csv",
         output_dir / "feature_group_ranking_summary.parquet",
-        output_dir / "feature_group_best_summary.csv",
-        output_dir / "feature_group_best_summary.parquet",
+        output_dir / "feature_group_candidate_diagnostic_regression.csv",
+        output_dir / "feature_group_candidate_diagnostic_regression.parquet",
+        output_dir / "feature_group_candidate_diagnostic_score.csv",
+        output_dir / "feature_group_candidate_diagnostic_score.parquet",
+        output_dir / "feature_group_candidate_diagnostic_decision.csv",
+        output_dir / "feature_group_candidate_diagnostic_decision.parquet",
+        output_dir / "feature_group_candidate_diagnostic_ranking.csv",
+        output_dir / "feature_group_candidate_diagnostic_ranking.parquet",
         output_dir / "feature_group_ablation_report.md",
         output_dir / "feature_group_ablation_summary.json",
     )
@@ -183,6 +214,26 @@ def _check_group_comparability(group_payloads: list[dict[str, Any]]) -> None:
         "threshold_modes",
         "random_seed",
     )
+    actual_groups = tuple(str(payload["group"]) for payload in group_payloads)
+    if actual_groups != FEATURE_GROUP_ORDER:
+        raise ValueError(f"formal feature-group order must be {FEATURE_GROUP_ORDER}")
+    column_sets = []
+    previous_columns: list[str] = []
+    for payload in group_payloads:
+        group = str(payload["group"])
+        columns = list(payload["summary"].get("feature_columns", []))
+        if len(columns) != EXPECTED_FEATURE_COUNTS[group] or len(set(columns)) != len(columns):
+            raise ValueError(
+                f"formal feature group {group} must contain "
+                f"{EXPECTED_FEATURE_COUNTS[group]} unique columns"
+            )
+        if previous_columns and columns[: len(previous_columns)] != previous_columns:
+            raise ValueError("formal feature groups must be strictly ordered nested prefixes")
+        column_sets.append(frozenset(columns))
+        previous_columns = columns
+    if len(set(column_sets)) != len(column_sets):
+        raise ValueError("formal feature groups must have distinct input-column sets")
+
     reference = group_payloads[0]["summary"]
     for field in fields:
         if field not in reference:
@@ -193,7 +244,7 @@ def _check_group_comparability(group_payloads: list[dict[str, Any]]) -> None:
             if summary.get(field) != reference[field]:
                 raise ValueError(
                     f"feature-group outputs are not comparable on {field}: "
-                    f"time_only={reference[field]!r}, {payload['group']}={summary.get(field)!r}"
+                    f"T0={reference[field]!r}, {payload['group']}={summary.get(field)!r}"
                 )
 
 
@@ -208,54 +259,19 @@ def _feature_group_summary(group_payloads: list[dict[str, Any]]) -> pd.DataFrame
                 "feature_count": len(feature_columns),
                 "feature_columns": ",".join(feature_columns),
                 "contains_maturity_features": any("maturity" in column or "explore_exploit" in column for column in feature_columns),
-                "contains_diagnostic_features": any(column in {"bf_population_overlap_w05", "bf_best_distance_fitness_corr"} for column in feature_columns),
-                "is_time_only_baseline": group == "time_only",
+                "contains_diagnostic_features": any(
+                    column
+                    in {
+                        "bf_fitness_diversity",
+                        "bf_population_overlap_w05",
+                        "bf_best_distance_fitness_corr",
+                    }
+                    for column in feature_columns
+                ),
+                "is_time_only_baseline": group == "T0",
             }
         )
     return pd.DataFrame(rows)
-
-
-def _best_summary(score: pd.DataFrame, decision: pd.DataFrame, ranking: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    rows.append(_best_row(score[score["rmse_applicable"].astype(bool)], "lowest_rmse", "rmse", ascending=True))
-    rows.append(_best_row(score, "highest_spearman", "spearman", ascending=False))
-    rows.append(_best_row(score, "highest_auroc", "auroc", ascending=False))
-    rows.append(_best_row(score, "highest_average_precision", "average_precision", ascending=False))
-    oof_threshold = decision[decision["threshold_mode"] == FROZEN_THRESHOLD_MODE].copy()
-    zero_threshold = decision[decision["threshold_mode"] == "zero"].copy()
-    rows.append(_best_row(oof_threshold, "highest_oof_threshold_decision_mean_utility", "decision_mean_utility", ascending=False))
-    rows.append(_best_row(zero_threshold, "highest_zero_threshold_decision_mean_utility", "decision_mean_utility", ascending=False))
-    rows.append(_best_row(ranking, "highest_top10_utility_capture_rate", "utility_capture_rate", ascending=False))
-    return pd.DataFrame(rows)
-
-
-def _best_row(frame: pd.DataFrame, criterion: str, metric: str, *, ascending: bool) -> dict[str, Any]:
-    finite = frame[np.isfinite(pd.to_numeric(frame[metric], errors="coerce").to_numpy(dtype=float, na_value=np.nan))].copy()
-    if finite.empty:
-        return {"criterion": criterion, "metric": metric, "status": "unavailable"}
-    row = finite.sort_values(metric, ascending=ascending).iloc[0].to_dict()
-    selected = {
-        "criterion": criterion,
-        "metric": metric,
-        "status": "available",
-        "feature_group": row.get("feature_group"),
-        "feature_count": row.get("feature_count"),
-        "model_name": row.get("model_name"),
-        "model_family": row.get("model_family"),
-        "threshold_mode": row.get("threshold_mode"),
-        metric: row.get(metric),
-    }
-    for optional in (
-        "decision_mean_utility",
-        "decision_query_call_rate",
-        "positive_row_capture_rate",
-        "utility_capture_rate",
-        "precision_u_gt_zero_under_calls",
-        "top_k_u_gt_zero_rate",
-    ):
-        if optional in row and optional not in selected:
-            selected[optional] = row.get(optional)
-    return selected
 
 
 def _write_frame(frame: pd.DataFrame, path_without_suffix: Path) -> None:
@@ -270,7 +286,7 @@ def _markdown_report(
     score: pd.DataFrame,
     decision: pd.DataFrame,
     ranking: pd.DataFrame,
-    best: pd.DataFrame,
+    selected_model_name: str,
 ) -> str:
     oof_threshold = decision[decision["threshold_mode"] == FROZEN_THRESHOLD_MODE].copy()
     return "\n".join(
@@ -291,11 +307,9 @@ def _markdown_report(
                 ]
             ),
             "",
-            "## Best rows",
+            f"Formal cross-group comparison model: `{selected_model_name}` (selected by B3 nested function-family OOF on BBOB-train).",
             "",
-            _markdown_table(best),
-            "",
-            "## All-validation auxiliary score metrics",
+            "## All-validation auxiliary score metrics for the B3-selected model",
             "",
             _markdown_table(
                 score[
@@ -354,9 +368,12 @@ def _markdown_report(
             "",
             "- All groups use the same materialized dataset and target column.",
             "- All groups use the same three fixed model candidates, random seed, nested family-OOF selection, and frozen train-OOF threshold modes.",
+            "- Formal T0/B1/B2/B3 conclusions compare the single model selected by B3; per-candidate rows are retained only as model diagnostics.",
+            "- BBOB-validation metrics are descriptive frozen evaluations only; this report does not rank or select a feature group from validation.",
             "- Feature groups are selected from `BEHAVIOR_FEATURE_GROUPS` only.",
-            "- `time_only` implements mathematical input `X={FE_ratio}` through `bf_fe_ratio`, which is checked row by row against trajectory `FE_ratio` during behavior validation and Decision materialization.",
-            "- Compare `time_only` with behavior groups to test whether Decision performance is explained by optimization stage alone; a non-zero time-only result is not evidence that search behavior adds information.",
+            "- `T0` implements mathematical input `X={FE_ratio}` through `bf_fe_ratio`, which is checked row by row against trajectory `FE_ratio` during behavior validation and Decision materialization.",
+            "- The formal ablation is exactly T0/B1/B2/B3 with 1/19/25/31 strictly nested, distinct inputs.",
+            "- Compare `T0` with behavior groups to test whether Decision performance is explained by optimization stage alone; a non-zero T0 result is not evidence that search behavior adds information.",
             "- Metadata, function identifiers, algorithm identifiers, optimizer internals, and Query features are not used as Decision Model input.",
         ]
     ) + "\n"

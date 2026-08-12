@@ -4,7 +4,6 @@ import argparse
 import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from math import ceil
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -15,7 +14,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
+from behavior.streaming import StreamingBehaviorState
 from benchmarks import make_problem
 from decision.model_protocol import (
     FROZEN_THRESHOLD_MODE,
@@ -35,8 +35,11 @@ from optimizers import (
     initialize_transferred_optimizer_state,
 )
 from selection_reference.model import StatewiseSelectorModel, load_selector_model, make_selector_features
-from trajectory.records import TrajectoryRecord
-from trajectory.window_statistics import NativeUpdateWindowRecorder
+from trajectory.sampling import (
+    SAMPLING_METADATA_COLUMNS,
+    SAMPLING_PROTOCOL,
+    get_sampling_spec,
+)
 
 
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
@@ -46,29 +49,8 @@ DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_RANDOM_QUERY_PROBABILITY = 0.5
 DEFAULT_RANDOM_REPETITIONS = 30
 DEFAULT_RANDOM_SEED = 1701
-DEFAULT_SAMPLING_PROTOCOL = "training_matched"
-DENSE_DECISION_CHECK_RATIOS = (
-    0.20,
-    0.225,
-    0.25,
-    0.275,
-    0.28,
-    0.30,
-    0.325,
-    0.35,
-    0.375,
-    0.40,
-    0.425,
-    0.45,
-    0.475,
-    0.50,
-    0.525,
-    0.55,
-    0.575,
-    0.60,
-)
-SAMPLING_PROTOCOLS = (DEFAULT_SAMPLING_PROTOCOL, "dense_decision_check")
-EPS = 1e-12
+DEFAULT_SAMPLING_PROTOCOL = SAMPLING_PROTOCOL
+SAMPLING_PROTOCOLS = (DEFAULT_SAMPLING_PROTOCOL,)
 
 
 @dataclass(frozen=True)
@@ -140,7 +122,7 @@ def evaluate_online_controller(
     config = load_config(config_path)
     if str(config["suite"]).lower() not in {"cec2017", "cec2022"}:
         raise ValueError("online controller evaluation currently expects an external CEC suite")
-    checkpoint_ratios = _checkpoint_ratios(config, sampling_protocol)
+    budget_milestone_ratios = _budget_milestone_ratios(config, sampling_protocol)
     decision_check_frequency = _decision_check_frequency(sampling_protocol)
     output_dir = _sampling_output_dir(output_dir, sampling_protocol)
     functions = selected_functions(config, only_functions)
@@ -155,11 +137,6 @@ def evaluate_online_controller(
     query_feature_rows = {} if summarize_only else _read_external_query_features(query_feature_path, query_id)
     if selector is not None and selector.model.query_id != query_id:
         raise ValueError("selector model query_id does not match the requested online evaluation")
-    checkpoint_plan = {
-        dimension: _checkpoint_plan(config, dimension, checkpoint_ratios)
-        for dimension in dimensions
-    }
-
     output_dir.mkdir(parents=True, exist_ok=True)
     if summarize_only:
         return _summarize_shards(
@@ -171,7 +148,7 @@ def evaluate_online_controller(
             model_name=model_name,
             threshold_mode=threshold_mode,
             sampling_protocol=sampling_protocol,
-            checkpoint_ratios=checkpoint_ratios,
+            budget_milestone_ratios=budget_milestone_ratios,
             decision_check_frequency=decision_check_frequency,
             controller=controller,
             random_query_probability=random_query_probability,
@@ -192,12 +169,11 @@ def evaluate_online_controller(
             model_name=model_name,
             threshold_mode=threshold_mode,
             sampling_protocol=sampling_protocol,
-            checkpoint_ratios=checkpoint_ratios,
+            budget_milestone_ratios=budget_milestone_ratios,
             decision_check_frequency=decision_check_frequency,
             controller=controller,
             selector=selector,
             query_feature_rows=query_feature_rows,
-            checkpoint_plan=checkpoint_plan,
             random_query_probability=random_query_probability,
             random_repetitions=random_repetitions,
             random_seed=random_seed,
@@ -228,7 +204,6 @@ def evaluate_online_controller(
                         dimension=dimension,
                         seed=seed,
                         fe_total=fe_total,
-                        checkpoint_plan=checkpoint_plan[dimension],
                         controller=controller,
                         selector=selector,
                         query_feature_row=_query_feature_row(query_feature_rows, function=function, dimension=dimension),
@@ -257,7 +232,7 @@ def evaluate_online_controller(
         model_name=model_name,
         threshold_mode=threshold_mode,
         sampling_protocol=sampling_protocol,
-        checkpoint_ratios=checkpoint_ratios,
+        budget_milestone_ratios=budget_milestone_ratios,
         decision_check_frequency=decision_check_frequency,
         controller=controller,
         default_algorithm=selector.sbs_algorithm,
@@ -279,12 +254,11 @@ def _evaluate_online_controller_sharded(
     model_name: str,
     threshold_mode: str,
     sampling_protocol: str,
-    checkpoint_ratios: tuple[float, ...],
+    budget_milestone_ratios: tuple[float, ...],
     decision_check_frequency: str,
     controller: DecisionControllerModel,
     selector: OnlineSelector | None,
     query_feature_rows: dict[tuple[int, int], dict[str, Any]],
-    checkpoint_plan: dict[int, list[tuple[float, int]]],
     random_query_probability: float,
     random_repetitions: int,
     random_seed: int,
@@ -326,7 +300,6 @@ def _evaluate_online_controller_sharded(
                     "function": int(function),
                     "dimension": int(dimension),
                     "seeds": [int(seed) for seed in shard_seeds],
-                    "checkpoint_plan": checkpoint_plan[dimension],
                     "controller": controller,
                     "selector": selector,
                     "query_feature_row": _query_feature_row(query_feature_rows, function=function, dimension=dimension),
@@ -365,7 +338,7 @@ def _evaluate_online_controller_sharded(
         model_name=model_name,
         threshold_mode=threshold_mode,
         sampling_protocol=sampling_protocol,
-        checkpoint_ratios=checkpoint_ratios,
+        budget_milestone_ratios=budget_milestone_ratios,
         decision_check_frequency=decision_check_frequency,
         controller=controller,
         random_query_probability=random_query_probability,
@@ -431,7 +404,6 @@ def _evaluate_online_controller_shard(job: dict[str, Any]) -> dict[str, Any]:
                 dimension=dimension,
                 seed=seed,
                 fe_total=fe_total,
-                checkpoint_plan=job["checkpoint_plan"],
                 controller=job["controller"],
                 selector=job["selector"],
                 query_feature_row=job["query_feature_row"],
@@ -481,7 +453,7 @@ def _summarize_shards(
     model_name: str,
     threshold_mode: str,
     sampling_protocol: str,
-    checkpoint_ratios: tuple[float, ...],
+    budget_milestone_ratios: tuple[float, ...],
     decision_check_frequency: str,
     controller: DecisionControllerModel,
     random_query_probability: float,
@@ -513,7 +485,7 @@ def _summarize_shards(
         model_name=model_name,
         threshold_mode=threshold_mode,
         sampling_protocol=sampling_protocol,
-        checkpoint_ratios=checkpoint_ratios,
+        budget_milestone_ratios=budget_milestone_ratios,
         decision_check_frequency=decision_check_frequency,
         controller=controller,
         default_algorithm=default_algorithm,
@@ -539,7 +511,7 @@ def _write_online_summary(
     model_name: str,
     threshold_mode: str,
     sampling_protocol: str,
-    checkpoint_ratios: tuple[float, ...],
+    budget_milestone_ratios: tuple[float, ...],
     decision_check_frequency: str,
     controller: DecisionControllerModel,
     default_algorithm: str,
@@ -571,9 +543,9 @@ def _write_online_summary(
         "model_name": model_name,
         "threshold_mode": threshold_mode,
         "sampling_protocol": sampling_protocol,
-        "checkpoint_ratios": [float(value) for value in checkpoint_ratios],
+        "budget_milestone_ratios": [float(value) for value in budget_milestone_ratios],
         "decision_check_frequency": decision_check_frequency,
-        "decision_check_count": int(len(checkpoint_ratios)),
+        "mean_decision_check_count": float(result["decision_check_count"].mean()),
         "threshold": float(controller.threshold),
         "feature_columns": controller.feature_columns,
         "default_algorithm": default_algorithm,
@@ -607,12 +579,11 @@ def _write_online_summary(
         },
         "scope_notes": [
             "All policies start from the SBS/default optimizer probe state when a decision is needed.",
-            "Behavior sampling is the decision-check frequency: every checkpoint is also a possible query trigger point.",
-            "always_query executes the fixed query at the first checkpoint in the active sampling protocol.",
+            "Behavior sampling defines the decision opportunities: every emitted dynamic state is also a possible query trigger point.",
+            "always_query executes the fixed query at the first emitted state in the frozen sampling protocol.",
             "traditional_aas reuses the equivalent always-query plus selector run instead of repeating the continuation.",
             "External group-level query failures are retained in query_feature_status and use the selector's frozen BBOB-train median imputation; affected rows are reported separately.",
-            "random_query samples one independent checkpoint trigger stream per repetition and run at each decision-check point.",
-            "dense_decision_check is a sensitivity analysis of decision-check frequency, not a passive observation protocol.",
+            "random_query samples one independent trigger stream per repetition and run over the shared dynamic decision opportunities.",
             "The controller and threshold are frozen from BBOB train artifacts.",
             "In sharded mode, existing function/dimension shard outputs are skipped unless --overwrite is passed.",
             "Parallel workers execute independent function/dimension shards; summary outputs are written after shard completion.",
@@ -687,7 +658,9 @@ def _selected_seeds(config: dict, only_seeds: list[int] | None) -> list[int]:
 def _load_controller(training_summary_path: Path, model_name: str, threshold_mode: str) -> DecisionControllerModel:
     summary = json.loads(training_summary_path.read_text(encoding="utf-8"))
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
-    if not feature_columns or not set(feature_columns).issubset(BEHAVIOR_FEATURE_COLUMNS):
+    if not feature_columns or not set(feature_columns).issubset(
+        SELECTOR_BEHAVIOR_FEATURE_COLUMNS
+    ):
         raise ValueError("controller feature columns must be a non-empty subset of behavior features")
     model_name = resolve_model_name(summary, model_name)
     model_path = _model_path(summary, model_name)
@@ -826,38 +799,24 @@ def _fit_online_selector(selector_model_path: Path) -> OnlineSelector:
     return OnlineSelector(model=load_selector_model(selector_model_path))
 
 
-def _checkpoint_ratios(config: dict, sampling_protocol: str) -> tuple[float, ...]:
+def _budget_milestone_ratios(config: dict, sampling_protocol: str) -> tuple[float, ...]:
     if sampling_protocol == DEFAULT_SAMPLING_PROTOCOL:
-        return tuple(float(value) for value in config["checkpoint_ratios"])
-    if sampling_protocol == "dense_decision_check":
-        return DENSE_DECISION_CHECK_RATIOS
+        if str(config.get("sampling_protocol", "")) != SAMPLING_PROTOCOL:
+            raise ValueError("online config does not use the frozen dynamic sampling protocol")
+        return get_sampling_spec(sampling_protocol).budget_milestone_ratios
     raise ValueError(f"unsupported sampling protocol: {sampling_protocol}")
 
 
 def _decision_check_frequency(sampling_protocol: str) -> str:
     if sampling_protocol == DEFAULT_SAMPLING_PROTOCOL:
-        return "training_matched_checkpoint_ratios"
-    if sampling_protocol == "dense_decision_check":
-        return "dense_0.025_fe_ratio_grid_between_0.20_and_0.60_with_0.28_transition_point"
+        return "dynamic_budget_milestones_and_causal_state_events"
     raise ValueError(f"unsupported sampling protocol: {sampling_protocol}")
 
 
 def _sampling_output_dir(output_dir: Path, sampling_protocol: str) -> Path:
     if sampling_protocol == DEFAULT_SAMPLING_PROTOCOL:
         return output_dir
-    if sampling_protocol == "dense_decision_check" and not output_dir.name.endswith("_dense_decision_check"):
-        return output_dir.with_name(f"{output_dir.name}_dense_decision_check")
     return output_dir
-
-
-def _checkpoint_plan(config: dict, dimension: int, checkpoint_ratios: tuple[float, ...]) -> list[tuple[float, int]]:
-    fe_total = fe_total_for_dimension(config, dimension)
-    population_size = int(config["population_size"])
-    plan = []
-    for ratio in checkpoint_ratios:
-        fe = int(min(fe_total, ceil(float(ratio) * fe_total / population_size - EPS) * population_size))
-        plan.append((float(ratio), fe))
-    return plan
 
 
 def _evaluate_one_run(
@@ -867,7 +826,6 @@ def _evaluate_one_run(
     dimension: int,
     seed: int,
     fe_total: int,
-    checkpoint_plan: list[tuple[float, int]],
     controller: DecisionControllerModel,
     selector: OnlineSelector,
     query_feature_row: dict[str, Any],
@@ -886,7 +844,6 @@ def _evaluate_one_run(
             function=function,
             seed=seed,
             fe_total=fe_total,
-            checkpoint_plan=checkpoint_plan,
             selector=selector,
             query_feature_row=query_feature_row,
             controller=None,
@@ -902,7 +859,6 @@ def _evaluate_one_run(
             function=function,
             seed=seed,
             fe_total=fe_total,
-            checkpoint_plan=checkpoint_plan,
             selector=selector,
             query_feature_row=query_feature_row,
             controller=None,
@@ -920,7 +876,6 @@ def _evaluate_one_run(
             function=function,
             seed=seed,
             fe_total=fe_total,
-            checkpoint_plan=checkpoint_plan,
             selector=selector,
             query_feature_row=query_feature_row,
             controller=controller,
@@ -937,7 +892,6 @@ def _evaluate_one_run(
                 function=function,
                 seed=seed,
                 fe_total=fe_total,
-                checkpoint_plan=checkpoint_plan,
                 selector=selector,
                 query_feature_row=query_feature_row,
                 controller=None,
@@ -964,7 +918,6 @@ def _evaluate_one_run(
                     "seed": int(seed),
                     "sampling_protocol": sampling_protocol,
                     "decision_check_frequency": decision_check_frequency,
-                    "decision_check_count": int(len(checkpoint_plan)),
                 }
             )
         return rows
@@ -979,7 +932,6 @@ def _run_threshold_policy(
     function: int,
     seed: int,
     fe_total: int,
-    checkpoint_plan: list[tuple[float, int]],
     selector: OnlineSelector,
     query_feature_row: dict[str, Any],
     controller: DecisionControllerModel | None,
@@ -997,7 +949,6 @@ def _run_threshold_policy(
     fe_query = query_spec.sample_design.sample_size(problem.dimension)
     if fe_query != int(round(query_spec.sample_design.fe_ratio * fe_total)):
         raise ValueError("online query FE does not match the frozen sample design")
-    trajectory_rows: list[dict[str, Any]] = []
     settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
     started = perf_counter()
     current_state = initialize_optimizer_state(
@@ -1007,8 +958,16 @@ def _run_threshold_policy(
         settings=settings,
     )
     prefix_algorithm = str(current_state.algorithm)
-    window_recorder = NativeUpdateWindowRecorder()
-    window_recorder.observe(
+    behavior_stream = StreamingBehaviorState(
+        problem_id=problem.problem_id,
+        family=problem.family,
+        dimension=problem.dimension,
+        algorithm=default_algorithm,
+        seed=seed,
+        fe_total=fe_total,
+        sampling_protocol=sampling_protocol,
+    )
+    behavior_stream.observe(
         fe=int(current_state.evaluations),
         native_updates=int(current_state.generation),
         population=current_state.population,
@@ -1025,16 +984,20 @@ def _run_threshold_policy(
     selector_status = "not_used"
     runtime_query = 0.0
     runtime_selection = 0.0
+    decision_check_count = 0
+    trigger_sampling_metadata: dict[str, Any] = {
+        f"trigger_{column}": None for column in SAMPLING_METADATA_COLUMNS
+    }
 
-    for ratio, checkpoint_fe in checkpoint_plan:
-        delta = checkpoint_fe - current_fe
+    while behavior_stream.next_monitor_ratio is not None:
+        delta = min(population_size, fe_total - current_fe)
         if delta <= 0:
-            continue
+            break
         continuation = advance_optimizer_state(
             state=current_state,
             problem=problem,
             fe_budget=delta,
-            on_native_update=lambda updated: window_recorder.observe(
+            on_native_update=lambda updated: behavior_stream.observe(
                 fe=int(updated.evaluations),
                 native_updates=int(updated.generation),
                 population=updated.population,
@@ -1043,26 +1006,13 @@ def _run_threshold_policy(
             ),
         )
         runtime_probe += continuation.runtime_seconds
-        current_fe = checkpoint_fe
-        window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
-        trajectory_record = TrajectoryRecord.from_arrays(
-            problem_id=problem.problem_id,
-            family=problem.family,
-            dimension=problem.dimension,
-            algorithm=default_algorithm,
-            seed=seed,
-            fe=current_fe,
-            fe_total=fe_total,
-            native_updates=int(current_state.generation),
-            window_statistics=window_statistics,
-            native_update_history=native_update_history,
-            population=current_state.population,
-            fitness=current_state.fitness,
-            best_fitness=current_state.best_fitness,
-            fe_ratio=ratio,
-        )
-        trajectory_rows.append(trajectory_record.__dict__)
-        behavior_row = extract_behavior_rows([row.copy() for row in trajectory_rows])[-1]
+        current_fe = int(current_state.evaluations)
+        sample_started = perf_counter()
+        behavior_row = behavior_stream.sample_dynamic()
+        if behavior_row is None:
+            runtime_probe += perf_counter() - sample_started
+            continue
+        decision_check_count += 1
         should_trigger, trigger_score = _should_trigger(
             behavior_row=behavior_row,
             controller=controller,
@@ -1074,9 +1024,14 @@ def _run_threshold_policy(
             dimension=problem.dimension,
             repetition=repetition,
         )
+        runtime_probe += perf_counter() - sample_started
         if should_trigger:
             triggered = True
-            trigger_ratio = ratio
+            trigger_ratio = float(behavior_row["FE_ratio"])
+            trigger_sampling_metadata = {
+                f"trigger_{column}": behavior_row[column]
+                for column in SAMPLING_METADATA_COLUMNS
+            }
             if str(query_feature_row["problem_id"]) != problem.problem_id:
                 raise ValueError("saved query feature row does not match the online problem")
             runtime_query = float(query_feature_row["runtime_query"])
@@ -1164,6 +1119,8 @@ def _run_threshold_policy(
         "trigger_FE_ratio": float(trigger_ratio) if triggered else None,
         "decision_score": float(trigger_score) if trigger_score is not None else None,
         "decision_threshold": float(controller.threshold) if controller is not None else None,
+        "decision_check_count": int(decision_check_count),
+        **trigger_sampling_metadata,
         "FE_total": int(fe_total),
         "FE_probe": int(current_fe),
         "FE_query": int(fe_query) if triggered else 0,
@@ -1343,13 +1300,12 @@ def _markdown_report(
             f"- Default/SBS optimizer: `{summary['default_algorithm']}`。",
             f"- Sampling protocol: `{summary['sampling_protocol']}`。",
             f"- Decision-check frequency: `{summary['decision_check_frequency']}`。",
-            f"- Checkpoint ratios: `{', '.join(str(value) for value in summary['checkpoint_ratios'])}`。",
+            f"- Budget milestone ratios: `{', '.join(str(value) for value in summary['budget_milestone_ratios'])}`。",
             "- 评价单位是完整 optimization run；final performance 越小越好。",
             "- Controller 只使用实时 behavior features；CEC rows 不参与训练、预处理拟合或阈值选择。",
             "- Query 后的 Selection Reference 使用冻结的 BBOB-train statewise action-loss regressor，并连续接收 remaining budget；CEC rows 不参与 selector 拟合。",
-            "- 每个 checkpoint 同时是 behavior observation 点和可能触发固定 query 的 decision-check point。",
-            "- `always_query` 表示在当前 sampling protocol 的第一个 checkpoint 后必定执行固定 query 的 after-probe baseline。",
-            "- `dense_decision_check` 只能解释为决策检查频率敏感性，不是纯被动观测频率实验。",
+            "- 每个动态采样状态同时是 behavior observation 点和可能触发固定 query 的 decision opportunity。",
+            "- `always_query` 表示在当前 sampling protocol 的第一个决策机会必定执行固定 query 的 after-probe baseline。",
             "",
             "## Overall Policies",
             "",
@@ -1440,7 +1396,7 @@ def main() -> None:
         args.training_summary
         or Path("results/decision")
         / args.query_id
-        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json"
+        / "feature_group_ablation/B3/full_decision_model_training_summary.json"
     )
     output_dir = args.output_dir or Path("results/decision") / args.query_id / split / "online_controller_evaluation"
 

@@ -209,30 +209,34 @@ population_size = 40
 理由：
 
 - 上述预算均可被 `population_size = 40` 整除，便于保存完整 population checkpoint。
-- Checkpoint 继续使用 FE ratio，不使用固定 FE 间隔。
+- 状态采样使用 FE ratio 监测网格，不使用固定 FE 间隔。
 
-正式 checkpoint ratios：
+正式采样协议：
 
 ```text
-0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+sampling_protocol = phase1_dynamic_budget_event_v1
+monitor_grid = 0.20 ... 0.60, step 0.01
+budget_milestones = 0.20, 0.22, 0.24, 0.26, 0.28,
+                    0.30, 0.34, 0.38, 0.42, 0.46,
+                    0.50, 0.60
 ```
 
 裁决理由：
 
 - preliminary 覆盖分析显示 `selected_equals_default=false` 且 `U_query>0` 的主要机会集中在 `FE_ratio=0.30-0.55`；该观察只用于冻结采样范围，不作为正式结果。
-- `0.20` 保留为较早成熟度参照，`0.25` 和 `0.28` 用于提高 0.20 到 0.30 之间的行为与效用分辨率；这些 checkpoint 不再与任何 performance bucket 绑定。
+- early `[0.20,0.30)` 使用 `0.20/0.22/0.24/0.26/0.28`，mid `[0.30,0.50)` 使用 `0.30/0.34/0.38/0.42/0.46`，late `[0.50,0.60]` 使用 `0.50/0.60`；这些里程碑不与任何 performance bucket 绑定。
 - `0.60` 保留为机会区之后的衰减参照。
 - very early checkpoints 例如 `0.005-0.15` 和 late endpoints 例如 `0.75/1.00` 不进入正式 phase1 主采样频率；如需研究 early/late 行为，应另设扩展实验。
+- 事件触发包括 `improvement_resume`、`stagnation_onset`、`rank_change`、`elite_migration` 和 `diversity_recovery`；每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件。同一 update 跨过多个监测点时，若包含预算里程碑，则以该里程碑作为合并行的名义节点，里程碑与多事件合并为一行且不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；若不含里程碑，则以最新跨过的监测点作为名义节点。冻结的 `population_size=40` 与 `FE_total=1000D` 保证一次 update 的 ratio 跨度不超过 `0.01`，因而不会同时跨过间距至少 `0.02` 的两个预算里程碑。每阶段最多 2 个 event-only 状态，event-only 实际 ratio 间隔至少 `0.02`，每个 run 输出 12–18 个状态。被 gap/quota 抑制落盘的事件 crossing 仍推进再武装状态。
 
 在线测评行为采样口径：
 
 - 在线测评中的行为采样频率定义为 `decision-check frequency`。
 - 每个采样点同时是 behavior observation 点，也是 controller、Random Analysis 和 Always Query 可以触发固定 query 的决策点。
-- 主在线测评使用训练 / label 同口径 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
-- 密集采样只作为敏感性分析，使用：`0.20, 0.225, 0.25, 0.275, 0.28, 0.30, 0.325, 0.35, 0.375, 0.40, 0.425, 0.45, 0.475, 0.50, 0.525, 0.55, 0.575, 0.60`。
-- 在尚未触发 query 时，主采样与密集采样都只观察同一个连续优化器状态；增加 checkpoint 不得重新初始化算法，也不得改变同 seed 的原生搜索轨迹。
-- 密集采样仍是决策检查频率敏感性分析，因为增加检查点会增加 controller 的触发机会；这一影响来自决策机会，而不是优化器重启。
-- 主结论只使用训练同口径 online sampling protocol。
+- 主在线测评使用与训练 / label 相同的 `phase1_dynamic_budget_event_v1` 状态集，所有策略共享完全相同的 decision opportunities。
+- 正式首轮离线训练样本不由模型分数决定，且不做事后样本重加权（每行 `sample_weight=1`）。
+- 只有在模型与 `oof_utility` threshold 冻结后，online 附加复查才可使用阈值邻近带；带宽为完整 BBOB-train family-OOF 上 `abs(score-threshold)` 的第 10 百分位数，BBOB-validation 与外部测试不得拟合该带宽。该附加机会必须同时提供给所有被比较策略。
+- 增加状态观测不得重新初始化算法，也不得改变同 seed 的原生搜索轨迹。
 
 正式配置文件：
 
@@ -278,12 +282,16 @@ validation:
 每个正式 shard 包含：
 
 ```text
-3 instances * 30 optimizer seeds * 4 algorithms * 10 checkpoints = 3600 trajectory rows
+3 instances * 30 optimizer seeds * 4 algorithms * (12--18 states)
+= 4320--6480 trajectory rows
 ```
+
+具体行数由冻结事件规则决定，下游不使用某个固定精确行数作为覆盖代理；必须按整数 `FE` 状态键对实际状态集做双向覆盖检查。
 
 续跑口径：
 
 - 若目标 shard 文件已存在，默认跳过。
+- trajectory 与 `final_performance.parquet` 作为同一输出 pair 发布；覆盖采集期间不得并发启动 behavior、SBS 或其他下游读取。
 - 显式传入 `--overwrite` 时允许重新生成目标 shard。
 - 单个 shard 失败时，只重跑该 shard。
 - 不实现哈希、checksum、manifest、receipt、append-only 或执行解锁机制。
@@ -393,7 +401,8 @@ performance_gain = P_skip - p_query
 裁决：
 
 - 在线部署主设置使用 SBS 作为初始 default optimizer。
-- SBS 只由训练集平均表现确定。
+- SBS 只由 BBOB-train 的完整预算终值确定。数据源为与 decision trajectory 分离的 `final_performance.parquet`；每个 `problem_id × algorithm × seed` 在 `FE=FE_total` 恰好一行。
+- SBS 的冻结计算顺序为：先在每个 `problem_id × algorithm` 上对全部 seeds 的 `best_fitness` 取算术均值，再在每个 problem 内对四个算法按越小越好排名，最后按 algorithm 跨 problem 平均排名；平均排名并列时按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。不得先跨 problem 平均原始 loss，也不得读取 `0.20–0.60` trajectory 的最后一行代替完整预算终值。
 - 固定 CMA-ES 或 DE 可作为敏感性分析。
 - 第一篇论文的主 probe/default 都固定为训练集 SBS；主 Decision 数据只保留 `prefix_algorithm == default_algorithm` 的行。
 - 主 No-query 路径原生继续 SBS prefix 的完整状态，不重启、不改参数、不改变总预算口径。
@@ -504,7 +513,7 @@ Maturity-aware Model
 
 - 不预设 Search Maturity 一定有效。
 - `M_t = ES_t(1 - XS_t)` 是本文启发式定义，必须通过消融和 OOD 结果验证。
-- Decision feature-group 消融必须包含 `time_only` baseline，数学输入固定为 `X={FE_ratio}`，代码使用逐行等于 `FE_ratio` 的 `bf_fe_ratio`。它与完整行为组使用相同模型、split、train-only preprocessing、threshold 和评价指标，用于判断 Controller 是否只学习了调用阶段。
+- Decision feature-group 正式消融固定为 `T0/B1/B2/B3=1/19/25/31`。T0 的数学输入固定为 `X={FE_ratio}`，代码使用逐行等于 `FE_ratio` 的 `bf_fe_ratio`；四组使用相同模型、split、train-only preprocessing、threshold 和评价指标。`all_candidates` 仅是 B3 的兼容别名，严格不含 `diagnostic_only`，不得作为第五个独立消融组。
 - 若完整行为组没有在 held-out families 与外部 benchmark 上稳定优于 `time_only`，不得声称算法无关搜索行为提供了超出阶段信息的预测价值。
 
 ---
@@ -565,7 +574,7 @@ audit
 - 模型主选择指标固定为 BBOB-train 上的 nested function-family OOF decision mean utility：外层 family fold 评价候选，外层阈值只从对应内层 family-OOF 分数及 Utility 拟合。
 - 选定模型前不得读取 BBOB-validation 指标。完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold，随后才在完整 BBOB-train 上重拟合模型并评价 BBOB-validation。
 - AUROC、Average Precision 和 Spearman 是辅助指标；连续 Utility RMSE 只对 Ridge 定义。LDA 与 Logistic Regression 的分类分数不得直接与连续 Utility 计算 RMSE。
-- `primary_with_maturity` 决定主 Controller 的模型名；Time-only 与其他 feature-group 比较必须读取同名候选的预测，不能各自改选更有利的模型。
+- B3（兼容代码名 `primary_with_maturity`）决定主 Controller 的模型名；T0/B1/B2 与 B3 比较必须读取同名候选的预测，不能各自改选更有利的模型。
 - 分阶段阈值只能使用 BBOB-train OOF 信息预先拟合并作为稳健性分析；BBOB-validation 不得用于阈值网格选择。
 - 旧 LDA/Ridge/复杂模型数值继续保留在撤回结果说明中，但不得据此预设重生成后的赢家或把 Utility 解释为已证实的分类边界构念。
 
@@ -588,7 +597,7 @@ CEC2017 已由 `configs/phase1_cec2017_test.yaml` 冻结为 29 个函数、10D /
 - 主环境不依赖 pflacco；标准特征只由 `tools/pflacco_query/` 的 Python 3.11、pflacco 1.2.2 环境从 Parquet 样本提取。
 - BBOB train / validation function family split，见第 5.1 节。
 - BBOB train / validation dimensions：10D / 20D / 40D。
-- Phase1 主 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
+- Phase1 主采样协议：`phase1_dynamic_budget_event_v1`，12 个预算里程碑加冻结事件状态，每个 run 产生 12–18 行。
 - `dimension`、`function_id`、`algorithm_id`、算法内部参数、query features 不进入 Decision Model 输入；这些字段只作为 metadata 和分层诊断使用。
 - 必须保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 和 `skip_switches_from_prefix`；四者分别回答 selector 是否选择 SBS、query 路径是否继续当前算法、Query 路径是否需要 Population Transfer、No-query 是否离开当前算法。
 - `handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`；活动数据和报告不得再生成 selected-vs-default 字符串别名。

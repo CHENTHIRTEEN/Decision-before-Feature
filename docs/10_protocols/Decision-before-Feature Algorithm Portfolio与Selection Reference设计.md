@@ -449,7 +449,7 @@ Selection Reference本身需要验证。
 
 ## Single Best Solver (SBS)
 
-整个训练集平均最好的算法。
+SBS 从与 decision trajectory 分离的 BBOB-train `final_performance.parquet` 计算。终值表对每个 `problem_id × algorithm × seed` 只保留 `FE=FE_total` 的一行。先在每个 `problem_id × algorithm` 上对全部 seeds 的终值取算术均值，再逐 problem 对算法按越小越好排名，最后跨 problem 平均排名；平均排名最小者为 SBS，最终并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。不得把 `0.20–0.60` trajectory 的最后一行当作完整预算性能。
 
 ------------------------------------------------------------------------
 

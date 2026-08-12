@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
 UTILITY_VALUE_COLUMNS = (
@@ -25,6 +26,7 @@ UTILITY_COLUMNS = (
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
     "query_id",
     "query_protocol",
     "query_feature_columns",

@@ -248,8 +248,9 @@ Pareto 评估必须同时报告：
 
 代码已按本文口径完成字段与数据范围隔离，但正式数据尚需从 trajectory 开始重生成：
 
-- 按当前固定配置，主 SBS-prefix Decision dataset 预期为 64,800 rows，train / validation 为 48,600 / 16,200；
-- all-prefix cross-probe dataset 预期为 259,200 rows，train / validation 为 194,400 / 64,800；
+- 正式采样使用 `phase1_dynamic_budget_event_v1`，每个 run 产生 12–18 个状态，因此 Decision dataset 不再冻结单一精确行数；
+- 数据覆盖以实际状态键集合为准：eligible behavior、action-loss、Selection Reference 与 Utility label 必须在 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)` 上双向一致；
+- 不使用浮点 `FE_ratio` 作 join key，也不使用旧固定 checkpoint 行数作为覆盖代理；
 - 主 target：`u_query_lamT_1`；
 - preprocessing、模型和 deployable threshold 只在 BBOB train 上拟合；
 - 主 Decision 数据只含训练集 SBS prefix；全 prefix 数据单独输出作稳健性分析；

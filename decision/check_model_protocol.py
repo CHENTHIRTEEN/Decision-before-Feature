@@ -15,6 +15,7 @@ from decision.model_protocol import (
     INNER_OOF_FOLDS,
     MODEL_SELECTION_METRIC,
     OUTER_OOF_FOLDS,
+    THRESHOLD_NEIGHBORHOOD_QUANTILE,
     active_model_specs,
 )
 
@@ -56,6 +57,7 @@ def check_model_protocol(training_dir: Path | None = None) -> dict[str, Any]:
         "objectives": objectives,
         "model_selection_metric": MODEL_SELECTION_METRIC,
         "frozen_threshold_mode": FROZEN_THRESHOLD_MODE,
+        "threshold_neighborhood_quantile": THRESHOLD_NEIGHBORHOOD_QUANTILE,
         "oof_folds": {
             "outer": OUTER_OOF_FOLDS,
             "inner": INNER_OOF_FOLDS,
@@ -103,6 +105,23 @@ def _check_training_artifacts(training_dir: Path) -> dict[str, Any]:
         raise ValueError("BBOB-validation rows were used to fit a Decision threshold")
     if (thresholds["in_sample_train_rows_used_for_threshold_fit"].astype(int) != 0).any():
         raise ValueError("in-sample training predictions were used to fit a Decision threshold")
+    oof_thresholds = thresholds[
+        thresholds["threshold_mode"].astype(str) == FROZEN_THRESHOLD_MODE
+    ]
+    if len(oof_thresholds) != len(ACTIVE_MODEL_NAMES):
+        raise ValueError("one OOF threshold-neighborhood width is required per active model")
+    if not np.allclose(
+        oof_thresholds["threshold_neighborhood_quantile"].astype(float).to_numpy(),
+        THRESHOLD_NEIGHBORHOOD_QUANTILE,
+        rtol=0.0,
+        atol=0.0,
+    ):
+        raise ValueError("threshold-neighborhood quantile does not match the frozen Q10 protocol")
+    widths = oof_thresholds["threshold_neighborhood_width"].astype(float).to_numpy()
+    if not np.isfinite(widths).all() or (widths < 0.0).any():
+        raise ValueError("threshold-neighborhood widths must be finite and non-negative")
+    if (oof_thresholds["validation_rows_used_for_neighborhood_fit"].astype(int) != 0).any():
+        raise ValueError("BBOB-validation rows were used to fit a threshold-neighborhood width")
 
     folds = pq.read_table(training_dir / "oof_fold_summary.parquet").to_pandas()
     if (folds["family_overlap_count"].astype(int) != 0).any():

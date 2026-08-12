@@ -5,7 +5,7 @@ from pathlib import Path
 
 from behavior.extraction import extract_behavior_file
 from behavior.validation import validate_behavior_file
-from experiments.phase1_batch_common import load_config, make_shards
+from experiments.phase1_batch_common import load_config, make_shards, require_complete_shard_outputs
 
 
 def behavior_output_path(trajectory_path: Path) -> Path:
@@ -21,7 +21,6 @@ def extract_behavior_shards(
 ) -> dict[str, int]:
     written_count = 0
     skipped_existing_count = 0
-    skipped_missing_count = 0
     row_count = 0
 
     for config_path in config_paths:
@@ -30,13 +29,10 @@ def extract_behavior_shards(
             raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022")
 
         for shard in make_shards(config, only_functions, only_dimensions):
+            require_complete_shard_outputs(shard)
             trajectory_path = shard.output_path
             output_path = behavior_output_path(trajectory_path)
 
-            if not trajectory_path.exists():
-                print(f"skip missing trajectory shard {trajectory_path}")
-                skipped_missing_count += 1
-                continue
             if output_path.exists() and not overwrite:
                 validate_behavior_file(trajectory_path, output_path)
                 print(f"skip existing behavior shard {output_path}")
@@ -51,13 +47,11 @@ def extract_behavior_shards(
     print(
         "finished "
         f"{written_count} written shards, "
-        f"{skipped_existing_count} existing shards skipped, "
-        f"{skipped_missing_count} missing trajectory shards skipped"
+        f"{skipped_existing_count} existing shards skipped"
     )
     return {
         "written_shards": written_count,
         "skipped_existing_shards": skipped_existing_count,
-        "skipped_missing_trajectory_shards": skipped_missing_count,
         "rows": row_count,
     }
 

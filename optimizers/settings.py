@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from trajectory.sampling import get_sampling_spec
+
 
 DEFAULT_CHECKPOINT_RATIOS = (0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00)
 
@@ -10,6 +12,7 @@ DEFAULT_CHECKPOINT_RATIOS = (0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00)
 class OptimizerSettings:
     population_size: int = 40
     checkpoint_ratios: tuple[float, ...] = DEFAULT_CHECKPOINT_RATIOS
+    sampling_protocol: str | None = None
 
     def validate(self, fe_total: int) -> None:
         if self.population_size < 4:
@@ -23,4 +26,16 @@ class OptimizerSettings:
             if ratio <= previous or ratio > 1.0:
                 raise ValueError("checkpoint ratios must be strictly increasing and <= 1.0")
             previous = ratio
-
+        if self.sampling_protocol is not None:
+            spec = get_sampling_spec(self.sampling_protocol)
+            monitor_gaps = [
+                later - earlier
+                for earlier, later in zip(spec.monitor_ratios, spec.monitor_ratios[1:])
+            ]
+            if not monitor_gaps:
+                raise ValueError("dynamic sampling protocol must define at least two monitor ratios")
+            if self.population_size / fe_total > min(monitor_gaps) + 1e-12:
+                raise ValueError(
+                    "dynamic sampling requires each complete population update to span no more "
+                    "than the minimum monitor-ratio gap"
+                )

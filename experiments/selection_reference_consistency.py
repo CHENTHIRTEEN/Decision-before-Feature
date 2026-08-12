@@ -33,6 +33,10 @@ from selection_reference.model import (
     selection_rows,
 )
 from trajectory.records import TrajectoryRecord
+from trajectory.sampling import (
+    SAMPLING_METADATA_COLUMNS,
+    budget_milestone_metadata,
+)
 from trajectory.window_statistics import NativeUpdateWindowRecorder
 from utility_labels.generation import _utility_row, utility_schema
 from utility_labels.validation import validate_utility_label_file
@@ -155,7 +159,7 @@ def _check_query_specific_regression(
             )
             target_fes = tuple(
                 int(ceil(ratio * fe_total / settings.population_size) * settings.population_size)
-                for ratio in (0.20, 0.25, 0.30)
+                for ratio in (0.20, 0.22, 0.24)
             )
             for target_fe in target_fes:
                 advance_optimizer_state(
@@ -170,7 +174,11 @@ def _check_query_specific_regression(
                         best_fitness=updated.best_fitness,
                     ),
                 )
-                window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
+                window_statistics, native_update_history = window_recorder.build(
+                    fe_total=fe_total,
+                    problem_id=problem.problem_id,
+                    algorithm=prefix_algorithm,
+                )
                 trajectory_rows.append(
                     TrajectoryRecord.from_arrays(
                         problem_id=problem.problem_id,
@@ -186,9 +194,18 @@ def _check_query_specific_regression(
                         population=state.population,
                         fitness=state.fitness,
                         best_fitness=state.best_fitness,
+                        sampling_metadata=_milestone_sampling_metadata(
+                            actual_fe=int(state.evaluations),
+                            fe_total=fe_total,
+                            monitor_target_ratio=float(target_fe / fe_total),
+                        ),
                     ).__dict__
                 )
             behavior_rows.append({"split": "bbob_train", **extract_behavior_rows(trajectory_rows)[-1]})
+            sampling_metadata = {
+                column: trajectory_rows[-1][column]
+                for column in SAMPLING_METADATA_COLUMNS
+            }
             sample = sample_problem(
                 problem=problem,
                 sample_design=sample_design,
@@ -261,6 +278,7 @@ def _check_query_specific_regression(
                 "FE": int(state.evaluations),
                 "FE_ratio": float(state.evaluations / fe_total),
                 "FE_total": fe_total,
+                **sampling_metadata,
                 "sample_design_id": spec.sample_design_id,
                 "sample_design_protocol": sample_design.protocol,
                 "FE_query": fe_query,
@@ -304,18 +322,32 @@ def _check_query_specific_regression(
     with tempfile.TemporaryDirectory(prefix="decision-before-feature-query-check-") as directory:
         root = Path(directory)
         action_path = root / "action_losses.parquet"
-        behavior_path = root / "behavior.parquet"
+        behavior_root = root / "phase1_refined_sampling"
+        behavior_path = (
+            behavior_root
+            / "bbob_train"
+            / "bbob_f001"
+            / f"dimension_{dimension}"
+            / "behavior.parquet"
+        )
         feature_path = root / "features.parquet"
         reference_path = root / "selection_reference.parquet"
         model_path = root / "statewise_selector.joblib"
         pq.write_table(pa.Table.from_pandas(action_frame, preserve_index=False), action_path)
-        pq.write_table(pa.Table.from_pandas(behavior_frame, preserve_index=False), behavior_path)
+        behavior_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.Table.from_pandas(
+                behavior_frame.drop(columns="split"),
+                preserve_index=False,
+            ),
+            behavior_path,
+        )
         pq.write_table(pa.Table.from_pandas(query_frame, preserve_index=False), feature_path)
         summary = build_selection_reference(
             query_id=spec.query_id,
             train_action_loss_paths=[action_path],
             predict_action_loss_paths=[],
-            behavior_paths=[behavior_path],
+            behavior_paths=[behavior_root],
             query_feature_paths=[feature_path],
             output_path=reference_path,
             model_output_path=model_path,
@@ -351,8 +383,8 @@ def _check_query_specific_regression(
             pass
         else:
             raise ValueError("legacy Selection Reference label protocol was not rejected")
-        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v3":
-            raise ValueError("Selection Reference protocol version is not frozen at v3")
+        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v5":
+            raise ValueError("Selection Reference protocol version is not frozen at v5")
     print("query-specific action-loss regression and utility consistency passed on 2 BBOB families")
 
 
@@ -430,6 +462,11 @@ def _check_action_loss_budget_separation(
             settings=settings,
         )
         advance_optimizer_state(state=state, problem=problem, fe_budget=int(0.20 * fe_total))
+        sampling_metadata = _milestone_sampling_metadata(
+            actual_fe=int(state.evaluations),
+            fe_total=fe_total,
+            monitor_target_ratio=0.20,
+        )
         for sample_design_id in ("lhs_50d", "lhs_100d"):
             design = get_sample_design_spec(sample_design_id)
             fe_query = design.sample_size(dimension)
@@ -462,6 +499,7 @@ def _check_action_loss_budget_separation(
                 "FE": int(state.evaluations),
                 "FE_ratio": float(state.evaluations / fe_total),
                 "FE_total": fe_total,
+                **sampling_metadata,
                 "sample_design_id": sample_design_id,
                 "sample_design_protocol": design.protocol,
                 "FE_query": fe_query,
@@ -495,6 +533,21 @@ def _check_action_loss_budget_separation(
         else:
             raise ValueError(f"{query_id} accepted mixed lhs_50d/lhs_100d action losses")
     print("real action-loss budgets remain separated: lhs_50d=500 FE, lhs_100d=1000 FE at 10D")
+
+
+def _milestone_sampling_metadata(
+    *,
+    actual_fe: int,
+    fe_total: int,
+    monitor_target_ratio: float,
+) -> dict:
+    target = float(monitor_target_ratio)
+    metadata = budget_milestone_metadata(target)
+    if int(actual_fe) / int(fe_total) < target:
+        raise ValueError("consistency sample FE must not precede its monitor target")
+    if tuple(metadata) != SAMPLING_METADATA_COLUMNS:
+        raise ValueError("consistency sampling metadata does not follow the frozen column order")
+    return metadata
 
 
 def main() -> None:

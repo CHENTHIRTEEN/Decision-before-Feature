@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from behavior.features import extract_behavior_rows
+from behavior.streaming import StreamingBehaviorState
 from benchmarks import make_problem
 from decision.model_protocol import FROZEN_THRESHOLD_MODE, decision_scores, resolve_model_name
 from decision.query_contract import decision_query_root, validate_query_payload
@@ -22,8 +22,7 @@ from decision.online_controller_evaluate import (
     DEFAULT_SAMPLING_PROTOCOL,
     DEFAULT_TRAIN_CONFIG_PATH,
     SAMPLING_PROTOCOLS,
-    _checkpoint_plan,
-    _checkpoint_ratios,
+    _budget_milestone_ratios,
     _decision_check_frequency,
     _model_family,
     _model_path,
@@ -33,11 +32,9 @@ from experiments.phase1_batch_common import as_int_list, fe_total_for_dimension,
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from optimizers import OptimizerSettings, advance_optimizer_state, initialize_optimizer_state
 from selection_reference.common import read_performance, single_best_solver
-from trajectory.records import TrajectoryRecord
-from trajectory.window_statistics import NativeUpdateWindowRecorder
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
-DEFAULT_NEAR_ZERO_THRESHOLD = -0.05
 TOP_SCORE_ROWS = 200
 
 
@@ -50,7 +47,7 @@ def diagnose_online_score_distribution(
     output_dir: Path,
     model_name: str,
     sampling_protocol: str,
-    near_zero_threshold: float,
+    near_zero_threshold: float | None,
     only_functions: list[int] | None,
     only_dimensions: list[int] | None,
     only_seeds: list[int] | None,
@@ -62,18 +59,28 @@ def diagnose_online_score_distribution(
     if str(config["suite"]).lower() not in {"cec2017", "cec2022"}:
         raise ValueError("online score distribution currently expects a CEC suite")
     train_config = load_config(train_config_path)
-    default_algorithm = single_best_solver(read_performance(train_config, None, None))
+    default_algorithm = single_best_solver(
+        read_performance(train_config, None, None),
+        portfolio_order=tuple(str(value) for value in train_config["algorithms"]),
+    )
     controller = _load_score_controller(training_summary_path, model_name, query_id)
-    checkpoint_ratios = _checkpoint_ratios(config, sampling_protocol)
+    frozen_neighborhood_width = float(controller["threshold_neighborhood_width"])
+    if near_zero_threshold is not None and not np.isclose(
+        float(near_zero_threshold),
+        frozen_neighborhood_width,
+        rtol=0.0,
+        atol=0.0,
+    ):
+        raise ValueError(
+            "online threshold-neighborhood width is frozen by BBOB-train family-OOF; "
+            "external overrides are not allowed"
+        )
+    near_zero_threshold = frozen_neighborhood_width
+    budget_milestone_ratios = _budget_milestone_ratios(config, sampling_protocol)
     decision_check_frequency = _decision_check_frequency(sampling_protocol)
     functions = selected_functions(config, only_functions)
     dimensions = selected_dimensions(config, only_dimensions)
     seeds = _selected_seeds(config, only_seeds)
-    checkpoint_plan = {
-        dimension: _checkpoint_plan(config, dimension, checkpoint_ratios)
-        for dimension in dimensions
-    }
-
     rows = []
     run_counter = 0
     started = perf_counter()
@@ -90,7 +97,6 @@ def diagnose_online_score_distribution(
                         dimension=dimension,
                         seed=seed,
                         fe_total=fe_total,
-                        checkpoint_plan=checkpoint_plan[dimension],
                         default_algorithm=default_algorithm,
                         controller=controller,
                         sampling_protocol=sampling_protocol,
@@ -106,9 +112,11 @@ def diagnose_online_score_distribution(
     score_rows = pd.DataFrame(rows)
     if score_rows.empty:
         raise ValueError("online score distribution produced no rows")
-    score_rows["score_ge_near_zero"] = score_rows["decision_score"] > near_zero_threshold
+    score_rows["within_oof_threshold_neighborhood"] = (
+        score_rows["score_margin_to_oof_utility"].abs() <= near_zero_threshold
+    )
     score_summary = _score_summary(score_rows, near_zero_threshold)
-    opportunity_rows = score_rows[score_rows["score_ge_near_zero"] | score_rows["score_ge_zero"]].copy()
+    opportunity_rows = score_rows[score_rows["within_oof_threshold_neighborhood"]].copy()
     top_score_rows = score_rows.sort_values("decision_score", ascending=False).head(TOP_SCORE_ROWS).copy()
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -133,12 +141,14 @@ def diagnose_online_score_distribution(
         "model_family": controller["model_family"],
         "sampling_protocol": sampling_protocol,
         "decision_check_frequency": decision_check_frequency,
-        "checkpoint_ratios": [float(value) for value in checkpoint_ratios],
+        "budget_milestone_ratios": [
+            float(value) for value in budget_milestone_ratios
+        ],
         "default_algorithm": default_algorithm,
         "thresholds": {
             "zero": 0.0,
             FROZEN_THRESHOLD_MODE: float(controller["oof_utility_threshold"]),
-            "near_zero": near_zero_threshold,
+            "oof_threshold_neighborhood_width": near_zero_threshold,
         },
         "rows": int(len(score_rows)),
         "base_runs": int(run_counter),
@@ -161,9 +171,9 @@ def diagnose_online_score_distribution(
             "utility_labels_regenerated": False,
         },
         "scope_notes": [
-            "This diagnostic scores online default-probe checkpoint states only.",
+            "This diagnostic scores online default-probe dynamic decision states only.",
             "It does not run the fixed query, selection reference, or post-decision query continuation.",
-            "Near-zero rows use the descriptive threshold supplied by --near-zero-threshold.",
+            "Threshold-neighborhood rows use the frozen Q10 absolute margin fitted only on BBOB-train family-OOF scores.",
         ],
     }
     summary_path = output_dir / "online_score_distribution_summary.json"
@@ -209,6 +219,21 @@ def _load_score_controller(training_summary_path: Path, model_name: str, query_i
     if not feature_columns:
         raise ValueError("training summary does not define feature_columns")
     model_path = _model_path(summary, model_name)
+    threshold_path = Path(str(summary.get("outputs", {}).get("decision_thresholds", "")))
+    if not threshold_path.exists():
+        raise FileNotFoundError(f"missing decision threshold table: {threshold_path}")
+    threshold_rows = pq.read_table(threshold_path).to_pandas()
+    threshold_row = threshold_rows[
+        (threshold_rows["model_name"].astype(str) == model_name)
+        & (threshold_rows["threshold_mode"].astype(str) == FROZEN_THRESHOLD_MODE)
+    ]
+    if len(threshold_row) != 1:
+        raise ValueError("expected one frozen OOF threshold-neighborhood row for the selected model")
+    if int(threshold_row["validation_rows_used_for_neighborhood_fit"].iloc[0]) != 0:
+        raise ValueError("BBOB-validation rows were used to fit the threshold-neighborhood width")
+    neighborhood_width = float(threshold_row["threshold_neighborhood_width"].iloc[0])
+    if not np.isfinite(neighborhood_width) or neighborhood_width < 0.0:
+        raise ValueError("frozen threshold-neighborhood width must be finite and non-negative")
     return {
         "model": joblib.load(model_path),
         "model_name": model_name,
@@ -217,6 +242,7 @@ def _load_score_controller(training_summary_path: Path, model_name: str, query_i
         "model_path": model_path,
         "zero_threshold": 0.0,
         "oof_utility_threshold": _threshold(summary, model_name, FROZEN_THRESHOLD_MODE),
+        "threshold_neighborhood_width": neighborhood_width,
         "query_id": str(summary["query_id"]),
         "query_protocol": str(summary["query_protocol"]),
         "sample_design_id": str(summary["sample_design_id"]),
@@ -241,7 +267,6 @@ def _score_one_run(
     dimension: int,
     seed: int,
     fe_total: int,
-    checkpoint_plan: list[tuple[float, int]],
     default_algorithm: str,
     controller: dict[str, Any],
     sampling_protocol: str,
@@ -251,7 +276,6 @@ def _score_one_run(
     problem = make_problem({"suite": suite, "function": function, "instance": 1, "dimension": dimension})
     try:
         population_size = int(config["population_size"])
-        trajectory_rows: list[dict[str, Any]] = []
         settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
         started = perf_counter()
         current_state = initialize_optimizer_state(
@@ -260,8 +284,16 @@ def _score_one_run(
             seed=seed,
             settings=settings,
         )
-        window_recorder = NativeUpdateWindowRecorder()
-        window_recorder.observe(
+        behavior_stream = StreamingBehaviorState(
+            problem_id=problem.problem_id,
+            family=problem.family,
+            dimension=problem.dimension,
+            algorithm=default_algorithm,
+            seed=seed,
+            fe_total=fe_total,
+            sampling_protocol=sampling_protocol,
+        )
+        behavior_stream.observe(
             fe=int(current_state.evaluations),
             native_updates=int(current_state.generation),
             population=current_state.population,
@@ -271,15 +303,15 @@ def _score_one_run(
         runtime_probe = perf_counter() - started
         current_fe = int(current_state.evaluations)
         rows = []
-        for ratio, checkpoint_fe in checkpoint_plan:
-            delta = checkpoint_fe - current_fe
+        while behavior_stream.next_monitor_ratio is not None:
+            delta = min(population_size, fe_total - current_fe)
             if delta <= 0:
-                continue
+                break
             continuation = advance_optimizer_state(
                 state=current_state,
                 problem=problem,
                 fe_budget=delta,
-                on_native_update=lambda updated: window_recorder.observe(
+                on_native_update=lambda updated: behavior_stream.observe(
                     fe=int(updated.evaluations),
                     native_updates=int(updated.generation),
                     population=updated.population,
@@ -288,27 +320,14 @@ def _score_one_run(
                 ),
             )
             runtime_probe += continuation.runtime_seconds
-            current_fe = checkpoint_fe
-            window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
-            trajectory_record = TrajectoryRecord.from_arrays(
-                problem_id=problem.problem_id,
-                family=problem.family,
-                dimension=problem.dimension,
-                algorithm=default_algorithm,
-                seed=seed,
-                fe=current_fe,
-                fe_total=fe_total,
-                native_updates=int(current_state.generation),
-                window_statistics=window_statistics,
-                native_update_history=native_update_history,
-                population=current_state.population,
-                fitness=current_state.fitness,
-                best_fitness=current_state.best_fitness,
-                fe_ratio=ratio,
-            )
-            trajectory_rows.append(trajectory_record.__dict__)
-            behavior_row = extract_behavior_rows([row.copy() for row in trajectory_rows])[-1]
+            current_fe = int(current_state.evaluations)
+            sample_started = perf_counter()
+            behavior_row = behavior_stream.sample_dynamic()
+            if behavior_row is None:
+                runtime_probe += perf_counter() - sample_started
+                continue
             score = _score_behavior(controller, behavior_row)
+            runtime_probe += perf_counter() - sample_started
             rows.append(
                 {
                     "split": _split_name(config),
@@ -324,17 +343,19 @@ def _score_one_run(
                     "default_algorithm": default_algorithm,
                     "FE": int(current_fe),
                     "FE_total": int(fe_total),
-                    "FE_ratio": float(ratio),
+                    "FE_ratio": float(behavior_row["FE_ratio"]),
                     "best_fitness": float(current_state.best_fitness),
                     "decision_score": float(score),
                     "score_margin_to_zero": float(score),
                     "score_margin_to_oof_utility": float(score - controller["oof_utility_threshold"]),
                     "score_ge_zero": bool(score > 0.0),
                     "score_ge_oof_utility": bool(score > controller["oof_utility_threshold"]),
-                    "sampling_protocol": sampling_protocol,
+                    **{
+                        column: behavior_row[column]
+                        for column in SAMPLING_METADATA_COLUMNS
+                    },
                     "decision_check_frequency": decision_check_frequency,
-                    "checkpoint_index": int(len(trajectory_rows)),
-                    "checkpoint_count": int(len(checkpoint_plan)),
+                    "decision_opportunity_index": int(len(behavior_stream.trajectory_rows)),
                     "runtime_probe_cumulative": float(runtime_probe),
                 }
             )
@@ -353,15 +374,17 @@ def _score_behavior(controller: dict[str, Any], behavior_row: dict[str, Any]) ->
 
 def _score_summary(score_rows: pd.DataFrame, near_zero_threshold: float) -> pd.DataFrame:
     frame = score_rows.copy()
-    frame["score_ge_near_zero"] = frame["decision_score"] > near_zero_threshold
+    frame["within_oof_threshold_neighborhood"] = (
+        frame["score_margin_to_oof_utility"].abs() <= near_zero_threshold
+    )
     layers = {
         "overall": [],
         "function": ["function"],
         "dimension": ["dimension"],
         "function_dimension": ["function", "dimension"],
-        "FE_ratio": ["FE_ratio"],
-        "function_FE_ratio": ["function", "FE_ratio"],
-        "dimension_FE_ratio": ["dimension", "FE_ratio"],
+        "sampling_phase": ["sampling_phase"],
+        "function_sampling_phase": ["function", "sampling_phase"],
+        "dimension_sampling_phase": ["dimension", "sampling_phase"],
     }
     rows = []
     for layer, columns in layers.items():
@@ -381,7 +404,7 @@ def _summary_row(frame: pd.DataFrame, layer: str, group: dict[str, Any]) -> dict
         "group": _group_label(group),
         "function": group.get("function"),
         "dimension": group.get("dimension"),
-        "FE_ratio": group.get("FE_ratio"),
+        "sampling_phase": group.get("sampling_phase"),
         "rows": int(len(frame)),
         "run_count": int(frame[["problem_id", "dimension", "seed"]].drop_duplicates().shape[0]),
         "score_mean": float(np.mean(scores)),
@@ -391,8 +414,12 @@ def _summary_row(frame: pd.DataFrame, layer: str, group: dict[str, Any]) -> dict
         "score_q90": float(np.quantile(scores, 0.90)),
         "score_q95": float(np.quantile(scores, 0.95)),
         "score_q99": float(np.quantile(scores, 0.99)),
-        "score_ge_near_zero_rows": int(frame["score_ge_near_zero"].sum()),
-        "score_ge_near_zero_rate": float(frame["score_ge_near_zero"].mean()),
+        "within_oof_threshold_neighborhood_rows": int(
+            frame["within_oof_threshold_neighborhood"].sum()
+        ),
+        "within_oof_threshold_neighborhood_rate": float(
+            frame["within_oof_threshold_neighborhood"].mean()
+        ),
         "score_ge_zero_rows": int(frame["score_ge_zero"].sum()),
         "score_ge_zero_rate": float(frame["score_ge_zero"].mean()),
         "score_ge_oof_utility_rows": int(frame["score_ge_oof_utility"].sum()),
@@ -416,7 +443,9 @@ def _markdown_report(
     function_dimension = score_summary[score_summary["layer"] == "function_dimension"].sort_values(
         ["score_ge_zero_rows", "score_max"], ascending=False
     )
-    fe_ratio = score_summary[score_summary["layer"] == "FE_ratio"].sort_values("FE_ratio")
+    phase = score_summary[score_summary["layer"] == "sampling_phase"].sort_values(
+        "sampling_phase"
+    )
     top_columns = [
         "problem_id",
         "function",
@@ -435,26 +464,27 @@ def _markdown_report(
             "",
             "## Scope",
             "",
-            "- Scores are computed along the online default-probe trajectory at each decision-check checkpoint.",
+            "- Scores are computed along the online default-probe trajectory at each dynamic decision opportunity.",
             "- Fixed-query and selection-reference branches are not executed.",
-            f"- Near-zero threshold: `{summary['thresholds']['near_zero']}`.",
+            "- Frozen train-OOF threshold-neighborhood width: "
+            f"`{summary['thresholds']['oof_threshold_neighborhood_width']}`.",
             f"- Frozen train-OOF threshold: `{summary['thresholds'][FROZEN_THRESHOLD_MODE]}`.",
             "",
             "## Overall",
             "",
             _markdown_table(overall),
             "",
-            "## FE-ratio summary",
+            "## Sampling-phase summary",
             "",
             _markdown_table(
-                fe_ratio[
+                phase[
                     [
-                        "FE_ratio",
+                        "sampling_phase",
                         "rows",
                         "score_mean",
                         "score_max",
                         "score_q95",
-                        "score_ge_near_zero_rows",
+                        "within_oof_threshold_neighborhood_rows",
                         "score_ge_zero_rows",
                         "score_ge_oof_utility_rows",
                     ]
@@ -471,7 +501,7 @@ def _markdown_report(
                         "rows",
                         "score_max",
                         "score_q95",
-                        "score_ge_near_zero_rows",
+                        "within_oof_threshold_neighborhood_rows",
                         "score_ge_zero_rows",
                         "score_ge_oof_utility_rows",
                     ]
@@ -482,7 +512,7 @@ def _markdown_report(
             "",
             _markdown_table(top_score_rows[top_columns].head(40)),
             "",
-            "## Near-zero or above-zero rows",
+            "## Frozen OOF-threshold-neighborhood rows",
             "",
             _markdown_table(opportunity_rows[top_columns].head(80)),
             "",
@@ -528,7 +558,7 @@ def _split_name(config: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Diagnose CEC online controller score distribution by checkpoint.")
+    parser = argparse.ArgumentParser(description="Diagnose CEC online controller scores at dynamic decision opportunities.")
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--train-config", type=Path, default=DEFAULT_TRAIN_CONFIG_PATH)
@@ -536,7 +566,12 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--sampling-protocol", choices=SAMPLING_PROTOCOLS, default=DEFAULT_SAMPLING_PROTOCOL)
-    parser.add_argument("--near-zero-threshold", type=float, default=DEFAULT_NEAR_ZERO_THRESHOLD)
+    parser.add_argument(
+        "--near-zero-threshold",
+        type=float,
+        default=None,
+        help="Deprecated verification-only argument; if supplied it must equal the frozen BBOB-train OOF Q10 width.",
+    )
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
     parser.add_argument("--only-seed", type=int, action="append", default=None)
@@ -551,7 +586,7 @@ def main() -> None:
         train_config_path=args.train_config,
         training_summary_path=args.training_summary
         or query_root
-        / "feature_group_ablation/primary_with_maturity/full_decision_model_training_summary.json",
+        / "feature_group_ablation/B3/full_decision_model_training_summary.json",
         output_dir=args.output_dir or query_root / split / "online_score_distribution",
         model_name=args.model_name,
         sampling_protocol=args.sampling_protocol,

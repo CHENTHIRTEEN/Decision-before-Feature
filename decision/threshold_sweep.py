@@ -13,10 +13,17 @@ import pyarrow.parquet as pq
 
 from decision.model_protocol import FROZEN_THRESHOLD_MODE
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
+from decision.sampling_opportunities import (
+    STATE_KEY_COLUMNS,
+    assert_aligned_decision_opportunities,
+    assert_unique_state_keys,
+    with_sampling_opportunity_type,
+)
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
-DEFAULT_FEATURE_GROUPS = ("time_only", "primary", "primary_with_maturity", "all_candidates")
+DEFAULT_FEATURE_GROUPS = ("T0", "B1", "B2", "B3")
 TARGET_COLUMN = "u_query_lamT_1"
 AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
 TRAIN_SPLIT = "bbob_train"
@@ -33,6 +40,7 @@ REQUIRED_COLUMNS = {
     "seed",
     "FE",
     "FE_ratio",
+    *SAMPLING_METADATA_COLUMNS,
     "default_algorithm",
     "no_query_algorithm",
     "selection_reference_default_algorithm",
@@ -58,7 +66,8 @@ GROUP_LAYERS = {
     "selected_equals_default": ["selected_equals_default"],
     "selected_equals_prefix": ["selected_equals_prefix"],
     "handoff_required": ["handoff_required"],
-    "FE_ratio": ["FE_ratio"],
+    "sampling_phase": ["sampling_phase"],
+    "sampling_opportunity_type": ["sampling_opportunity_type"],
     "dimension": ["dimension"],
     "prefix_algorithm": ["prefix_algorithm"],
     "family": ["family"],
@@ -78,11 +87,16 @@ def run_threshold_sweep(
     overwrite: bool,
 ) -> dict[str, Any]:
     _check_args(threshold_min, threshold_max, threshold_step)
+    if tuple(feature_groups) != DEFAULT_FEATURE_GROUPS:
+        raise ValueError(
+            "formal threshold comparison must use canonical T0/B1/B2/B3 exactly once and in order"
+        )
     _check_output_paths(output_dir, overwrite)
     group_payloads = [
         _read_feature_group(input_root, feature_group, query_id) for feature_group in feature_groups
     ]
     _check_family_split(group_payloads)
+    _check_decision_opportunity_alignment(group_payloads)
 
     dense_frames: list[pd.DataFrame] = []
     policy_frames: list[pd.DataFrame] = []
@@ -200,6 +214,7 @@ def run_threshold_sweep(
         "input_root": str(input_root),
         "feature_groups": feature_groups,
         "target_column": TARGET_COLUMN,
+        "decision_opportunity_set": "all accepted dynamic budget-milestone and causal-event rows",
         "threshold_grid": {
             "min": threshold_min,
             "max": threshold_max,
@@ -237,6 +252,7 @@ def run_threshold_sweep(
             "validation_utility_used_for_threshold_selection": False,
             "validation_threshold_grid_evaluated": False,
             "deployable_thresholds_use_validation_utility": False,
+            "all_feature_groups_use_identical_decision_opportunities": True,
         },
     }
     report_path.write_text(
@@ -300,6 +316,8 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
     validate_query_frame(validation, query_id=query_id, artifact=f"{feature_group} validation predictions")
     _check_prediction_frame(train_oof, expected_data_split="train_oof", feature_group=feature_group)
     _check_prediction_frame(validation, expected_data_split="validation", feature_group=feature_group)
+    train_oof = with_sampling_opportunity_type(train_oof, artifact=f"{feature_group} train OOF predictions")
+    validation = with_sampling_opportunity_type(validation, artifact=f"{feature_group} validation predictions")
     thresholds = _read_existing_thresholds(threshold_path)
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     validate_query_payload(summary, query_id=query_id, artifact=f"{feature_group} training summary")
@@ -338,6 +356,37 @@ def _check_family_split(group_payloads: list[dict[str, Any]]) -> None:
         overlap = sorted(train_families.intersection(validation_families))
         if overlap:
             raise ValueError(f"{payload['feature_group']} train and validation families overlap: {overlap}")
+
+
+def _check_decision_opportunity_alignment(group_payloads: list[dict[str, Any]]) -> None:
+    reference: dict[str, tuple[pd.DataFrame, str]] = {}
+    for payload in group_payloads:
+        feature_group = str(payload["feature_group"])
+        for split_name in ("train_oof", "validation"):
+            frame = payload[split_name]
+            model_names = sorted(frame["model_name"].astype(str).unique().tolist())
+            if not model_names:
+                raise ValueError(f"{feature_group} {split_name} has no model rows")
+            first_model = frame[frame["model_name"].astype(str) == model_names[0]].copy()
+            assert_unique_state_keys(first_model, artifact=f"{feature_group} {split_name}/{model_names[0]}")
+            for model_name in model_names[1:]:
+                model_frame = frame[frame["model_name"].astype(str) == model_name].copy()
+                assert_aligned_decision_opportunities(
+                    first_model,
+                    model_frame,
+                    reference_artifact=f"{feature_group} {split_name}/{model_names[0]}",
+                    candidate_artifact=f"{feature_group} {split_name}/{model_name}",
+                )
+            if split_name not in reference:
+                reference[split_name] = (first_model, feature_group)
+            else:
+                reference_frame, reference_group = reference[split_name]
+                assert_aligned_decision_opportunities(
+                    reference_frame,
+                    first_model,
+                    reference_artifact=f"{reference_group} {split_name}",
+                    candidate_artifact=f"{feature_group} {split_name}",
+                )
 
 
 def _read_existing_thresholds(path: Path) -> dict[str, float]:
@@ -414,7 +463,8 @@ def _sweep_metrics(
             "selected_equals_prefix": group.get("selected_equals_prefix"),
             "handoff_required": group.get("handoff_required"),
             "dimension": group.get("dimension"),
-            "FE_ratio": group.get("FE_ratio"),
+            "sampling_phase": group.get("sampling_phase"),
+            "sampling_opportunity_type": group.get("sampling_opportunity_type"),
             "prefix_algorithm": group.get("prefix_algorithm"),
             "family": group.get("family"),
             "threshold_policy": threshold_policy,
@@ -603,7 +653,8 @@ def _distribution_row(
         "selected_equals_prefix": group.get("selected_equals_prefix"),
         "handoff_required": group.get("handoff_required"),
         "dimension": group.get("dimension"),
-        "FE_ratio": group.get("FE_ratio"),
+        "sampling_phase": group.get("sampling_phase"),
+        "sampling_opportunity_type": group.get("sampling_opportunity_type"),
         "prefix_algorithm": group.get("prefix_algorithm"),
         "family": group.get("family"),
         "rows": int(len(frame)),

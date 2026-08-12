@@ -15,12 +15,13 @@ from sklearn.impute import SimpleImputer
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 
-from behavior.features import BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LandscapeQuerySpec, get_query_spec
 from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, STATE_KEY_COLUMNS
+from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
-SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v3"
+SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v5"
 SELECTOR_TARGET_TRANSFORM = "statewise_minmax_observed_action_loss"
 EPS = 1e-12
 
@@ -73,20 +74,46 @@ def read_action_loss_data(paths: list[Path]) -> pd.DataFrame:
 
 
 def read_behavior_data(paths: list[Path]) -> pd.DataFrame:
-    files = []
+    files: list[tuple[Path, Path | None]] = []
     for path in paths:
         if path.is_dir():
-            files.extend(sorted(path.rglob("behavior.parquet")))
+            files.extend((file, path) for file in sorted(path.rglob("behavior.parquet")))
         elif path.exists():
-            files.append(path)
+            files.append((path, None))
         else:
             raise FileNotFoundError(f"missing behavior input: {path}")
     if not files:
         raise ValueError("no behavior parquet files found")
-    frame = pd.concat([pq.read_table(path).to_pandas() for path in files], ignore_index=True)
+    frames = []
+    for file, input_root in files:
+        frame = pq.read_table(file).to_pandas()
+        if "split" not in frame.columns:
+            frame.insert(0, "split", _behavior_split_from_path(file, input_root))
+        frames.append(frame)
+    frame = pd.concat(frames, ignore_index=True)
     if "algorithm" in frame.columns and "prefix_algorithm" not in frame.columns:
         frame = frame.rename(columns={"algorithm": "prefix_algorithm"})
     return frame
+
+
+def _behavior_split_from_path(file: Path, input_root: Path | None) -> str:
+    candidates: list[str] = []
+    if input_root is not None:
+        relative = file.relative_to(input_root)
+        if len(relative.parts) > 1:
+            candidates.append(relative.parts[0])
+        candidates.append(input_root.name)
+    candidates.extend(file.parts)
+    supported = {"bbob_train", "bbob_validation", "cec2017_test", "cec2022_test"}
+    matches = [value for value in candidates if value in supported]
+    if not matches:
+        raise ValueError(
+            "behavior input has no split column and its path does not identify a supported split: "
+            f"{file}"
+        )
+    if len(set(matches)) != 1:
+        raise ValueError(f"behavior input path has ambiguous split components: {file}")
+    return matches[0]
 
 
 def read_query_feature_data(paths: list[Path]) -> pd.DataFrame:
@@ -114,6 +141,7 @@ def prepare_state_matrix(
         *STATE_KEY_COLUMNS,
         "FE_ratio",
         "FE_total",
+        *SAMPLING_METADATA_COLUMNS,
         "sample_design_id",
         "sample_design_protocol",
         "FE_query",
@@ -178,11 +206,18 @@ def prepare_state_matrix(
         (action_losses["no_query_algorithm"].astype(str) == action_losses["default_algorithm"].astype(str)).all()
     ):
         raise ValueError("no_query_algorithm must equal default_algorithm")
+    expected_fe_ratio = action_losses["FE"].astype(float) / action_losses["FE_total"].astype(float)
+    if not np.array_equal(
+        action_losses["FE_ratio"].to_numpy(dtype=float),
+        expected_fe_ratio.to_numpy(dtype=float),
+    ):
+        raise ValueError("action-loss FE_ratio must equal the actual FE / FE_total")
 
     metadata_columns = [
         *key,
         "FE_ratio",
         "FE_total",
+        *SAMPLING_METADATA_COLUMNS,
         "sample_design_id",
         "sample_design_protocol",
         "FE_query",
@@ -197,9 +232,8 @@ def prepare_state_matrix(
         "best_observed_algorithm",
         "best_observed_loss",
     ]
-    states = action_losses[metadata_columns].drop_duplicates()
-    if states.duplicated(key).any():
-        raise ValueError("state metadata are inconsistent across candidate actions")
+    _validate_state_metadata(action_losses, key=key, metadata_columns=metadata_columns)
+    states = action_losses.drop_duplicates(key)[metadata_columns].copy()
     ordered = action_losses.sort_values([*key, "action_loss", "target_algorithm"])
     computed_best = ordered.drop_duplicates(key)[key + ["target_algorithm", "action_loss"]].rename(
         columns={
@@ -265,7 +299,7 @@ def fit_selector_with_cross_family_predictions(
     defaults = tuple(sorted(states["default_algorithm"].astype(str).unique()))
     if len(defaults) != 1:
         raise ValueError("selector training states must use one train-derived SBS default")
-    feature_columns = BEHAVIOR_FEATURE_COLUMNS + query_spec.feature_columns + ("remaining_budget_ratio",)
+    feature_columns = SELECTOR_BEHAVIOR_FEATURE_COLUMNS + query_spec.feature_columns + ("remaining_budget_ratio",)
     x = states[list(feature_columns)]
     all_missing = [column for column in feature_columns if x[column].isna().all()]
     if all_missing:
@@ -323,6 +357,7 @@ def selection_rows(
             *STATE_KEY_COLUMNS,
             "FE_ratio",
             "FE_total",
+            *SAMPLING_METADATA_COLUMNS,
             "sample_design_id",
             "FE_query",
             "FE_no_query_optimization",
@@ -439,7 +474,7 @@ def make_selector_features(
     return {
         **{
             column: np.nan if behavior_features[column] is None else float(behavior_features[column])
-            for column in BEHAVIOR_FEATURE_COLUMNS
+            for column in SELECTOR_BEHAVIOR_FEATURE_COLUMNS
         },
         **{
             column: np.nan if query_features[column] is None else float(query_features[column])
@@ -488,7 +523,7 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
         raise ValueError("selector model sample design is inconsistent with the frozen query spec")
     if tuple(selector_model.query_feature_columns) != spec.feature_columns:
         raise ValueError("selector model feature columns are inconsistent with the frozen query whitelist")
-    expected_model_columns = BEHAVIOR_FEATURE_COLUMNS + spec.feature_columns + ("remaining_budget_ratio",)
+    expected_model_columns = SELECTOR_BEHAVIOR_FEATURE_COLUMNS + spec.feature_columns + ("remaining_budget_ratio",)
     if tuple(selector_model.feature_columns) != expected_model_columns:
         raise ValueError("selector model input columns are inconsistent with the frozen query contract")
     return selector_model
@@ -502,7 +537,11 @@ def _join_selector_inputs(
     query_spec: LandscapeQuerySpec,
 ) -> pd.DataFrame:
     behavior_key = list(STATE_KEY_COLUMNS)
-    behavior_required = {*behavior_key, *BEHAVIOR_FEATURE_COLUMNS}
+    behavior_required = {
+        *behavior_key,
+        *SAMPLING_METADATA_COLUMNS,
+        *SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+    }
     missing_behavior = behavior_required.difference(behavior.columns)
     if missing_behavior:
         raise ValueError(f"behavior input is missing columns: {sorted(missing_behavior)}")
@@ -550,8 +589,11 @@ def _join_selector_inputs(
     bbob = query_features[query_features["split"].astype(str).isin({"bbob_train", "bbob_validation"})]
     if not bbob.empty and (bbob["feature_status"].astype(str) != "ok").any():
         raise ValueError("BBOB train/validation cannot contain group-level query extraction failures")
+    behavior_columns = behavior[
+        behavior_key + list(SAMPLING_METADATA_COLUMNS) + list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS)
+    ].rename(columns={column: f"{column}_behavior" for column in SAMPLING_METADATA_COLUMNS})
     joined = states.merge(
-        behavior[behavior_key + list(BEHAVIOR_FEATURE_COLUMNS)],
+        behavior_columns,
         on=behavior_key,
         how="left",
         validate="one_to_one",
@@ -560,6 +602,18 @@ def _join_selector_inputs(
     if not joined["_behavior_join"].eq("both").all():
         raise ValueError("action-loss to behavior join coverage must be 1.0")
     joined = joined.drop(columns="_behavior_join")
+    for column in SAMPLING_METADATA_COLUMNS:
+        behavior_column = f"{column}_behavior"
+        if not all(
+            _metadata_values_equal(left, right)
+            for left, right in zip(joined[column], joined[behavior_column], strict=True)
+        ):
+            raise ValueError(
+                f"action-loss and behavior dynamic-sampling metadata do not match: {column}"
+            )
+    joined = joined.drop(
+        columns=[f"{column}_behavior" for column in SAMPLING_METADATA_COLUMNS]
+    )
     joined = joined.merge(
         query_features[list(query_required)],
         on=query_key,
@@ -575,6 +629,44 @@ def _join_selector_inputs(
         raise ValueError("action-loss and query-feature sample designs do not match")
     joined = joined.drop(columns="sample_design_id_query")
     return joined
+
+
+def _validate_state_metadata(
+    action_losses: pd.DataFrame,
+    *,
+    key: list[str],
+    metadata_columns: list[str],
+) -> None:
+    for _, group in action_losses.groupby(key, dropna=False, sort=False):
+        first = group.iloc[0]
+        for column in metadata_columns:
+            if not all(
+                _metadata_values_equal(first[column], value)
+                for value in group[column].iloc[1:]
+            ):
+                raise ValueError(
+                    f"state metadata are inconsistent across candidate actions: {column}"
+                )
+
+
+def _metadata_values_equal(left: Any, right: Any) -> bool:
+    if _metadata_value_is_null(left) or _metadata_value_is_null(right):
+        return _metadata_value_is_null(left) and _metadata_value_is_null(right)
+    if isinstance(left, (list, tuple, np.ndarray)) or isinstance(
+        right, (list, tuple, np.ndarray)
+    ):
+        if not isinstance(left, (list, tuple, np.ndarray)) or not isinstance(
+            right, (list, tuple, np.ndarray)
+        ):
+            return False
+        return tuple(left) == tuple(right)
+    return bool(left == right)
+
+
+def _metadata_value_is_null(value: Any) -> bool:
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return False
+    return bool(pd.isna(value))
 
 
 def _make_model() -> Pipeline:
