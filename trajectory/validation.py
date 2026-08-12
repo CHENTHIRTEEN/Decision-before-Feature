@@ -105,10 +105,11 @@ def _validate_sampling_metadata(row: dict) -> None:
     target = float(row["monitor_target_ratio"])
     if not any(isclose(target, ratio, rel_tol=0.0, abs_tol=1e-12) for ratio in MONITOR_RATIOS):
         raise ValueError("monitor_target_ratio must belong to the frozen monitor grid")
-    alignment_gap = int(row["FE"]) - target * int(row["FE_total"])
-    if alignment_gap < -1e-12:
+    target_fe = int(round(target * int(row["FE_total"])))
+    alignment_gap = int(row["FE"]) - target_fe
+    if alignment_gap < 0:
         raise ValueError("dynamic sample must use the first complete update not earlier than its monitor target")
-    if alignment_gap >= len(row["population"]) - 1e-12:
+    if alignment_gap >= len(row["population"]):
         raise ValueError("dynamic sample must be aligned within one complete population update")
     if str(row["sampling_phase"]) != sampling_phase(target):
         raise ValueError("sampling phase is inconsistent with monitor_target_ratio")
