@@ -25,15 +25,15 @@ TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
 TARGET_COLUMN = "u_query_lamT_1"
 DOMAIN_SPECS = {
-    "all_rows": None,
-    "changed_only": "changed_algorithm",
-    "same_only": "same_algorithm",
+    "all": None,
+    "handoff_required=true": True,
+    "handoff_required=false": False,
 }
 TOP_K_FRACTIONS = (0.05, 0.10, 0.20)
 EPS = 1e-12
 
 
-def run_changed_same_learnability_diagnostic(
+def run_handoff_learnability_diagnostic(
     *,
     query_id: str,
     dataset_path: Path,
@@ -56,9 +56,9 @@ def run_changed_same_learnability_diagnostic(
     train_score_rows = []
     validation_score_rows = []
 
-    for domain, label_source in DOMAIN_SPECS.items():
-        train = _domain_frame(dataset, TRAIN_SPLIT, label_source)
-        validation = _domain_frame(dataset, VALIDATION_SPLIT, label_source)
+    for domain, handoff_required in DOMAIN_SPECS.items():
+        train = _domain_frame(dataset, TRAIN_SPLIT, handoff_required)
+        validation = _domain_frame(dataset, VALIDATION_SPLIT, handoff_required)
         _check_domain(domain, train, validation)
 
         for model_name, model in _model_specs(random_seed).items():
@@ -104,7 +104,7 @@ def run_changed_same_learnability_diagnostic(
         "query_id": query_id,
         "query_protocol": get_query_spec(query_id).protocol,
         "sample_design_id": get_query_spec(query_id).sample_design_id,
-        "experiment": "changed_same_behavior_learnability_diagnostic",
+        "experiment": "handoff_behavior_learnability_diagnostic",
         "dataset": str(dataset_path),
         "schema": str(schema_path),
         "target_column": TARGET_COLUMN,
@@ -123,11 +123,11 @@ def run_changed_same_learnability_diagnostic(
             "behavior_signal_summary": str(output_dir / "behavior_signal_summary.parquet"),
             "train_scores": str(output_dir / "baseline_train_scores.parquet"),
             "validation_scores": str(output_dir / "baseline_validation_scores.parquet"),
-            "report": str(output_dir / "changed_same_learnability_report.md"),
+            "report": str(output_dir / "handoff_learnability_report.md"),
         },
     }
-    summary_path = output_dir / "changed_same_learnability_summary.json"
-    report_path = output_dir / "changed_same_learnability_report.md"
+    summary_path = output_dir / "handoff_learnability_summary.json"
+    report_path = output_dir / "handoff_learnability_report.md"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     report_path.write_text(
         _markdown_report(
@@ -140,15 +140,15 @@ def run_changed_same_learnability_diagnostic(
         encoding="utf-8",
     )
 
-    print(f"wrote changed/same learnability summary to {summary_path}")
-    print(f"wrote changed/same learnability report to {report_path}")
+    print(f"wrote handoff learnability summary to {summary_path}")
+    print(f"wrote handoff learnability report to {report_path}")
     return summary
 
 
 def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
     outputs = (
-        output_dir / "changed_same_learnability_summary.json",
-        output_dir / "changed_same_learnability_report.md",
+        output_dir / "handoff_learnability_summary.json",
+        output_dir / "handoff_learnability_report.md",
         output_dir / "domain_summary.csv",
         output_dir / "domain_summary.parquet",
         output_dir / "baseline_regression_summary.csv",
@@ -179,16 +179,20 @@ def _feature_columns(schema: dict[str, Any]) -> list[str]:
 def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
     required = {
         "split",
-        "label_source",
+        "handoff_required",
         "problem_id",
         "family",
         "dimension",
         "prefix_algorithm",
+        "default_algorithm",
+        "selected_algorithm",
+        "selected_action",
         "selected_equals_default",
         "selected_equals_prefix",
         "skip_switches_from_prefix",
         "no_query_transition_mode",
         "query_transition_mode",
+        "handoff_type",
         "seed",
         "FE",
         "FE_ratio",
@@ -203,6 +207,39 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
     target = dataset[TARGET_COLUMN].to_numpy(dtype=float)
     if dataset[TARGET_COLUMN].isna().any() or not np.isfinite(target).all():
         raise ValueError(f"{TARGET_COLUMN} must be non-null and finite")
+    selected_equals_default = (
+        dataset["selected_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    selected_equals_prefix = (
+        dataset["selected_algorithm"].astype(str) == dataset["prefix_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    expected_action = dataset["selected_algorithm"].astype(str).where(
+        ~selected_equals_prefix,
+        "continue_current",
+    )
+    expected_handoff = ~selected_equals_prefix
+    if not np.array_equal(dataset["selected_equals_default"].to_numpy(dtype=bool), selected_equals_default):
+        raise ValueError("selected_equals_default is inconsistent")
+    if not np.array_equal(dataset["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix):
+        raise ValueError("selected_equals_prefix is inconsistent")
+    if not np.array_equal(dataset["selected_action"].astype(str).to_numpy(), expected_action.to_numpy()):
+        raise ValueError("selected_action is inconsistent")
+    if not np.array_equal(dataset["handoff_required"].to_numpy(dtype=bool), expected_handoff):
+        raise ValueError("handoff_required is inconsistent")
+    if not np.array_equal(
+        dataset["handoff_required"].to_numpy(dtype=bool),
+        dataset["handoff_type"].astype(str).eq("population_transfer_initialization").to_numpy(dtype=bool),
+    ):
+        raise ValueError("handoff_required must match handoff_type")
+    expected_transition = np.where(
+        expected_handoff,
+        "population_transfer_initialization",
+        "native_optimizer_state",
+    )
+    if not np.array_equal(dataset["query_transition_mode"].astype(str).to_numpy(), expected_transition):
+        raise ValueError("query_transition_mode is inconsistent")
+    if not np.array_equal(dataset["handoff_type"].astype(str).to_numpy(), expected_transition):
+        raise ValueError("handoff_type is inconsistent")
     for column in feature_columns:
         values = pd.to_numeric(dataset[column], errors="coerce")
         non_null = values.notna()
@@ -213,15 +250,15 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
 
 def _domain_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for domain, label_source in DOMAIN_SPECS.items():
+    for domain, handoff_required in DOMAIN_SPECS.items():
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT):
-            frame = _domain_frame(dataset, split, label_source)
+            frame = _domain_frame(dataset, split, handoff_required)
             values = frame[TARGET_COLUMN].to_numpy(dtype=float)
             rows.append(
                 {
                     "domain": domain,
                     "split": split,
-                    "label_source_filter": "all" if label_source is None else label_source,
+                    "handoff_required_filter": "all" if handoff_required is None else bool(handoff_required),
                     "rows": int(len(frame)),
                     "u_gt_zero_rows": int(np.sum(values > 0.0)),
                     "u_gt_zero_rate": float(np.mean(values > 0.0)),
@@ -233,10 +270,10 @@ def _domain_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _domain_frame(dataset: pd.DataFrame, split: str, label_source: str | None) -> pd.DataFrame:
+def _domain_frame(dataset: pd.DataFrame, split: str, handoff_required: bool | None) -> pd.DataFrame:
     frame = dataset[dataset["split"] == split].copy()
-    if label_source is not None:
-        frame = frame[frame["label_source"] == label_source].copy()
+    if handoff_required is not None:
+        frame = frame[frame["handoff_required"].astype(bool) == handoff_required].copy()
     return frame
 
 
@@ -279,7 +316,7 @@ def _score_frame(frame: pd.DataFrame, scores: np.ndarray, domain: str, model_nam
             "seed",
             "FE",
             "FE_ratio",
-            "label_source",
+            "handoff_required",
             TARGET_COLUMN,
         ]
     ].copy()
@@ -444,7 +481,7 @@ def _markdown_report(
     top10 = ranking_summary[ranking_summary["top_k_fraction"] == 0.10].copy()
     return "\n".join(
         [
-            "# changed/same behavior learnability diagnostic",
+            "# Handoff behavior learnability diagnostic",
             "",
             "## Scope",
             "",
@@ -452,8 +489,8 @@ def _markdown_report(
             "- No main complex Decision Model was trained.",
             f"- Decision inputs: `{', '.join(feature_columns)}`.",
             f"- Target: `{TARGET_COLUMN}`.",
-            "- This diagnostic uses the primary SBS-prefix dataset, where prefix_algorithm=default_algorithm and legacy label_source therefore matches selected_equals_prefix.",
-            "- Metadata and algorithm labels are not used as inputs; `label_source` is used only to define diagnostic domains.",
+            "- This diagnostic uses the primary SBS-prefix dataset and separates native continuation from population-transfer actions with `handoff_required`.",
+            "- Metadata and algorithm labels are not used as inputs; `handoff_required` is used only to define diagnostic domains.",
             "",
             "## Domain distribution",
             "",
@@ -494,7 +531,7 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Diagnose changed/same behavior-feature learnability with baseline models.")
+    parser = argparse.ArgumentParser(description="Diagnose handoff-stratified behavior-feature learnability with baseline models.")
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--dataset", type=Path, default=None)
     parser.add_argument("--schema", type=Path, default=None)
@@ -505,11 +542,11 @@ def main() -> None:
     query_root = decision_query_root(args.query_id)
     materialized = query_root / "materialized_training_data"
 
-    run_changed_same_learnability_diagnostic(
+    run_handoff_learnability_diagnostic(
         query_id=args.query_id,
         dataset_path=args.dataset or materialized / "decision_dataset.parquet",
         schema_path=args.schema or materialized / "decision_dataset_schema.json",
-        output_dir=args.output_dir or query_root / "changed_same_learnability_diagnostic",
+        output_dir=args.output_dir or query_root / "handoff_learnability_diagnostic",
         overwrite=args.overwrite,
         random_seed=args.random_seed,
     )

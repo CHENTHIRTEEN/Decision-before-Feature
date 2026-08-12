@@ -233,7 +233,7 @@ algorithm只用于分析。
 
 第一篇论文主训练表只保留 `prefix_algorithm == default_algorithm ==` 训练集 SBS 且 `skip_switches_from_prefix == false` 的状态。完整多 prefix 表单独用于 cross-probe robustness、leave-one-probe-out 和 algorithm-agnostic 泛化，不进入主模型拟合、主 threshold 选择或主结果汇总。
 
-`selected_equals_default`、`selected_equals_prefix` 与 `skip_switches_from_prefix` 只用于数据范围检查和分层报告，同样不进入模型输入。
+`selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `skip_switches_from_prefix` 只用于数据范围检查和分层报告，同样不进入模型输入。活动 Decision 数据和报告不生成 selected-vs-default 字符串别名。
 
 ------------------------------------------------------------------------
 

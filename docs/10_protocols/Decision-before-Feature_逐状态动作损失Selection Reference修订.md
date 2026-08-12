@@ -87,7 +87,7 @@ B_t/FE_{total}
 \[
 \widetilde L(s_t,a)=
 \frac{L(s_t,a)-\min_b L(s_t,b)}
-{\max_b L(s_t,b)-\min_b L(s_t,b)+\epsilon}.
+{\max(\max_b L(s_t,b)-\min_b L(s_t,b),10^{-12})}.
 \]
 
 部署时选择：
@@ -97,6 +97,8 @@ B_t/FE_{total}
 \]
 
 当前实现使用一个多输出 `RandomForestRegressor`。训练集 Selection Reference 行采用按 BBOB function family 分组的交叉拟合预测；held-out BBOB validation 和外部 benchmark 只使用全体 BBOB train families 拟合的最终模型。`function_id`、`dimension`、`prefix_algorithm`、seed 和 optimizer internal state 不进入 selector features。
+
+模型产物和 Selection Reference 行固定保存 `selector_target_transform=statewise_minmax_observed_action_loss`。Selection Reference、Utility、Decision dataset 与在线输出同时保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；其中 `handoff_required = not selected_equals_prefix`，并与 `handoff_type == population_transfer_initialization` 逐行一致。
 
 ## 6. Utility 与诊断分解
 

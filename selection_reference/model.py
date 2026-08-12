@@ -20,7 +20,8 @@ from landscape_queries.specs import LandscapeQuerySpec, get_query_spec
 from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, STATE_KEY_COLUMNS
 
 
-SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v2"
+SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v3"
+SELECTOR_TARGET_TRANSFORM = "statewise_minmax_observed_action_loss"
 EPS = 1e-12
 
 
@@ -34,6 +35,7 @@ class StatewiseSelectorModel:
     query_protocol: str
     sample_design_id: str
     query_feature_columns: tuple[str, ...]
+    selector_target_transform: str = SELECTOR_TARGET_TRANSFORM
     protocol: str = SELECTION_REFERENCE_PROTOCOL
 
     def predict_scores(self, frame: pd.DataFrame) -> np.ndarray:
@@ -147,6 +149,10 @@ def prepare_state_matrix(
     if not np.isfinite(numeric_losses).all():
         raise ValueError("state-action losses and diagnostics must be finite")
     portfolio = tuple(sorted(action_losses["target_algorithm"].astype(str).unique()))
+    if len(portfolio) != 4:
+        raise ValueError("state-action loss input must contain exactly four unique portfolio algorithms")
+    if not action_losses["prefix_algorithm"].astype(str).isin(portfolio).all():
+        raise ValueError("every prefix algorithm must belong to the four-action portfolio")
     counts = action_losses.groupby(key, dropna=False)["target_algorithm"].nunique()
     if not bool((counts == len(portfolio)).all()):
         raise ValueError("every shared state must contain one observed loss for every portfolio algorithm")
@@ -271,6 +277,10 @@ def fit_selector_with_cross_family_predictions(
     if len(unique_families) >= 2:
         splitter = GroupKFold(n_splits=min(5, len(unique_families)))
         for train_indices, held_indices in splitter.split(x, y, groups=families):
+            fit_families = set(families[train_indices])
+            held_families = set(families[held_indices])
+            if fit_families.intersection(held_families):
+                raise RuntimeError("selector function-family cross-fitting fold contains family overlap")
             fold_model = _make_model()
             fold_model.fit(x.iloc[train_indices], y[train_indices])
             cross_predictions[held_indices] = fold_model.predict(x.iloc[held_indices])
@@ -293,6 +303,7 @@ def fit_selector_with_cross_family_predictions(
         query_protocol=query_spec.protocol,
         sample_design_id=query_spec.sample_design_id,
         query_feature_columns=query_spec.feature_columns,
+        selector_target_transform=SELECTOR_TARGET_TRANSFORM,
     )
     return selector_model, cross_predictions, prediction_source
 
@@ -354,11 +365,18 @@ def selection_rows(
         "continue_current",
         output["selected_algorithm"].astype(str),
     )
+    output["selected_equals_default"] = (
+        output["selected_algorithm"].astype(str) == output["default_algorithm"].astype(str)
+    )
+    output["selected_equals_prefix"] = (
+        output["selected_algorithm"].astype(str) == output["prefix_algorithm"].astype(str)
+    )
     output["selected_transition_mode"] = np.where(
-        output["selected_algorithm"].astype(str) == output["prefix_algorithm"].astype(str),
+        output["selected_equals_prefix"].astype(bool),
         "native_optimizer_state",
         "population_transfer_initialization",
     )
+    output["handoff_required"] = ~output["selected_equals_prefix"].astype(bool)
     output["handoff_type"] = output["selected_transition_mode"].astype(str)
     output["selected_action_loss"] = selected_losses
     output["runtime_selected_action_optimization"] = selected_runtimes
@@ -375,6 +393,7 @@ def selection_rows(
     )
     output["selector_prediction_source"] = prediction_source
     output["selector_status"] = "random_forest_action_loss_regression"
+    output["selector_target_transform"] = SELECTOR_TARGET_TRANSFORM
     output["selection_reference_protocol"] = SELECTION_REFERENCE_PROTOCOL
     query_ids = tuple(sorted(states["query_id"].astype(str).unique()))
     query_protocols = tuple(sorted(states["query_protocol"].astype(str).unique()))
@@ -448,6 +467,7 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
         "sample_design_id",
         "query_feature_columns",
         "feature_columns",
+        "selector_target_transform",
     )
     missing_attributes = [
         attribute for attribute in required_attributes if not hasattr(selector_model, attribute)
@@ -459,6 +479,8 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
         )
     if selector_model.protocol != SELECTION_REFERENCE_PROTOCOL:
         raise ValueError("selector model artifact uses an unsupported protocol")
+    if selector_model.selector_target_transform != SELECTOR_TARGET_TRANSFORM:
+        raise ValueError("selector model artifact uses an unsupported action-loss target transform")
     spec = get_query_spec(selector_model.query_id)
     if selector_model.query_protocol != spec.protocol:
         raise ValueError("selector model query protocol is inconsistent with the frozen spec")

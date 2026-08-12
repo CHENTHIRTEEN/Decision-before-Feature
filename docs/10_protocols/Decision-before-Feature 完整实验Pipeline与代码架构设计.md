@@ -359,7 +359,7 @@ No-query 与 Run Query 必须从同一个共享完整 optimizer checkpoint state
 - 不使用 Best-so-far Warm Start；
 - 不复用 query 采样点。
 
-正式 Selection Reference 必须先对每个共享 state 运行 `continue_current` 与其余三个 portfolio actions，保存 observed action loss；随后用 query features、算法无关 behavior 和连续 remaining budget 训练 multi-output action-loss regressor。静态 problem label 和 nearest performance bucket 不再进入正式生成链。
+正式 Selection Reference 必须先对每个共享 state 运行 `continue_current` 与其余三个 portfolio actions，保存 observed action loss；随后用 query features、算法无关 behavior 和连续 remaining budget 训练 multi-output action-loss regressor，目标固定为 `statewise_minmax_observed_action_loss`。Selection Reference、Utility、Decision dataset 与在线输出逐行保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；静态 problem label、nearest performance bucket 与 selected-vs-default 字符串别名不再进入正式生成链。
 
 ## 7.1 No-query 路径
 

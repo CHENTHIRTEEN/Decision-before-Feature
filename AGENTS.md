@@ -235,6 +235,14 @@ Decision Model 活动候选固定为：
 
 模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。不得继续增加 Random Forest、XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
 
+Selection Reference 固定使用四个互不重复动作：`continue_current` 加其余三个 portfolio algorithms。模型使用多输出 `RandomForestRegressor`，输入为 query features、算法无关 behavior 与连续 `remaining_budget_ratio`，目标变换固定为 `statewise_minmax_observed_action_loss`：
+
+$$
+\widetilde L_a=\frac{L_a-\min_b L_b}{\max(\max_b L_b-\min_b L_b,10^{-12})}.
+$$
+
+Selection Reference、Utility、Decision dataset 与在线输出必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；其中 `handoff_required = not selected_equals_prefix`，并与 `handoff_type == population_transfer_initialization` 逐行一致。不得生成 `label_source` 或以 `same_algorithm/changed_algorithm` 代替这些显式关系。
+
 ---
 
 # 3. 实验协议规范

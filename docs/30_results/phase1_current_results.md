@@ -104,7 +104,7 @@ CEC2017 正式配置已经冻结：29 个函数、10D/30D/50D、30 seeds、等�
 
 - 在 held-out BBOB function families 上，算法无关行为分数包含可用于筛选高效用 ELA 状态的信息；
 - train-derived LDA threshold 的平均决策效用大于 Never ELA 的零基线，并显著减少 Always ELA 的无效调用；
-- 决策性能主要来自旧 `changed_algorithm` 层；该旧分层实际比较 selected 与 default，不能用于判断 ELA 是否继续 prefix。重生成后必须改用 `selected_equals_prefix` 与 `skip_switches_from_prefix`，且主结果只使用 SBS prefix。
+- 撤回结果中表现较高的旧分层实际对应 `selected_equals_default=false`，不能用于判断 Query 路径是否继续 prefix。重生成后必须分别使用 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `skip_switches_from_prefix`，且主结果只使用 SBS prefix。
 
 暂时不能写：
 

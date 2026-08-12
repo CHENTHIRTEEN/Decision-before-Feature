@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 
 from selection_reference.model import (
     SELECTION_REFERENCE_PROTOCOL,
+    SELECTOR_TARGET_TRANSFORM,
     fit_selector_with_cross_family_predictions,
     measure_online_selection_runtime,
     prepare_state_matrix,
@@ -97,6 +98,7 @@ def build_selection_reference(
         "query_protocol": query_spec.protocol,
         "query_feature_columns": ",".join(query_spec.feature_columns),
         "protocol": SELECTION_REFERENCE_PROTOCOL,
+        "selector_target_transform": SELECTOR_TARGET_TRANSFORM,
     }
 
 
@@ -130,6 +132,8 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
     key = ["split", "problem_id", "family", "dimension", "prefix_algorithm", "seed", "FE"]
     if reference.empty:
         raise ValueError("selection reference contains no rows")
+    if len(portfolio) != 4 or len(set(portfolio)) != 4:
+        raise ValueError("selection reference requires exactly four unique portfolio algorithms")
     if reference.duplicated(key).any():
         raise ValueError("selection reference contains duplicate shared-state keys")
     if set(reference["selected_algorithm"].astype(str)).difference(portfolio):
@@ -142,13 +146,42 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
     )
     if not bool((reference["selected_action"].astype(str) == expected_action).all()):
         raise ValueError("selected_action does not match selected_algorithm and prefix_algorithm")
+    expected_equals_default = (
+        reference["selected_algorithm"].astype(str) == reference["default_algorithm"].astype(str)
+    )
+    expected_equals_prefix = (
+        reference["selected_algorithm"].astype(str) == reference["prefix_algorithm"].astype(str)
+    )
+    if not bool((reference["selected_equals_default"].astype(bool) == expected_equals_default).all()):
+        raise ValueError("selected_equals_default is inconsistent")
+    if not bool((reference["selected_equals_prefix"].astype(bool) == expected_equals_prefix).all()):
+        raise ValueError("selected_equals_prefix is inconsistent")
+    expected_handoff = ~expected_equals_prefix
+    if not bool((reference["handoff_required"].astype(bool) == expected_handoff).all()):
+        raise ValueError("handoff_required is inconsistent")
+    if not bool(
+        (
+            reference["handoff_required"].astype(bool)
+            == reference["selected_action"].astype(str).ne("continue_current")
+        ).all()
+    ):
+        raise ValueError("handoff_required must match selected_action")
     if not bool((reference["handoff_type"].astype(str) == reference["selected_transition_mode"].astype(str)).all()):
         raise ValueError("handoff_type must equal selected_transition_mode")
+    if not bool(
+        (
+            reference["handoff_required"].astype(bool)
+            == reference["handoff_type"].astype(str).eq("population_transfer_initialization")
+        ).all()
+    ):
+        raise ValueError("handoff_required must match the selected transition mode")
     regret = reference["selected_action_loss"].astype(float) - reference["best_observed_loss"].astype(float)
     if bool((regret < -1e-12).any()):
         raise ValueError("selector regret cannot be smaller than zero")
     if not bool((reference["selection_reference_protocol"].astype(str) == SELECTION_REFERENCE_PROTOCOL).all()):
         raise ValueError("selection reference protocol field is inconsistent")
+    if not bool((reference["selector_target_transform"].astype(str) == SELECTOR_TARGET_TRANSFORM).all()):
+        raise ValueError("selection reference target transform field is inconsistent")
     if reference["query_id"].astype(str).nunique() != 1:
         raise ValueError("selection reference must contain exactly one query_id")
 

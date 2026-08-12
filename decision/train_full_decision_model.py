@@ -31,6 +31,7 @@ from decision.model_protocol import (
     decision_scores,
 )
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -54,10 +55,12 @@ METADATA_COLUMNS = (
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
+    "selector_target_transform",
     "selected_algorithm",
     "selected_action",
     "selected_equals_default",
     "selected_equals_prefix",
+    "handoff_required",
     "best_observed_algorithm",
     "selected_matches_best_observed",
     "potential_gain_raw",
@@ -66,7 +69,11 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    "label_source",
+)
+ACTION_RELATION_COLUMNS = (
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "handoff_required",
 )
 FORBIDDEN_X_COLUMNS = {
     *METADATA_COLUMNS,
@@ -538,15 +545,20 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         raise ValueError("selected_equals_default is inconsistent")
     if not np.array_equal(dataset["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix):
         raise ValueError("selected_equals_prefix is inconsistent")
-    if (selected_equals_prefix & (target.to_numpy(dtype=float) > 0.0)).any():
+    handoff_required = ~selected_equals_prefix
+    if not np.array_equal(dataset["handoff_required"].to_numpy(dtype=bool), handoff_required):
+        raise ValueError("handoff_required is inconsistent")
+    if not np.array_equal(
+        dataset["handoff_required"].to_numpy(dtype=bool),
+        dataset["handoff_type"].astype(str).eq("population_transfer_initialization").to_numpy(dtype=bool),
+    ):
+        raise ValueError("handoff_required must match handoff_type")
+    if set(dataset["selector_target_transform"].astype(str)) != {SELECTOR_TARGET_TRANSFORM}:
+        raise ValueError("selector_target_transform is inconsistent")
+    if set(dataset["selection_reference_protocol"].astype(str)) != {SELECTION_REFERENCE_PROTOCOL}:
+        raise ValueError("selection_reference_protocol is inconsistent")
+    if ((~handoff_required) & (target.to_numpy(dtype=float) > 0.0)).any():
         raise ValueError("main-protocol rows that select the current SBS must not have positive query utility")
-    expected_label_source = np.where(
-        selected_equals_default,
-        "same_algorithm",
-        "changed_algorithm",
-    )
-    if not np.array_equal(dataset["label_source"].to_numpy(dtype=str), expected_label_source):
-        raise ValueError("label_source must match selected_equals_default")
     for column in feature_columns:
         values = pd.to_numeric(dataset[column], errors="coerce")
         non_null = values.notna()
@@ -919,8 +931,17 @@ def _layer_metric_summary(
     row_fn: Any,
 ) -> pd.DataFrame:
     rows = [row_fn(frame, "all_validation", {}, model_name, model_family)]
-    for label_source, group in frame.groupby("label_source", dropna=False):
-        rows.append(row_fn(group, "label_source", {"label_source": str(label_source)}, model_name, model_family))
+    for relation in ACTION_RELATION_COLUMNS:
+        for relation_value, group in frame.groupby(relation, dropna=False):
+            rows.append(
+                row_fn(
+                    group,
+                    relation,
+                    {relation: bool(relation_value)},
+                    model_name,
+                    model_family,
+                )
+            )
     for dimension, group in frame.groupby("dimension", dropna=False):
         rows.append(row_fn(group, "dimension", {"dimension": int(dimension)}, model_name, model_family))
     for fe_ratio, group in frame.groupby("FE_ratio", dropna=False):
@@ -1078,8 +1099,9 @@ def _ranking_row(
 
 def _iter_layers(frame: pd.DataFrame) -> list[tuple[pd.DataFrame, str, dict[str, Any]]]:
     layers: list[tuple[pd.DataFrame, str, dict[str, Any]]] = [(frame, "all_validation", {})]
-    for label_source, group in frame.groupby("label_source", dropna=False):
-        layers.append((group, "label_source", {"label_source": str(label_source)}))
+    for relation in ACTION_RELATION_COLUMNS:
+        for relation_value, group in frame.groupby(relation, dropna=False):
+            layers.append((group, relation, {relation: bool(relation_value)}))
     for dimension, group in frame.groupby("dimension", dropna=False):
         layers.append((group, "dimension", {"dimension": int(dimension)}))
     for fe_ratio, group in frame.groupby("FE_ratio", dropna=False):
@@ -1104,7 +1126,9 @@ def _common_fields(
         "eval_split": VALIDATION_SPLIT,
         "layer": layer,
         "group": _group_label(group),
-        "label_source": group.get("label_source"),
+        "selected_equals_default": group.get("selected_equals_default"),
+        "selected_equals_prefix": group.get("selected_equals_prefix"),
+        "handoff_required": group.get("handoff_required"),
         "dimension": group.get("dimension"),
         "FE_ratio": group.get("FE_ratio"),
         "prefix_algorithm": group.get("prefix_algorithm"),
@@ -1179,9 +1203,10 @@ def _markdown_report(
     all_top10 = ranking_summary[
         (ranking_summary["layer"] == "all_validation") & (np.isclose(ranking_summary["top_k_fraction"], 0.10))
     ].sort_values("utility_capture_rate", ascending=False)
-    label_source_top10 = ranking_summary[
-        (ranking_summary["layer"] == "label_source") & (np.isclose(ranking_summary["top_k_fraction"], 0.10))
-    ].sort_values(["model_name", "label_source"])
+    action_relation_top10 = ranking_summary[
+        ranking_summary["layer"].isin(ACTION_RELATION_COLUMNS)
+        & np.isclose(ranking_summary["top_k_fraction"], 0.10)
+    ].sort_values(["model_name", "layer", "group"])
     return "\n".join(
         [
             "# Full Decision Model training report",
@@ -1344,13 +1369,14 @@ def _markdown_report(
                 ]
             ),
             "",
-            "## changed/same top 10% ranking",
+            "## Explicit action-relation top 10% ranking",
             "",
             _markdown_table(
-                label_source_top10[
+                action_relation_top10[
                     [
                         "model_name",
-                        "label_source",
+                        "layer",
+                        "group",
                         "top_k_rows",
                         "top_k_u_gt_zero_rate",
                         "lift_vs_base_rate",

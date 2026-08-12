@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -21,10 +22,13 @@ from optimizers import OptimizerSettings, advance_optimizer_state, clone_optimiz
 from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, evaluate_candidate_actions
 from selection_reference.build import build_selection_reference
 from selection_reference.model import (
+    SELECTION_REFERENCE_PROTOCOL,
+    SELECTOR_TARGET_TRANSFORM,
     fit_selector_with_cross_family_predictions,
     load_selector_model,
     measure_online_selection_runtime,
     prepare_state_matrix,
+    save_selector_model,
     selection_rows,
 )
 from trajectory.records import TrajectoryRecord
@@ -76,6 +80,24 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
             native = [row for row in outcomes if row["action"] == "continue_current"]
             if len(native) != 1 or float(native[0]["action_loss"]) != float(expected_native.best_fitness):
                 raise ValueError("continue_current does not reproduce native optimizer continuation")
+            expected_actions = {"continue_current", *set(portfolio).difference({prefix_algorithm})}
+            if {str(row["action"]) for row in outcomes} != expected_actions:
+                raise ValueError("candidate actions are not continue_current plus the other three algorithms")
+            transfers = [
+                row for row in outcomes if row["transition_mode"] == "population_transfer_initialization"
+            ]
+            if len(outcomes) != 4 or len(transfers) != 3:
+                raise ValueError("each real BBOB state must have one native and three transfer actions")
+            losses = np.asarray([row["action_loss"] for row in outcomes], dtype=float)
+            expected_norm = (losses - np.min(losses)) / max(float(np.max(losses) - np.min(losses)), 1e-12)
+            observed_norm = np.asarray([row["action_loss_norm"] for row in outcomes], dtype=float)
+            if not np.isfinite(observed_norm).all() or not np.allclose(
+                observed_norm,
+                expected_norm,
+                rtol=0.0,
+                atol=1e-12,
+            ):
+                raise ValueError("statewise action-loss target transform is inconsistent")
             checked += 1
     finally:
         problem.close()
@@ -245,6 +267,12 @@ def _check_query_specific_regression(
     )
     if len(reference) != 2 or source != "cross_family":
         raise ValueError("query-specific selector did not produce cross-family predictions")
+    expected_handoff = ~reference["selected_equals_prefix"].astype(bool)
+    if not np.array_equal(reference["handoff_required"].to_numpy(dtype=bool), expected_handoff.to_numpy()):
+        raise ValueError("selection reference handoff_required is inconsistent")
+    if set(reference["selector_target_transform"].astype(str)) != {SELECTOR_TARGET_TRANSFORM}:
+        raise ValueError("selection reference did not freeze the action-loss target transform")
+    _check_explicit_action_relation_cases(states, observed_portfolio)
     with tempfile.TemporaryDirectory(prefix="decision-before-feature-query-check-") as directory:
         root = Path(directory)
         action_path = root / "action_losses.parquet"
@@ -269,11 +297,85 @@ def _check_query_specific_regression(
         loaded_selector = load_selector_model(model_path)
         if loaded_selector.sample_design_id != spec.sample_design_id:
             raise ValueError("saved selector model lost its query sample design")
-        label = _utility_row(row=pq.read_table(reference_path).to_pylist()[0], query_id=spec.query_id)
+        if loaded_selector.selector_target_transform != SELECTOR_TARGET_TRANSFORM:
+            raise ValueError("saved selector model lost its action-loss target transform")
+        reference_row = pq.read_table(reference_path).to_pylist()[0]
+        label = _utility_row(row=reference_row, query_id=spec.query_id)
         utility_path = root / "utility_labels.parquet"
         pq.write_table(pa.Table.from_pylist([label], schema=utility_schema()), utility_path)
         validate_utility_label_file(utility_path)
+        legacy_model_path = root / "legacy_statewise_selector.joblib"
+        loaded_selector.protocol = "query_specific_statewise_action_loss_regression_v2"
+        save_selector_model(loaded_selector, legacy_model_path)
+        try:
+            load_selector_model(legacy_model_path)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("legacy selector model protocol was not rejected")
+        legacy_reference_row = dict(reference_row)
+        legacy_reference_row["selection_reference_protocol"] = (
+            "query_specific_statewise_action_loss_regression_v2"
+        )
+        try:
+            _utility_row(row=legacy_reference_row, query_id=spec.query_id)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("legacy Selection Reference label protocol was not rejected")
+        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v3":
+            raise ValueError("Selection Reference protocol version is not frozen at v3")
     print("query-specific action-loss regression and utility consistency passed on 2 BBOB families")
+
+
+def _check_explicit_action_relation_cases(
+    states: pd.DataFrame,
+    portfolio: tuple[str, ...],
+) -> None:
+    state = states.iloc[[0]].copy()
+    prefix = str(state["prefix_algorithm"].iloc[0])
+    other = next(algorithm for algorithm in portfolio if algorithm != prefix)
+
+    def select(target: str, *, default: str | None = None) -> dict:
+        case = state.copy()
+        if default is not None:
+            case["default_algorithm"] = default
+            case["no_query_algorithm"] = default
+        scores = np.ones((1, len(portfolio)), dtype=float)
+        scores[0, portfolio.index(target)] = 0.0
+        return selection_rows(
+            states=case,
+            portfolio=portfolio,
+            predictions=scores,
+            prediction_source="real_state_relation_contract",
+            runtime_selection=0.0,
+        ).iloc[0].to_dict()
+
+    native = select(prefix)
+    if not (
+        native["selected_action"] == "continue_current"
+        and bool(native["selected_equals_prefix"])
+        and bool(native["selected_equals_default"])
+        and not bool(native["handoff_required"])
+    ):
+        raise ValueError("native continuation relation fields are inconsistent")
+
+    transfer = select(other)
+    if not (
+        transfer["selected_action"] == other
+        and not bool(transfer["selected_equals_prefix"])
+        and not bool(transfer["selected_equals_default"])
+        and bool(transfer["handoff_required"])
+    ):
+        raise ValueError("cross-algorithm transfer relation fields are inconsistent")
+
+    cross_prefix = select(prefix, default=other)
+    if not (
+        bool(cross_prefix["selected_equals_prefix"])
+        and not bool(cross_prefix["selected_equals_default"])
+        and not bool(cross_prefix["handoff_required"])
+    ):
+        raise ValueError("selected-vs-prefix and selected-vs-default relations were incorrectly merged")
 
 
 def _check_action_loss_budget_separation(

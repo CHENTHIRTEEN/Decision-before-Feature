@@ -135,24 +135,13 @@ U_query =
 ```text
 selected_equals_default = (selected_algorithm == default_algorithm)
 selected_equals_prefix = (selected_algorithm == prefix_algorithm)
+handoff_required = not selected_equals_prefix
 skip_switches_from_prefix = (default_algorithm != prefix_algorithm)
 no_query_algorithm = default_algorithm
 handoff_type = query_transition_mode
 ```
 
-`handoff_type` 描述 Query-selected action 的 transition；No-query 分支仍由 `no_query_transition_mode` 独立描述。两个兼容字段只用于清楚记录实际策略关系，不进入 Decision 输入。
-
-`label_source` 仅作为 selected-vs-default 报告分层：
-
-```text
-same_algorithm:
-    selected_equals_default
-
-changed_algorithm:
-    not selected_equals_default
-```
-
-这个命名只回答 selector 是否选择训练集 SBS/default。在多 prefix 数据中，`same_algorithm` 不等于“Query 后继续当前算法”；实际行动关系必须看 `selected_equals_prefix`，No-query 是否切走必须看 `skip_switches_from_prefix`。
+`handoff_type` 描述 Query-selected action 的 transition；No-query 分支仍由 `no_query_transition_mode` 独立描述。`handoff_required` 必须与 `handoff_type == population_transfer_initialization` 逐行一致。活动数据、分层统计和报告分别使用三个显式布尔关系，不再生成 selected-vs-default 字符串别名。
 
 第一篇论文主数据只保留：
 
@@ -161,7 +150,7 @@ prefix_algorithm == default_algorithm == train-derived SBS
 skip_switches_from_prefix == false
 ```
 
-因此主数据中 `selected_equals_default == selected_equals_prefix`，`same_algorithm` 才可同时解释为“Query 后选择当前 SBS”。这类行不调整参数、不重启、不改变预算或风险策略；Query 路径与 No-query 路径从同一完整状态和 RNG state 原生推进，只少 `FE_query` 对应的优化预算。对保存 best-so-far 的实现，`performance_gain_raw` 应不大于 0，`U_query` 还需扣除非 FE 成本，因此不得把偶然的正值解释为“确认信息价值”。若观察到正值，应先检查状态一致性、预算账本和数值记录。
+因此主数据中 `selected_equals_default == selected_equals_prefix`，但两个字段仍分别保存。`handoff_required=false` 的行不调整参数、不重启、不改变预算或风险策略；Query 路径与 No-query 路径从同一完整状态和 RNG state 原生推进，只少 `FE_query` 对应的优化预算。对保存 best-so-far 的实现，`performance_gain_raw` 应不大于 0，`U_query` 还需扣除非 FE 成本，因此不得把偶然大于 0 的值解释为“确认信息价值”。若观察到这类值，应先检查状态一致性、预算账本和数值记录。
 
 其他 prefix 行写入独立 cross-probe 数据，用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主训练、主 threshold 或主结果汇总。
 
@@ -264,7 +253,7 @@ Pareto 评估必须同时报告：
 - 主 target：`u_query_lamT_1`；
 - preprocessing、模型和 deployable threshold 只在 BBOB train 上拟合；
 - 主 Decision 数据只含训练集 SBS prefix；全 prefix 数据单独输出作稳健性分析；
-- `same_algorithm` / `changed_algorithm` 只作为 selected-vs-default 报告分层；行动变化使用三个显式布尔字段；
+- `selected_equals_default`、`selected_equals_prefix` 与 `handoff_required` 分别进入分层统计，活动输出不生成字符串别名；
 - 旧 bucket selector 及其 proxy 产物只作为已替代方法的历史记录，不进入数据质量解释、主 Decision target 或正式结果。
 
 当前模型选择、baseline 同步状态和外部评价边界见 `docs/30_results/phase1_current_results.md`。

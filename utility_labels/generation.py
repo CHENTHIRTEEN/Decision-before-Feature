@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 
 from experiments.phase1_batch_common import load_config, selected_dimensions, selected_functions, split_name
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
-from selection_reference.model import SELECTION_REFERENCE_PROTOCOL
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
 
 
@@ -60,6 +60,8 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     spec = get_query_spec(query_id)
     if row.get("selection_reference_protocol") != SELECTION_REFERENCE_PROTOCOL:
         raise ValueError("selection reference uses an unsupported protocol")
+    if row.get("selector_target_transform") != SELECTOR_TARGET_TRANSFORM:
+        raise ValueError("selection reference uses an unsupported action-loss target transform")
     if str(row.get("query_id")) != query_id or str(row.get("query_protocol")) != spec.protocol:
         raise ValueError("selection reference query identity does not match the requested utility target")
     if str(row.get("sample_design_id")) != spec.sample_design_id:
@@ -73,6 +75,10 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     selected_algorithm = str(row["selected_algorithm"])
     selected_equals_default = selected_algorithm == default_algorithm
     selected_equals_prefix = selected_algorithm == prefix_algorithm
+    if bool(row["selected_equals_default"]) != selected_equals_default:
+        raise ValueError("selection reference selected_equals_default is inconsistent")
+    if bool(row["selected_equals_prefix"]) != selected_equals_prefix:
+        raise ValueError("selection reference selected_equals_prefix is inconsistent")
     skip_switches_from_prefix = default_algorithm != prefix_algorithm
     expected_action = "continue_current" if selected_equals_prefix else selected_algorithm
     if str(row["selected_action"]) != expected_action:
@@ -90,6 +96,11 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     handoff_type = str(row["handoff_type"])
     if handoff_type != query_transition_mode:
         raise ValueError("handoff_type must equal the query transition mode")
+    handoff_required = not selected_equals_prefix
+    if bool(row["handoff_required"]) != handoff_required:
+        raise ValueError("selection reference handoff_required is inconsistent")
+    if handoff_required != (handoff_type == "population_transfer_initialization"):
+        raise ValueError("handoff_required must match handoff_type")
 
     p_skip = float(row["p_skip"])
     p_query = float(row["selected_action_loss"])
@@ -142,10 +153,12 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "selection_reference_default_algorithm": default_algorithm,
         "selection_reference_protocol": str(row["selection_reference_protocol"]),
         "selector_prediction_source": str(row["selector_prediction_source"]),
+        "selector_target_transform": str(row["selector_target_transform"]),
         "selected_algorithm": selected_algorithm,
         "selected_action": str(row["selected_action"]),
         "selected_equals_default": selected_equals_default,
         "selected_equals_prefix": selected_equals_prefix,
+        "handoff_required": handoff_required,
         "skip_switches_from_prefix": skip_switches_from_prefix,
         "no_query_transition_mode": no_query_transition_mode,
         "query_transition_mode": query_transition_mode,
@@ -205,10 +218,12 @@ def utility_schema() -> pa.Schema:
         ("selection_reference_default_algorithm", pa.string()),
         ("selection_reference_protocol", pa.string()),
         ("selector_prediction_source", pa.string()),
+        ("selector_target_transform", pa.string()),
         ("selected_algorithm", pa.string()),
         ("selected_action", pa.string()),
         ("selected_equals_default", pa.bool_()),
         ("selected_equals_prefix", pa.bool_()),
+        ("handoff_required", pa.bool_()),
         ("skip_switches_from_prefix", pa.bool_()),
         ("no_query_transition_mode", pa.string()),
         ("query_transition_mode", pa.string()),

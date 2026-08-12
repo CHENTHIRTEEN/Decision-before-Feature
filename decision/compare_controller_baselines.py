@@ -31,13 +31,19 @@ PREDICTION_ALIGNMENT_COLUMNS = (
     "default_algorithm",
     "no_query_algorithm",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "handoff_required",
     "handoff_type",
-    "label_source",
+    "selector_target_transform",
     TARGET_COLUMN,
 )
 GROUP_LAYERS = {
     "overall": [],
-    "label_source": ["label_source"],
+    "selected_equals_default": ["selected_equals_default"],
+    "selected_equals_prefix": ["selected_equals_prefix"],
+    "handoff_required": ["handoff_required"],
     "FE_ratio": ["FE_ratio"],
     "dimension": ["dimension"],
     "prefix_algorithm": ["prefix_algorithm"],
@@ -212,8 +218,12 @@ def _read_predictions(
         "default_algorithm",
         "no_query_algorithm",
         "selected_algorithm",
+        "selected_action",
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "handoff_required",
         "handoff_type",
-        "label_source",
+        "selector_target_transform",
         TARGET_COLUMN,
         f"decision_run_query_{threshold_mode}",
         f"decision_utility_{threshold_mode}",
@@ -268,15 +278,20 @@ def _check_prediction_alignment(current: pd.DataFrame, time_only: pd.DataFrame) 
         "default_algorithm",
         "no_query_algorithm",
         "selected_algorithm",
+        "selected_action",
         "handoff_type",
-        "label_source",
+        "selector_target_transform",
     )
     integer_columns = ("dimension", "seed", "FE")
+    boolean_columns = ("selected_equals_default", "selected_equals_prefix", "handoff_required")
     for column in string_columns:
         if not np.array_equal(current[column].astype(str).to_numpy(), time_only[column].astype(str).to_numpy()):
             raise ValueError(f"current and time-only prediction rows disagree on {column}")
     for column in integer_columns:
         if not np.array_equal(current[column].astype(int).to_numpy(), time_only[column].astype(int).to_numpy()):
+            raise ValueError(f"current and time-only prediction rows disagree on {column}")
+    for column in boolean_columns:
+        if not np.array_equal(current[column].to_numpy(dtype=bool), time_only[column].to_numpy(dtype=bool)):
             raise ValueError(f"current and time-only prediction rows disagree on {column}")
     for column in ("FE_ratio", TARGET_COLUMN):
         if not np.allclose(
@@ -326,8 +341,12 @@ def _policy_frames(
             "default_algorithm",
             "no_query_algorithm",
             "selected_algorithm",
+            "selected_action",
+            "selected_equals_default",
+            "selected_equals_prefix",
+            "handoff_required",
             "handoff_type",
-            "label_source",
+            "selector_target_transform",
             TARGET_COLUMN,
         ]
     ].copy()
@@ -377,7 +396,9 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "dimension": group.get("dimension"),
         "FE_ratio": group.get("FE_ratio"),
         "prefix_algorithm": group.get("prefix_algorithm"),
-        "label_source": group.get("label_source"),
+        "selected_equals_default": group.get("selected_equals_default"),
+        "selected_equals_prefix": group.get("selected_equals_prefix"),
+        "handoff_required": group.get("handoff_required"),
         "rows": int(len(frame)),
         "observed_utility_gt_zero_rows": int(np.sum(positive)),
         "observed_utility_gt_zero_rate": float(np.mean(positive)),
@@ -571,9 +592,9 @@ def _markdown_report(
         "precision_u_gt_zero_under_calls",
     ]
     overall = best_policy_summary[overall_columns]
-    label_source = policy_summary[policy_summary["layer"] == "label_source"][label_columns].sort_values(
-        ["group", "utility_mean"], ascending=[True, False]
-    )
+    action_relations = policy_summary[
+        policy_summary["layer"].isin(("selected_equals_default", "selected_equals_prefix", "handoff_required"))
+    ][["layer", *label_columns]].sort_values(["layer", "group", "utility_mean"], ascending=[True, True, False])
     lines = [
         "# Controller Baseline Comparison",
         "",
@@ -598,9 +619,9 @@ def _markdown_report(
         "",
         _markdown_table(random_repetition_summary),
         "",
-        "## Label-Source Breakdown",
+        "## Explicit Action-Relation Breakdown",
         "",
-        _markdown_table(label_source),
+        _markdown_table(action_relations),
         "",
         "## 解释",
         "",

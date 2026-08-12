@@ -292,14 +292,15 @@ prefix_algorithm = default_algorithm = train-derived SBS
 ```text
 selected_equals_default = (selected_algorithm == default_algorithm)
 selected_equals_prefix = (selected_algorithm == prefix_algorithm)
+handoff_required = not selected_equals_prefix
 skip_switches_from_prefix = (default_algorithm != prefix_algorithm)
 no_query_algorithm = default_algorithm
 handoff_type = query_transition_mode
 ```
 
-`same_algorithm` 只作为 `selected_equals_default` 的报告分层名。只有在主协议 `prefix=default` 的条件下，它才同时表示 Query 后选择当前算法。
+`handoff_required` 必须与 `handoff_type == population_transfer_initialization` 逐行相等。三个显式动作关系字段分别用于报告，不再生成 selected-vs-default 字符串别名。
 
-`no_query_algorithm` 是 No-query 实际使用算法的显式兼容字段；`handoff_type` 是 Query-selected action transition 的显式兼容字段，并与 `query_transition_mode` 逐行相等。二者均不进入 Decision 输入。
+`no_query_algorithm` 是 No-query 实际使用算法的显式字段；`handoff_type` 是 Query-selected action transition 的详细字段，并与 `query_transition_mode` 逐行相等。这些字段均不进入 Decision 输入。
 
 在线部署的初始 default optimizer 仍由训练集 SBS 确定。若在线 query 未触发，SBS 的同一个完整状态持续推进；若 query 后 Selector 选择其他算法，才执行 population transfer。固定 CMA-ES 或 DE 只作为部署默认算法敏感性分析。
 

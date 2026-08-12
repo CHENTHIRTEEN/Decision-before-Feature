@@ -14,6 +14,7 @@ from sklearn.preprocessing import StandardScaler
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -37,10 +38,12 @@ METADATA_COLUMNS = (
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
+    "selector_target_transform",
     "selected_algorithm",
     "selected_action",
     "selected_equals_default",
     "selected_equals_prefix",
+    "handoff_required",
     "best_observed_algorithm",
     "selected_matches_best_observed",
     "potential_gain_raw",
@@ -49,7 +52,6 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    "label_source",
 )
 FORBIDDEN_X_COLUMNS = {
     *METADATA_COLUMNS,
@@ -265,7 +267,19 @@ def _check_splits(train: pd.DataFrame, validation: pd.DataFrame) -> None:
             raise ValueError(f"{name} must use the train-derived SBS as both prefix and default")
         if frame["skip_switches_from_prefix"].astype(bool).any():
             raise ValueError(f"{name} must not switch algorithms on the no-query path")
-        invalid_no_action = frame["selected_equals_prefix"].astype(bool) & (frame[TARGET_COLUMN].astype(float) > 0.0)
+        expected_handoff = ~frame["selected_equals_prefix"].astype(bool)
+        if not np.array_equal(frame["handoff_required"].to_numpy(dtype=bool), expected_handoff.to_numpy()):
+            raise ValueError(f"{name} has inconsistent handoff_required values")
+        if not np.array_equal(
+            frame["handoff_required"].to_numpy(dtype=bool),
+            frame["handoff_type"].astype(str).eq("population_transfer_initialization").to_numpy(dtype=bool),
+        ):
+            raise ValueError(f"{name} handoff_required does not match handoff_type")
+        if set(frame["selector_target_transform"].astype(str)) != {SELECTOR_TARGET_TRANSFORM}:
+            raise ValueError(f"{name} uses an unsupported selector target transform")
+        if set(frame["selection_reference_protocol"].astype(str)) != {SELECTION_REFERENCE_PROTOCOL}:
+            raise ValueError(f"{name} uses an unsupported Selection Reference protocol")
+        invalid_no_action = ~frame["handoff_required"].astype(bool) & (frame[TARGET_COLUMN].astype(float) > 0.0)
         if invalid_no_action.any():
             raise ValueError(f"{name} contains positive utility without an optimizer action change")
 

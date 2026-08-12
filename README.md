@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-截至 2026-08-11，四种优化器已改为完整状态推进：同一算法在 checkpoint 间保留内部状态与 RNG；只有 selector 确实切换算法时，才执行一次显式的 population transfer 初始化。可用 `uv run optimizer-state-check` 在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
+截至 2026-08-12，四种优化器已改为完整状态推进：同一算法在 checkpoint 间保留内部状态与 RNG；只有 selector 确实切换算法时，才执行一次显式的 population transfer 初始化。可用 `uv run optimizer-state-check` 在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
 
 Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨 checkpoint 的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。w02/w05/w10 另外保存实际 anchor 跨度的 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`，所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
 
-Selection Reference 已改为逐共享状态候选动作损失回归：每个 state 对 `continue_current` 和其余 portfolio algorithm 分别进行真实 continuation，`remaining_budget_ratio` 作为连续输入；不再按静态 problem label 和 nearest performance bucket 选择算法。训练行使用按 function family 的交叉拟合预测，验证与外部评价加载仅由 BBOB train 拟合的 selector model。
+Selection Reference 已改为逐共享状态候选动作损失回归：每个 state 对 `continue_current` 和其余三个 portfolio algorithm 分别进行真实 continuation，`remaining_budget_ratio` 作为连续输入；不再按静态 problem label 和 nearest performance bucket 选择算法。固定的多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，训练行使用按 function family 的交叉拟合预测，验证与外部评价加载仅由 BBOB train 拟合的 selector model。
 
 三档 query 的实现边界检查已通过：真实 BBOB 10D 上 cheap/standard 共享 `lhs_50d` 样本，broad 独立使用 `lhs_100d` 并由隔离的 pflacco 1.2.2 环境完整提取 52 列；三档均无额外函数评价。72 个正式 trajectory shards 尚未启动。
 
@@ -37,8 +37,8 @@ Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。�
 - 第一篇论文主 probe/default 固定为训练集 SBS；No-query 原生继续当前 SBS 的完整 checkpoint state。
 - Query 后选择当前 prefix 时原生继续；选择其他算法时采用一次 checkpoint population transfer；query 采样点不并入后续优化 population。
 - 多 prefix 行单独用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主 Decision 数据。
-- 标签显式保存 `selected_equals_default`、`selected_equals_prefix` 和 `skip_switches_from_prefix`；`same_algorithm` 仅是前者的兼容名称。
-- `no_query_algorithm` 显式保存 No-query 分支算法并等于 `default_algorithm`；`handoff_type` 显式保存 Query-selected action 的 transition 类型并等于 `query_transition_mode`。
+- 标签显式保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 和 `skip_switches_from_prefix`，不再生成含义模糊的 selected-vs-default 字符串分层。
+- `no_query_algorithm` 显式保存 No-query 分支算法并等于 `default_algorithm`；`handoff_type` 显式保存 Query-selected action 的 transition 类型并等于 `query_transition_mode`；`handoff_required` 等价于 `handoff_type == population_transfer_initialization`。
 - 逐状态最小 action loss 称为 `best observed action`，只用于潜在性能差与 selector regret 诊断，不称为 oracle，也不进入 Decision 输入。
 
 ## 正式入口
@@ -56,7 +56,7 @@ Selection Reference、Utility、Decision、baseline 与外部评价入口均显�
 - 数据采集：`phase1-plan-shards`、`phase1-collect-batch`、`phase1-check-trajectory-shards`、`optimizer-state-check`、`behavior-permutation-check`
 - Query 与标签：`query-sample-batch`、`query-extract-cheap`、隔离的 `tools/pflacco_query/extract.py`、`query-consistency`、`selection-reference-check`、`selection-reference-evaluate-actions`、`selection-reference-build`、`utility-labels-generate-batch`
 - Decision 数据与模型：`decision-materialize-training-data`、`decision-train-full`、`decision-check-model-protocol`、`decision-compare-feature-groups`
-- 决策分析：`decision-threshold-sweep`、`decision-compare-controller-baselines`、`decision-controller-cost-performance`
+- 决策分析：`decision-handoff-learnability`、`decision-threshold-sweep`、`decision-compare-controller-baselines`、`decision-controller-cost-performance`
 - 外部评价：`decision-external-test-predict`、`decision-online-controller-evaluate`、`decision-cec-online-score-distribution`
 
 ## 目录

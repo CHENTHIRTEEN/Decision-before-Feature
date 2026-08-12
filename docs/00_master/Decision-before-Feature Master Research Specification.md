@@ -350,7 +350,7 @@ No-query 与 Run Query 的 paired continuation 使用同一完整 optimizer chec
 - 不使用 Best-so-far Warm Start；
 - 不复用 query 采样点。
 
-全 prefix trajectory 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化。正式标签必须保存 `selected_equals_default`、`selected_equals_prefix`、`skip_switches_from_prefix`、`no_query_algorithm` 和 `handoff_type`；其中 `no_query_algorithm=default_algorithm`，`handoff_type=query_transition_mode`。多 prefix 数据中的 `same_algorithm` 不得解释为“继续当前算法”。
+全 prefix trajectory 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化。正式标签必须保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required`、`skip_switches_from_prefix`、`no_query_algorithm` 和 `handoff_type`；其中 `no_query_algorithm=default_algorithm`，`handoff_type=query_transition_mode`，`handoff_required = not selected_equals_prefix`。活动输出不再使用 selected-vs-default 字符串别名。
 
 ## 8.1 No-query
 

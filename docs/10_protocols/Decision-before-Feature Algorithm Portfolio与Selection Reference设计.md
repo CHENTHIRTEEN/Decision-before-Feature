@@ -354,6 +354,7 @@ query features
 - 一个输出头对应一个 portfolio algorithm
 - BBOB train 行使用 function-family grouped cross-fitting predictions
 - held-out rows 使用全体 BBOB train families 拟合的最终模型
+- 模型产物与 Selection Reference 行固定记录 `selector_target_transform=statewise_minmax_observed_action_loss`
 
 可作为后续 sensitivity 或 robustness baseline 的模型：
 
@@ -382,7 +383,7 @@ query features
 $$
 \widetilde L(s_t,a)=
 \frac{L(s_t,a)-\min_bL(s_t,b)}
-{\max_bL(s_t,b)-\min_bL(s_t,b)+\epsilon}.
+{\max(\max_bL(s_t,b)-\min_bL(s_t,b),10^{-12})}.
 $$
 
 该变换保持同一 state 内的 argmin。raw action loss 同时保留，用于最终性能、潜在性能差和 selector regret 计算。
@@ -516,7 +517,7 @@ Selection Reference 的质量直接影响 $p_{query}$ 和 $U_{query}$，但它�
 
 第一篇论文主 probe/default 固定为训练集 SBS：No-query 原生继续当前 SBS，Query 后 statewise selector 从唯一动作集合中选择，选择 `continue_current` 时继续同一完整状态，选择其他算法时执行一次 population transfer。其他 prefix algorithm 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不得混入主结果。
 
-正式输出必须保存 `selected_equals_default`、`selected_equals_prefix`、`skip_switches_from_prefix`、`no_query_algorithm`、`handoff_type`、`best_observed_algorithm`、`best_observed_loss` 与 `selector_regret_raw`。`no_query_algorithm=default_algorithm`；`handoff_type=query_transition_mode`，描述 Query-selected action 使用原生 continuation 还是 Population Transfer。`same_algorithm` / `changed_algorithm` 只作为 selected-vs-default 报告分层；多 prefix 数据中的实际行动变化以 `selected_equals_prefix` 为准。正式报告同时给出 SBS、静态 VBS、逐状态 best observed action 与现实 selector 的性能差；选择一致率不能替代 observed utility。
+正式输出必须保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required`、`skip_switches_from_prefix`、`no_query_algorithm`、`handoff_type`、`best_observed_algorithm`、`best_observed_loss` 与 `selector_regret_raw`。`no_query_algorithm=default_algorithm`；`handoff_type=query_transition_mode`；`handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`。三个动作关系布尔字段分别分层，活动输出不再生成 selected-vs-default 字符串别名。正式报告同时给出 SBS、静态 VBS、逐状态 best observed action 与现实 selector 的性能差；选择一致率不能替代 observed utility。
 
 preliminary selector 的覆盖和 bucket 不连续问题已归入 `docs/archive/min_support/`，不得作为正式 phase1 数值来源。
 

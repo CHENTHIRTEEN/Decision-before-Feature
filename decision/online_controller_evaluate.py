@@ -1106,6 +1106,11 @@ def _run_threshold_policy(
         transition_mode = "native_optimizer_state"
 
     policy_category = "controller" if policy_name == "current_controller" else "baseline"
+    selected_equals_prefix = selected_algorithm == prefix_algorithm
+    selected_action = "continue_current" if selected_equals_prefix else selected_algorithm
+    handoff_required = not selected_equals_prefix
+    if handoff_required != (transition_mode == "population_transfer_initialization"):
+        raise ValueError("online handoff_required does not match optimizer_transition_mode")
     return {
         "policy_name": policy_name,
         "policy_category": policy_category,
@@ -1116,12 +1121,15 @@ def _run_threshold_policy(
         "default_algorithm": default_algorithm,
         "no_query_algorithm": default_algorithm,
         "selected_algorithm": selected_algorithm,
+        "selected_action": selected_action,
         "selected_equals_default": bool(selected_algorithm == default_algorithm),
-        "selected_equals_prefix": bool(selected_algorithm == prefix_algorithm),
+        "selected_equals_prefix": bool(selected_equals_prefix),
+        "handoff_required": bool(handoff_required),
         "skip_switches_from_prefix": bool(default_algorithm != prefix_algorithm),
         "selector_status": selector_status,
         "optimizer_transition_mode": transition_mode,
         "handoff_type": transition_mode,
+        "selector_target_transform": selector.model.selector_target_transform,
         "selector_remaining_budget_ratio": selector_remaining_budget_ratio,
         "query_called": bool(triggered),
         "query_id": selector.model.query_id,

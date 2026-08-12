@@ -269,10 +269,10 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         "selected_algorithm",
         "selected_equals_default",
         "selected_equals_prefix",
+        "handoff_required",
         "skip_switches_from_prefix",
         "no_query_transition_mode",
         "query_transition_mode",
-        "label_source",
         TARGET_COLUMN,
         *feature_columns,
     }
@@ -418,11 +418,11 @@ def _score_frame(
             "seed",
             "FE",
             "FE_ratio",
-            "label_source",
             "default_algorithm",
             "selected_algorithm",
             "selected_equals_default",
             "selected_equals_prefix",
+            "handoff_required",
             "skip_switches_from_prefix",
             TARGET_COLUMN,
         ]
@@ -465,22 +465,31 @@ def _layer_metric_summary(
 def _evaluation_layers(validation: pd.DataFrame) -> dict[str, list[tuple[str, np.ndarray]]]:
     layers: dict[str, list[tuple[str, np.ndarray]]] = {
         "all_validation": [("all_validation", np.ones(len(validation), dtype=bool))],
-        "label_source": [],
+        "selected_equals_default": [],
         "selected_equals_prefix": [],
+        "handoff_required": [],
         "skip_switches_from_prefix": [],
         "prefix_algorithm": [],
         "dimension": [],
         "FE_ratio": [],
     }
-    for label_source in ("changed_algorithm", "same_algorithm"):
-        layers["label_source"].append(
-            (label_source, validation["label_source"].astype(str).to_numpy() == label_source)
-        )
     for value in (False, True):
+        layers["selected_equals_default"].append(
+            (
+                f"selected_equals_default={str(value).lower()}",
+                validation["selected_equals_default"].to_numpy(dtype=bool) == value,
+            )
+        )
         layers["selected_equals_prefix"].append(
             (
                 f"selected_equals_prefix={str(value).lower()}",
                 validation["selected_equals_prefix"].to_numpy(dtype=bool) == value,
+            )
+        )
+        layers["handoff_required"].append(
+            (
+                f"handoff_required={str(value).lower()}",
+                validation["handoff_required"].to_numpy(dtype=bool) == value,
             )
         )
         layers["skip_switches_from_prefix"].append(
@@ -716,14 +725,28 @@ def _markdown_report(
 ) -> str:
     overall_regression = regression_summary[regression_summary["layer"] == "all_validation"]
     action_relation_decision = decision_summary[
-        decision_summary["layer"].isin(["selected_equals_prefix", "skip_switches_from_prefix"])
+        decision_summary["layer"].isin(
+            [
+                "selected_equals_default",
+                "selected_equals_prefix",
+                "handoff_required",
+                "skip_switches_from_prefix",
+            ]
+        )
     ]
     top10 = ranking_summary[
         (ranking_summary["top_k_fraction"] == 0.10)
         & (
             (ranking_summary["layer"] == "all_validation")
             | (
-                ranking_summary["layer"].isin(["selected_equals_prefix", "skip_switches_from_prefix"])
+                ranking_summary["layer"].isin(
+                    [
+                        "selected_equals_default",
+                        "selected_equals_prefix",
+                        "handoff_required",
+                        "skip_switches_from_prefix",
+                    ]
+                )
             )
         )
     ]
@@ -736,7 +759,7 @@ def _markdown_report(
             "- Dual-track comparison: protocol-compliant global ridge baseline vs algorithm-partition stacking diagnostic.",
             "- The stacking track uses `prefix_algorithm` only for base-model partitioning and report grouping.",
             "- This diagnostic reads the all-prefix cross-probe dataset; it is not a main-result model.",
-            "- Action-change strata use `selected_equals_prefix` and `skip_switches_from_prefix`; legacy `label_source` is not used as an action relation.",
+            "- Action-relation strata use `selected_equals_default`, `selected_equals_prefix`, `handoff_required`, and `skip_switches_from_prefix` explicitly.",
             "- Meta model input is only the four base scores.",
             "- No model files were saved, and no main complex Decision Model was trained.",
             f"- OOF folds: {summary['oof_folds']} family-grouped folds.",

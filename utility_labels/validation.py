@@ -7,6 +7,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from landscape_queries.specs import get_query_spec
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_LAMBDAS, UTILITY_VALUE_COLUMNS
 
 
@@ -25,6 +26,10 @@ def _validate_row(row: dict) -> None:
         raise ValueError("query_protocol does not match query_id")
     if str(row["sample_design_id"]) != spec.sample_design_id:
         raise ValueError("sample_design_id does not match query_id")
+    if str(row["selection_reference_protocol"]) != SELECTION_REFERENCE_PROTOCOL:
+        raise ValueError("utility label uses an unsupported Selection Reference protocol")
+    if str(row["selector_target_transform"]) != SELECTOR_TARGET_TRANSFORM:
+        raise ValueError("selector_target_transform does not match the frozen target transform")
     if int(row["FE_prefix"]) + int(row["FE_no_query_optimization"]) != int(row["FE_total"]):
         raise ValueError("no-query FE ledger is inconsistent")
     if (
@@ -46,6 +51,9 @@ def _validate_row(row: dict) -> None:
         raise ValueError("selected_equals_default is inconsistent")
     if bool(row["selected_equals_prefix"]) != expected_selected_equals_prefix:
         raise ValueError("selected_equals_prefix is inconsistent")
+    expected_handoff = not expected_selected_equals_prefix
+    if bool(row["handoff_required"]) != expected_handoff:
+        raise ValueError("handoff_required is inconsistent")
     if bool(row["skip_switches_from_prefix"]) != expected_skip_switch:
         raise ValueError("skip_switches_from_prefix is inconsistent")
     expected_no_query_mode = (
@@ -60,6 +68,8 @@ def _validate_row(row: dict) -> None:
         raise ValueError("query_transition_mode is inconsistent")
     if str(row["handoff_type"]) != expected_query_mode:
         raise ValueError("handoff_type must equal query_transition_mode")
+    if bool(row["handoff_required"]) != (str(row["handoff_type"]) == "population_transfer_initialization"):
+        raise ValueError("handoff_required must match handoff_type")
     if not isclose(float(row["p_query"]), float(row["selected_action_loss"]), rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("p_query must equal selected_action_loss")
     p_skip = float(row["p_skip"])

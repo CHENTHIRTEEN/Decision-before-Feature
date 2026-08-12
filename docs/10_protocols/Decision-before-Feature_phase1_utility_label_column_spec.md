@@ -48,10 +48,12 @@ no_query_algorithm
 selection_reference_default_algorithm
 selection_reference_protocol
 selector_prediction_source
+selector_target_transform
 selected_algorithm
 selected_action
 selected_equals_default
 selected_equals_prefix
+handoff_required
 skip_switches_from_prefix
 no_query_transition_mode
 query_transition_mode
@@ -65,6 +67,7 @@ handoff_type
 ```text
 no_query_algorithm = default_algorithm
 handoff_type = query_transition_mode
+handoff_required = (handoff_type == population_transfer_initialization)
 ```
 
 `handoff_type` 只描述 Query-selected action 从 prefix state 进入 continuation 时使用 `native_optimizer_state` 还是 `population_transfer_initialization`；No-query 分支继续由 `no_query_transition_mode` 单独描述。

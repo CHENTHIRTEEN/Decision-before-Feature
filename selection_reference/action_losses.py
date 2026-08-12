@@ -128,6 +128,8 @@ def evaluate_candidate_actions(
     instance: int,
 ) -> list[dict[str, float | str]]:
     prefix_algorithm = str(checkpoint_state.algorithm)
+    if len(portfolio) != 4 or len(set(portfolio)) != 4:
+        raise ValueError("action portfolio must contain exactly four unique algorithms")
     if prefix_algorithm not in portfolio:
         raise ValueError("prefix algorithm must belong to the action portfolio")
     outcomes = []

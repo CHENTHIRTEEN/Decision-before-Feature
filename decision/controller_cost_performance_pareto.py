@@ -33,12 +33,19 @@ IDENTITY_COLUMNS = [
     "default_algorithm",
     "no_query_algorithm",
     "selected_algorithm",
+    "selected_action",
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "handoff_required",
     "handoff_type",
+    "selector_target_transform",
 ]
-PREDICTION_IDENTITY_COLUMNS = [*IDENTITY_COLUMNS, "label_source"]
+PREDICTION_IDENTITY_COLUMNS = [*IDENTITY_COLUMNS]
 GROUP_LAYERS = {
     "overall": [],
-    "label_source": ["label_source"],
+    "selected_equals_default": ["selected_equals_default"],
+    "selected_equals_prefix": ["selected_equals_prefix"],
+    "handoff_required": ["handoff_required"],
     "FE_ratio": ["FE_ratio"],
     "dimension": ["dimension"],
     "prefix_algorithm": ["prefix_algorithm"],
@@ -450,7 +457,9 @@ def _policy_row(frame: pd.DataFrame, *, layer: str, group: dict[str, Any]) -> di
         "dimension": group.get("dimension"),
         "FE_ratio": group.get("FE_ratio"),
         "prefix_algorithm": group.get("prefix_algorithm"),
-        "label_source": group.get("label_source"),
+        "selected_equals_default": group.get("selected_equals_default"),
+        "selected_equals_prefix": group.get("selected_equals_prefix"),
+        "handoff_required": group.get("handoff_required"),
         "rows": int(len(frame)),
         "query_call_rows": call_rows,
         "query_call_rate": float(np.mean(calls)),

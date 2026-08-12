@@ -8,7 +8,7 @@
 2. 本文档用于解释如何在开发中落实 `AGENTS.md` 和研究文档。
 3. 若 `docs/` 中早期方案与本文档冲突，开发时按本文档执行。
 
-当前状态（2026-08-11）：优化器 continuation 已改为完整状态原生推进。此前由重建式 continuation 生成的 trajectory、utility labels、Decision dataset、模型和评价结果已撤回正式证据资格，必须从 trajectory 开始重新生成。preliminary/MVE 口径仍退出当前运行面。
+当前状态（2026-08-12）：优化器 continuation 已改为完整状态原生推进，Selection Reference 固定为四个唯一动作、多输出 action-loss regression 与显式动作关系字段。此前由重建式 continuation 生成的 trajectory、utility labels、Decision dataset、模型和评价结果已撤回正式证据资格，必须从 trajectory 开始重新生成。preliminary/MVE 口径仍退出当前运行面。
 
 ---
 
@@ -105,7 +105,7 @@ same complete optimizer checkpoint state
 - 不再用 problem 级静态最佳算法标签和 nearest performance bucket 生成正式 Selection Reference。
 - 对每个共享状态运行唯一动作集合：`continue_current` 加其余三个 portfolio algorithm；同算法使用完整状态原生 continuation，跨算法使用一次 population transfer。
 - 保存每个 `state × action` 的 observed final loss；逐状态最小值称为 `best_observed_action`，不称为 oracle。
-- Selector 预测逐状态归一化 action loss，并把 `remaining_budget_ratio` 作为连续输入。
+- Selector 使用固定多输出 Random Forest 预测逐状态归一化 action loss，并把 `remaining_budget_ratio` 作为连续输入；目标变换固定为 `(L-min L)/max(max L-min L, 1e-12)`，产物字段记为 `selector_target_transform=statewise_minmax_observed_action_loss`。
 - Selector 可使用 query features、permutation-invariant algorithm-agnostic behavior 和连续剩余预算；这些 selector 输入不改变 Decision Model 的禁止输入边界。
 - 正式 train Selection Reference 输出必须来自 function-family cross-fitting；validation 和外部 benchmark 只允许使用 BBOB train 拟合的最终模型。
 - 原静态 bucket classifier 只可作为被替代方法诊断，不得继续生成正式 Utility 标签。
@@ -219,7 +219,7 @@ population_size = 40
 
 裁决理由：
 
-- preliminary 覆盖分析显示 `changed_algorithm` 且 `U_query>0` 的主要机会集中在 `FE_ratio=0.30-0.55`；该观察只用于冻结采样范围，不作为正式结果。
+- preliminary 覆盖分析显示 `selected_equals_default=false` 且 `U_query>0` 的主要机会集中在 `FE_ratio=0.30-0.55`；该观察只用于冻结采样范围，不作为正式结果。
 - `0.20` 保留为较早成熟度参照，`0.25` 和 `0.28` 用于提高 0.20 到 0.30 之间的行为与效用分辨率；这些 checkpoint 不再与任何 performance bucket 绑定。
 - `0.60` 保留为机会区之后的衰减参照。
 - very early checkpoints 例如 `0.005-0.15` 和 late endpoints 例如 `0.75/1.00` 不进入正式 phase1 主采样频率；如需研究 early/late 行为，应另设扩展实验。
@@ -590,9 +590,9 @@ CEC2017 已由 `configs/phase1_cec2017_test.yaml` 冻结为 29 个函数、10D /
 - BBOB train / validation dimensions：10D / 20D / 40D。
 - Phase1 主 checkpoint ratios：`0.20, 0.25, 0.28, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60`。
 - `dimension`、`function_id`、`algorithm_id`、算法内部参数、query features 不进入 Decision Model 输入；这些字段只作为 metadata 和分层诊断使用。
-- 必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `skip_switches_from_prefix`；三者分别回答 selector 是否选择 SBS、query 路径是否继续当前算法、No-query 是否离开当前算法。
-- `same_algorithm` 是 `selected_equals_default` 的报告分层名，不得在多 prefix 数据中解释为“query 后继续当前算法”。
-- 主协议因 `prefix_algorithm == default_algorithm`，此时 `selected_equals_default == selected_equals_prefix`，语义才可合并。
+- 必须保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 和 `skip_switches_from_prefix`；四者分别回答 selector 是否选择 SBS、query 路径是否继续当前算法、Query 路径是否需要 Population Transfer、No-query 是否离开当前算法。
+- `handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`；活动数据和报告不得再生成 selected-vs-default 字符串别名。
+- 主协议因 `prefix_algorithm == default_algorithm`，此时 `selected_equals_default == selected_equals_prefix`，但仍分别保存两个字段。
 - Selection Reference / query-conditioned selection pipeline 是固定下游组件，不作为本文方法贡献点。
 - 算法切换后的主初始化口径为 Population Transfer；query 采样点不复用到后续优化。
 - Decision Model 候选、nested family-OOF 选择、`oof_utility` threshold 冻结和外部评价自动加载所选模型的接口已经冻结。

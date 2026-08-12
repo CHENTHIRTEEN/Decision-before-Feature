@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
+from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 
 
 DEFAULT_BEHAVIOR_ROOT = Path("results/phase1_refined_sampling")
@@ -45,10 +46,12 @@ METADATA_COLUMNS = (
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
+    "selector_target_transform",
     "selected_algorithm",
     "selected_action",
     "selected_equals_default",
     "selected_equals_prefix",
+    "handoff_required",
     "best_observed_algorithm",
     "selected_matches_best_observed",
     "potential_gain_raw",
@@ -57,7 +60,6 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    "label_source",
 )
 DATASET_COLUMNS = METADATA_COLUMNS + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN) + BEHAVIOR_FEATURE_COLUMNS
 FORBIDDEN_INPUT_COLUMNS = {
@@ -79,15 +81,16 @@ FORBIDDEN_INPUT_COLUMNS = {
     "selection_reference_default_algorithm",
     "selection_reference_protocol",
     "selector_prediction_source",
+    "selector_target_transform",
     "selected_algorithm",
     "selected_action",
     "selected_equals_default",
     "selected_equals_prefix",
+    "handoff_required",
     "skip_switches_from_prefix",
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    "label_source",
     "FE_total",
     "FE_prefix",
     "FE_query",
@@ -134,6 +137,11 @@ FORBIDDEN_INPUT_NAME_FRAGMENTS = (
     "dimension",
 )
 EPS = 1e-12
+ACTION_RELATION_COLUMNS = (
+    "selected_equals_default",
+    "selected_equals_prefix",
+    "handoff_required",
+)
 
 
 def materialize_decision_training_data(
@@ -209,8 +217,8 @@ def materialize_decision_training_data(
     pq.write_table(pa.Table.from_pandas(cross_probe_dataset, preserve_index=False), cross_probe_dataset_path)
     feature_null_summary = _feature_null_summary(dataset)
     target_summary = _target_summary(dataset)
-    label_source_summary = _label_source_summary(dataset)
-    label_source_by_dimension = _label_source_by_dimension_summary(dataset)
+    action_relation_summary = _action_relation_summary(dataset)
+    action_relation_by_dimension = _action_relation_by_dimension_summary(dataset)
     join_summary = _join_summary(
         utility_rows=len(utility),
         behavior_rows=len(behavior),
@@ -226,8 +234,8 @@ def materialize_decision_training_data(
 
     _write_frame(feature_null_summary, output_dir / "feature_null_summary")
     _write_frame(target_summary, output_dir / "target_summary")
-    _write_frame(label_source_summary, output_dir / "label_source_summary")
-    _write_frame(label_source_by_dimension, output_dir / "label_source_by_dimension_summary")
+    _write_frame(action_relation_summary, output_dir / "action_relation_summary")
+    _write_frame(action_relation_by_dimension, output_dir / "action_relation_by_dimension_summary")
     _write_frame(join_summary, output_dir / "join_coverage_summary")
     _write_frame(input_legality, output_dir / "input_legality_summary")
     _write_frame(protocol_scope_summary, output_dir / "protocol_scope_summary")
@@ -243,8 +251,8 @@ def materialize_decision_training_data(
             input_legality=input_legality,
             feature_null_summary=feature_null_summary,
             target_summary=target_summary,
-            label_source_summary=label_source_summary,
-            label_source_by_dimension=label_source_by_dimension,
+            action_relation_summary=action_relation_summary,
+            action_relation_by_dimension=action_relation_by_dimension,
             utility_shards=len(utility_paths),
             behavior_shards=len(behavior_paths),
             dataset_path=dataset_path,
@@ -299,10 +307,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "join_coverage_summary.parquet",
         output_dir / "target_summary.csv",
         output_dir / "target_summary.parquet",
-        output_dir / "label_source_summary.csv",
-        output_dir / "label_source_summary.parquet",
-        output_dir / "label_source_by_dimension_summary.csv",
-        output_dir / "label_source_by_dimension_summary.parquet",
+        output_dir / "action_relation_summary.csv",
+        output_dir / "action_relation_summary.parquet",
+        output_dir / "action_relation_by_dimension_summary.csv",
+        output_dir / "action_relation_by_dimension_summary.parquet",
         output_dir / "protocol_scope_summary.csv",
         output_dir / "protocol_scope_summary.parquet",
     )
@@ -338,10 +346,12 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         "selection_reference_default_algorithm",
         "selection_reference_protocol",
         "selector_prediction_source",
+        "selector_target_transform",
         "selected_algorithm",
         "selected_action",
         "selected_equals_default",
         "selected_equals_prefix",
+        "handoff_required",
         "best_observed_algorithm",
         "selected_matches_best_observed",
         "potential_gain_raw",
@@ -395,10 +405,12 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "selection_reference_default_algorithm",
             "selection_reference_protocol",
             "selector_prediction_source",
+            "selector_target_transform",
             "selected_algorithm",
             "selected_action",
             "selected_equals_default",
             "selected_equals_prefix",
+            "handoff_required",
             "best_observed_algorithm",
             "selected_matches_best_observed",
             "potential_gain_raw",
@@ -417,11 +429,6 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "FE_ratio_utility": "FE_ratio",
             **{f"{column}_behavior": column for column in BEHAVIOR_FEATURE_COLUMNS},
         }
-    )
-    dataset["label_source"] = np.where(
-        dataset["selected_equals_default"].astype(bool),
-        "same_algorithm",
-        "changed_algorithm",
     )
     return dataset[list(DATASET_COLUMNS)]
 
@@ -457,6 +464,8 @@ def _check_feature_values(dataset: pd.DataFrame) -> None:
 
 
 def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
+    if set(dataset["selection_reference_protocol"].astype(str)) != {SELECTION_REFERENCE_PROTOCOL}:
+        raise ValueError("selection_reference_protocol must match the active protocol")
     if not (dataset["no_query_algorithm"].astype(str) == dataset["default_algorithm"].astype(str)).all():
         raise ValueError("no_query_algorithm must equal default_algorithm")
     if not (
@@ -477,6 +486,9 @@ def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
         raise ValueError("selected_equals_default must match selected_algorithm == default_algorithm")
     if not np.array_equal(dataset["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix):
         raise ValueError("selected_equals_prefix must match selected_algorithm == prefix_algorithm")
+    handoff_required = ~selected_equals_prefix
+    if not np.array_equal(dataset["handoff_required"].to_numpy(dtype=bool), handoff_required):
+        raise ValueError("handoff_required must equal not selected_equals_prefix")
     if not np.array_equal(dataset["skip_switches_from_prefix"].to_numpy(dtype=bool), skip_switches_from_prefix):
         raise ValueError("skip_switches_from_prefix must match default_algorithm != prefix_algorithm")
     expected_skip_transition = np.where(
@@ -495,13 +507,13 @@ def _check_algorithm_relations(dataset: pd.DataFrame) -> None:
         raise ValueError("query transition mode must distinguish native continuation from population transfer")
     if not np.array_equal(dataset["handoff_type"].to_numpy(dtype=str), expected_query_transition):
         raise ValueError("handoff_type must equal query_transition_mode")
-    expected_label_source = np.where(
-        selected_equals_default,
-        "same_algorithm",
-        "changed_algorithm",
-    )
-    if not np.array_equal(dataset["label_source"].to_numpy(dtype=str), expected_label_source):
-        raise ValueError("label_source must match selected_algorithm == default_algorithm")
+    if not np.array_equal(
+        dataset["handoff_required"].to_numpy(dtype=bool),
+        dataset["handoff_type"].astype(str).eq("population_transfer_initialization").to_numpy(dtype=bool),
+    ):
+        raise ValueError("handoff_required must match handoff_type")
+    if set(dataset["selector_target_transform"].astype(str)) != {SELECTOR_TARGET_TRANSFORM}:
+        raise ValueError("selector_target_transform must match the frozen target transform")
 
 
 def _primary_protocol_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
@@ -514,7 +526,7 @@ def _primary_protocol_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
     if set(primary["split"].astype(str)) != set(dataset["split"].astype(str)):
         raise ValueError("primary protocol must retain every input split")
     invalid_no_action_gain = primary[
-        primary["selected_equals_prefix"].astype(bool) & (primary[TARGET_COLUMN].astype(float) > 0.0)
+        ~primary["handoff_required"].astype(bool) & (primary[TARGET_COLUMN].astype(float) > 0.0)
     ]
     if not invalid_no_action_gain.empty:
         raise ValueError("primary no-action-change rows must not have positive query utility")
@@ -657,46 +669,54 @@ def _protocol_scope_summary(primary: pd.DataFrame, cross_probe: pd.DataFrame) ->
                     "skip_switch_rate": float(group["skip_switches_from_prefix"].astype(bool).mean()),
                     "selected_equals_prefix_rate": float(group["selected_equals_prefix"].astype(bool).mean()),
                     "selected_equals_default_rate": float(group["selected_equals_default"].astype(bool).mean()),
+                    "handoff_required_rate": float(group["handoff_required"].astype(bool).mean()),
                 }
             )
     return pd.DataFrame(rows)
 
 
-def _label_source_summary(dataset: pd.DataFrame) -> pd.DataFrame:
+def _action_relation_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for (split, label_source), group in dataset.groupby(["split", "label_source"], dropna=False):
-        split_rows = int((dataset["split"] == split).sum())
-        values = group[TARGET_COLUMN].astype(float)
-        rows.append(
-            {
-                "split": str(split),
-                "label_source": str(label_source),
-                "rows": int(len(group)),
-                "row_share_within_split": float(len(group) / max(split_rows, 1)),
-                "u_gt_zero_rate": float((values > 0.0).mean()),
-                "mean": float(values.mean()),
-                "median": float(values.median()),
-                "u_gt_zero_utility_sum": float(values[values > 0.0].sum()),
-            }
-        )
+    for relation in ACTION_RELATION_COLUMNS:
+        for (split, relation_value), group in dataset.groupby(["split", relation], dropna=False):
+            split_rows = int((dataset["split"] == split).sum())
+            values = group[TARGET_COLUMN].astype(float)
+            rows.append(
+                {
+                    "split": str(split),
+                    "relation": relation,
+                    "relation_value": bool(relation_value),
+                    "rows": int(len(group)),
+                    "row_share_within_split": float(len(group) / max(split_rows, 1)),
+                    "u_gt_zero_rate": float((values > 0.0).mean()),
+                    "mean": float(values.mean()),
+                    "median": float(values.median()),
+                    "u_gt_zero_utility_sum": float(values[values > 0.0].sum()),
+                }
+            )
     return pd.DataFrame(rows)
 
 
-def _label_source_by_dimension_summary(dataset: pd.DataFrame) -> pd.DataFrame:
+def _action_relation_by_dimension_summary(dataset: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for (split, label_source, dimension), group in dataset.groupby(["split", "label_source", "dimension"], dropna=False):
-        values = group[TARGET_COLUMN].astype(float)
-        rows.append(
-            {
-                "split": str(split),
-                "label_source": str(label_source),
-                "dimension": int(dimension),
-                "rows": int(len(group)),
-                "u_gt_zero_rate": float((values > 0.0).mean()),
-                "mean": float(values.mean()),
-                "median": float(values.median()),
-            }
-        )
+    for relation in ACTION_RELATION_COLUMNS:
+        for (split, relation_value, dimension), group in dataset.groupby(
+            ["split", relation, "dimension"],
+            dropna=False,
+        ):
+            values = group[TARGET_COLUMN].astype(float)
+            rows.append(
+                {
+                    "split": str(split),
+                    "relation": relation,
+                    "relation_value": bool(relation_value),
+                    "dimension": int(dimension),
+                    "rows": int(len(group)),
+                    "u_gt_zero_rate": float((values > 0.0).mean()),
+                    "mean": float(values.mean()),
+                    "median": float(values.median()),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -728,10 +748,10 @@ def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
         "metadata_columns": list(METADATA_COLUMNS),
         "column_order": list(DATASET_COLUMNS),
         "column_dtypes": {column: str(dtype) for column, dtype in dataset.dtypes.items()},
-        "label_source_rule": {
-            "same_algorithm": "selected_algorithm == default_algorithm",
-            "changed_algorithm": "selected_algorithm != default_algorithm",
-            "interpretation": "legacy selector-vs-default stratum; selected_equals_prefix is the action-continuation field",
+        "action_relation_rules": {
+            "selected_equals_default": "selected_algorithm == default_algorithm",
+            "selected_equals_prefix": "selected_algorithm == prefix_algorithm",
+            "handoff_required": "selected_action != continue_current",
         },
         "primary_protocol": {
             "dataset_file": "decision_dataset.parquet",
@@ -760,8 +780,8 @@ def _markdown_report(
     input_legality: pd.DataFrame,
     feature_null_summary: pd.DataFrame,
     target_summary: pd.DataFrame,
-    label_source_summary: pd.DataFrame,
-    label_source_by_dimension: pd.DataFrame,
+    action_relation_summary: pd.DataFrame,
+    action_relation_by_dimension: pd.DataFrame,
     utility_shards: int,
     behavior_shards: int,
     dataset_path: Path,
@@ -828,13 +848,13 @@ def _markdown_report(
             "",
             _markdown_table(target_summary),
             "",
-            "## selected-vs-default report summary",
+            "## Explicit action-relation summary",
             "",
-            _markdown_table(label_source_summary),
+            _markdown_table(action_relation_summary),
             "",
-            "## selected-vs-default report by dimension",
+            "## Explicit action relations by dimension",
             "",
-            _markdown_table(label_source_by_dimension),
+            _markdown_table(action_relation_by_dimension),
             "",
             "## Processing rules",
             "",
@@ -842,8 +862,9 @@ def _markdown_report(
             "- Training code must fit median imputation on the train split only.",
             "- Finite extreme feature values are preserved without clipping or scaling.",
             "- Non-null infinite feature values and non-finite target values fail materialization.",
-            "- `label_source=same_algorithm` is a report stratum for `selected_equals_default`; it is not a general action-continuation field.",
+            "- `selected_equals_default` records the selected-vs-SBS/default relation.",
             "- `selected_equals_prefix` identifies whether the query path continues the current prefix algorithm.",
+            "- `handoff_required` identifies whether the selected query action uses population-transfer initialization.",
             "- `skip_switches_from_prefix` identifies whether the no-query path changes away from the prefix algorithm.",
             "- Query features, query id, function id, algorithm id, optimizer parameters, selector fields, cost ledger fields, and utility component fields are excluded from Decision inputs.",
             "",
