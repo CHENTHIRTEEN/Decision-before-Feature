@@ -84,6 +84,8 @@ $$ x_t $$
 
 包括：
 
+其中 fitness 相关输入采用 shift-invariant 稳健尺度，优先使用初始 checkpoint 的 fitness IQR 归一化，而不是均值或原始标准差，避免目标函数整体平移影响特征数值。
+
 ## Progress
 
 -   FE ratio

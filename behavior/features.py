@@ -139,7 +139,8 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
         ordered = sorted(group, key=lambda item: item["FE"])
         for index, row in enumerate(ordered):
             row["_behavior_index"] = index
-        stats = [_checkpoint_stats(row) for row in ordered]
+        initial_fitness_iqr = _fitness_shift_invariant_baseline(ordered[0])
+        stats = [_checkpoint_stats(row, initial_fitness_iqr=initial_fitness_iqr) for row in ordered]
         for index, row in enumerate(ordered):
             short_window = _window_statistic(row, "w02", WINDOW_SHORT)
             medium_window = _window_statistic(row, "w05", WINDOW_MEDIUM)
@@ -212,7 +213,7 @@ def write_behavior_rows(behavior_rows: list[dict], output_path: str | Path) -> P
     return path
 
 
-def _checkpoint_stats(row: dict) -> dict[str, float]:
+def _checkpoint_stats(row: dict, *, initial_fitness_iqr: float) -> dict[str, float]:
     population = _population(row)
     fitness = _fitness(row)
     problem_id = str(row["problem_id"])
@@ -220,7 +221,7 @@ def _checkpoint_stats(row: dict) -> dict[str, float]:
         "diversity": _mean_pairwise_distance(population, problem_id=problem_id),
         "distance_to_best": _mean_distance_to_population_best(population, fitness, problem_id=problem_id),
         "fitness_diversity": _fitness_diversity(fitness),
-        "fitness_diversity_rel": _relative_fitness_diversity(fitness),
+        "fitness_diversity_rel": _shift_invariant_fitness_diversity(fitness, initial_fitness_iqr=initial_fitness_iqr),
         "covariance_spectral_concentration": _covariance_spectral_concentration(population),
     }
 
@@ -282,8 +283,17 @@ def _fitness_diversity(fitness: np.ndarray) -> float:
     return float(np.std(fitness))
 
 
-def _relative_fitness_diversity(fitness: np.ndarray) -> float:
-    return float(_fitness_diversity(fitness) / max(abs(float(np.mean(fitness))), EPS))
+def _fitness_iqr(fitness: np.ndarray) -> float:
+    q75, q25 = np.percentile(np.asarray(fitness, dtype=float).reshape(-1), [75.0, 25.0])
+    return float(q75 - q25)
+
+
+def _shift_invariant_fitness_diversity(fitness: np.ndarray, *, initial_fitness_iqr: float) -> float:
+    return float(_fitness_iqr(fitness) / max(initial_fitness_iqr, EPS))
+
+
+def _fitness_shift_invariant_baseline(row: dict) -> float:
+    return _fitness_iqr(_fitness(row))
 
 
 def _window_statistic(row: dict, suffix: str, nominal_ratio: float) -> dict:
@@ -341,7 +351,7 @@ def _improvement_rate(current: dict, window: dict) -> float:
     if ratio_delta <= 0.0:
         raise ValueError("strict improvement window must have positive FE span")
     anchor_best = float(window["anchor_best_fitness"])
-    scale = max(abs(anchor_best), EPS)
+    scale = max(float(window["fitness_iqr_baseline"]), EPS)
     return float((anchor_best - float(current["best_fitness"])) / scale / ratio_delta)
 
 
@@ -387,7 +397,7 @@ def _fitness_distribution_change_stats(current: dict, window: dict) -> dict[str,
     ratio_delta = _window_ratio_delta(current, window)
     if ratio_delta <= 0.0:
         raise ValueError("strict fitness window must have positive FE span")
-    scale = max(float(window["anchor_fitness_abs_mean"]), EPS)
+    scale = max(float(window["fitness_iqr_baseline"]), EPS)
     return {
         "quantile_improvement_fraction": float(window["fitness_quantile_improvement_fraction"]),
         "distribution_improvement_rate": float(window["fitness_mean_improvement"] / scale / ratio_delta),

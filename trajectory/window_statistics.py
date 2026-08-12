@@ -176,7 +176,7 @@ def _window_row(
     current_quantiles = np.sort(current_fitness)
     quantile_improvements = anchor_quantiles - current_quantiles
     threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
-    fitness_scale = max(float(np.mean(np.abs(anchor_quantiles))), EPS)
+    fitness_iqr_baseline = _fitness_iqr(anchor_fitness)
     radius = 0.05 * max(current_diversity, EPS)
     nearest = np.min(np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2), axis=0)
     return {
@@ -192,7 +192,7 @@ def _window_row(
         "fitness_quantile_improvement_fraction": float(np.mean(quantile_improvements > threshold)),
         "fitness_mean_improvement": float(np.mean(quantile_improvements)),
         "fitness_wasserstein_distance": float(np.mean(np.abs(quantile_improvements))),
-        "anchor_fitness_abs_mean": fitness_scale,
+        "fitness_iqr_baseline": float(fitness_iqr_baseline),
         "population_overlap": float(np.mean(nearest <= radius)),
     }
 
@@ -220,6 +220,11 @@ def _mean_distance_to_best(population: np.ndarray, fitness: np.ndarray, *, probl
     best_scaled = _scale_population_to_unit_cube(best.reshape(1, -1), problem_id=problem_id)[0]
     distances = np.linalg.norm(scaled - best_scaled, axis=1)
     return float(np.mean(distances))
+
+
+def _fitness_iqr(fitness: np.ndarray) -> float:
+    q75, q25 = np.percentile(np.asarray(fitness, dtype=float).reshape(-1), [75.0, 25.0])
+    return float(q75 - q25)
 
 
 def _scale_population_to_unit_cube(population: np.ndarray, *, problem_id: str) -> np.ndarray:

@@ -769,13 +769,13 @@ H3:
 | 类别 | Feature | 实现列名 | 口径 | Feature group |
 |---|---|---|---|---|
 | Progress | FE ratio | `bf_fe_ratio` | 当前 `FE/FE_total`；逐行强制等于元数据 `FE_ratio` | time_only, base, primary, primary_with_maturity, all_candidates |
-| Progress | improvement rate | `bf_improvement_rate_w02` | 名义2% FE-ratio、按完整原生 update 对齐的窗口内 best fitness 相对改善率 | base, primary, primary_with_maturity, all_candidates |
+| Progress | improvement rate | `bf_improvement_rate_w02` | 名义2% FE-ratio、按完整原生 update 对齐的窗口内 best fitness 相对改善率；分母使用 anchor 相对初始 checkpoint 的 fitness IQR 稳健尺度 | base, primary, primary_with_maturity, all_candidates |
 | Progress | improvement frequency | `bf_improvement_frequency_w02` | 名义2%窗口内相邻原生 update 发生严格 best-fitness 改善的比例 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity change | `bf_diversity_change_w05` | 名义5%、按完整原生 update 对齐窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity slope | `bf_diversity_slope_w05` | 名义5%窗口内逐 update diversity 对实际 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差 | primary, primary_with_maturity, all_candidates |
-| Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | fitness标准差除以 `abs(mean fitness)+epsilon` | primary, primary_with_maturity, all_candidates |
+| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差（保留诊断口径） | primary, primary_with_maturity, all_candidates |
+| Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | 当前 checkpoint fitness 的四分位距相对初始 checkpoint IQR 的比值；shift-invariant 稳健尺度 | primary, primary_with_maturity, all_candidates |
 | Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
 | Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
 | Set change | centroid shift coherence | `bf_centroid_shift_coherence_w05` | centroid shift占经验Wasserstein distance的比例 | primary, primary_with_maturity, all_candidates |
@@ -786,8 +786,8 @@ H3:
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |
 | Fitness distribution | quantile improvement fraction | `bf_fitness_quantile_improvement_fraction_w02` | 2%窗口内改善的经验fitness分位数比例 | primary, primary_with_maturity, all_candidates |
 | Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor尺度与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
-| Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor尺度与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
 | Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | primary, primary_with_maturity, all_candidates |
 | Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数 | all_candidates |
 | State | Search maturity | `bf_search_maturity` | `ES_t(1-XS_t)` 的可执行行为特征版本 | primary_with_maturity, all_candidates |

@@ -186,6 +186,7 @@ Algorithm-specific state。
 -   mean fitness
 -   median fitness
 
+其中所有 fitness 相关的尺度化口径优先采用 shift-invariant 稳健尺度，避免目标函数整体平移导致的数值漂移。
 ### Improvement rate
 
 $$ IR_t= \frac{f_{best}(t-k)-f_{best}(t)}{k} $$
