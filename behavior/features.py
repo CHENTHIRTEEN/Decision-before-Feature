@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from math import ceil, sqrt
+from math import ceil
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +69,13 @@ PRIMARY_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_diversity_slope_w05",
 )
 
+MOTION_BEHAVIOR_FEATURE_COLUMNS = (
+    "bf_population_chamfer_distance_w05",
+    "bf_elite_centroid_shift_w05",
+    "bf_covariance_trace_change_w05",
+    "bf_covariance_effective_rank_change_w05",
+)
+
 MATURITY_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_search_maturity",
     "bf_search_maturity_linear",
@@ -83,6 +90,7 @@ DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS = (
 BEHAVIOR_FEATURE_COLUMNS = (
     BASE_BEHAVIOR_FEATURE_COLUMNS
     + PRIMARY_BEHAVIOR_FEATURE_COLUMNS
+    + MOTION_BEHAVIOR_FEATURE_COLUMNS
     + MATURITY_BEHAVIOR_FEATURE_COLUMNS
     + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
 )
@@ -91,7 +99,8 @@ BEHAVIOR_FEATURE_GROUPS = {
     "time_only": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
     "base": BASE_BEHAVIOR_FEATURE_COLUMNS,
     "primary": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
-    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "all_candidates": BEHAVIOR_FEATURE_COLUMNS,
 }
 
@@ -191,6 +200,10 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                     medium_window,
                     "diversity_mean_pairwise",
                 ),
+                "bf_population_chamfer_distance_w05": float(medium_window["population_chamfer_distance"]),
+                "bf_elite_centroid_shift_w05": float(medium_window["elite_centroid_shift"]),
+                "bf_covariance_trace_change_w05": float(medium_window["covariance_trace_change"]),
+                "bf_covariance_effective_rank_change_w05": float(medium_window["covariance_effective_rank_change"]),
                 "bf_population_overlap_w05": float(medium_window["population_overlap"]),
                 "bf_best_distance_fitness_corr": _best_distance_fitness_corr(row),
             }
@@ -427,7 +440,7 @@ def _elite_concentration(current: dict, population_diversity: float) -> float:
         return 0.0
     elite_count = min(population.shape[0], max(2, int(ceil(0.20 * population.shape[0]))))
     elite_indices = np.argsort(fitness)[:elite_count]
-    elite_diversity = _mean_pairwise_distance(population[elite_indices], int(current["dimension"]))
+    elite_diversity = _mean_pairwise_distance(population[elite_indices], problem_id=str(current["problem_id"]))
     return float(elite_diversity / max(population_diversity, EPS))
 
 
@@ -460,7 +473,10 @@ def _best_distance_fitness_corr(current: dict) -> float | None:
     if population.shape[0] < 2:
         return None
     best = population[int(np.argmin(fitness))]
-    distances = np.linalg.norm(population - best, axis=1) / sqrt(int(current["dimension"]))
+    problem_id = str(current["problem_id"])
+    scaled = _scale_population_to_unit_cube(population, problem_id=problem_id)
+    best_scaled = _scale_population_to_unit_cube(best.reshape(1, -1), problem_id=problem_id)[0]
+    distances = np.linalg.norm(scaled - best_scaled, axis=1)
     if float(np.std(distances)) <= EPS or float(np.std(fitness)) <= EPS:
         return None
     return float(min(max(float(np.corrcoef(distances, fitness)[0, 1]), -1.0), 1.0))

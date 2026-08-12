@@ -250,7 +250,7 @@ g_+(z)=\frac{\max(z,0)}{1+\max(z,0)},
 g_-(z)=\frac{1}{1+\max(z,0)}.
 $$
 
-其中 fitness 相关输入优先使用 shift-invariant 稳健尺度：以初始 checkpoint 的 fitness IQR 作为 baseline，而不是直接用均值或原始标准差。这样可避免目标函数整体平移导致的数值漂移。movement / direction / success 类逐个体量只在可稳定保留身份语义的算法上作为诊断信息，不进入成熟度主计算。
+其中 fitness 相关输入优先使用 shift-invariant 稳健尺度：以初始 checkpoint 的 fitness IQR 作为 baseline，而不是直接用均值或原始标准差。这样可避免目标函数整体平移导致的数值漂移。movement / direction / success 类逐个体量只在可稳定保留身份语义的算法上作为诊断信息；主成熟度只接受 permutation-invariant 的集合级代理量。
 
 则：
 

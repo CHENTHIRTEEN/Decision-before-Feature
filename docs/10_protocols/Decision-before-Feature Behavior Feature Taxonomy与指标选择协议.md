@@ -1,6 +1,6 @@
 # Decision-before-Feature Behavior Feature Taxonomy与指标选择协议
 
-> 实现同步（2026-08-12）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。w02/w05/w10 已改为逐次完整原生 update 统计，不再从稀疏正式 checkpoint 中选择 anchor。位置与距离类统计已按各问题搜索空间边界先归一化到 `[0,1]^d` 再计算，旧 behavior 中直接在原始坐标系上比较距离的口径已撤回并不得复用。
+> 实现同步（2026-08-12）：当前 extractor 生成 29 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 27 个，`bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。w02/w05/w10 已改为逐次完整原生 update 统计，不再从稀疏正式 checkpoint 中选择 anchor。位置与距离类统计已按各问题搜索空间边界先归一化到 `[0,1]^d` 再计算，旧 behavior 中直接在原始坐标系上比较距离的口径已撤回并不得复用。movement / direction / success 类现已落成集合级代理量，identity-aware 版本仅保留为诊断上界。
 
 ## 1. 文档定位
 
@@ -319,11 +319,11 @@ $$
 - covariance trace change
 - covariance effective-rank change
 
-这些量只依赖 checkpoint 集合分布，不依赖个体身份，因此可以作为算法无关主模型特征或诊断特征的候选。
+这些量只依赖 checkpoint 集合分布，不依赖个体身份，因此可以作为算法无关主模型特征或诊断特征的候选。movement / direction / success 的主模型版本只在集合层面出现，不再保留逐个体强绑定口径。
 
 ### 诊断上界：Identity-aware 版本
 
-仅对确实保留稳定个体身份语义的算法计算 movement / success 特征，并将其作为 algorithm-specific 上界或诊断对照，不进入主 Decision 模型，也不与 permutation-invariant 主特征混报。
+仅对确实保留稳定个体身份语义的算法计算 movement / direction / success 特征，并将其作为 algorithm-specific 上界或诊断对照，不进入主 Decision 模型，也不与 permutation-invariant 主特征混报。
 
 ------------------------------------------------------------------------
 
@@ -795,7 +795,7 @@ H3:
 
 # 16. 当前实现中的正式Feature分类
 
-当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含25个permutation-invariant算法无关行为特征。
+当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含29个permutation-invariant算法无关行为特征，其中额外加入了 movement / direction / success 的集合级代理量，identity-aware 版本只作为诊断上界。
 
 这些特征只从已记录的 checkpoint population、fitness、best fitness、FE、FE_total、native update计数、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。native update计数仅用于窗口跨度记录，不进入特征集合。
 
@@ -813,7 +813,11 @@ H3:
 | Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
 | Set change | centroid shift coherence | `bf_centroid_shift_coherence_w05` | centroid shift占经验Wasserstein distance的比例 | primary, primary_with_maturity, all_candidates |
 | Set shape | covariance spectral concentration | `bf_covariance_spectral_concentration` | 当前population协方差特征值的归一化Herfindahl concentration | base, primary, primary_with_maturity, all_candidates |
-| Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例 | all_candidates |
+| Movement proxy | population Chamfer distance | `bf_population_chamfer_distance_w05` | 5%窗口内 anchor 与 current population 的边界归一化 Chamfer 风格集合距离 | primary_with_movement, primary_with_maturity, all_candidates |
+| Movement proxy | elite centroid shift | `bf_elite_centroid_shift_w05` | 5%窗口内 elite 集合的边界归一化 centroid shift | primary_with_movement, primary_with_maturity, all_candidates |
+| Movement proxy | covariance trace change | `bf_covariance_trace_change_w05` | 5%窗口内 covariance trace 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
+| Movement proxy | covariance effective-rank change | `bf_covariance_effective_rank_change_w05` | 5%窗口内 covariance effective-rank 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
+| Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例；CMA-ES 使用 Chamfer 风格集合代理 | all_candidates |
 | Convergence | distance decay | `bf_distance_decay_w10` | 10% FE-ratio窗口内到当前population-best平均距离的相对下降 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |

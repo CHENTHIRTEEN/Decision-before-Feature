@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -54,8 +53,13 @@ class NativeUpdateWindowRecorder:
                 raise ValueError("native-update snapshots must be strictly increasing")
         self.snapshots.append(snapshot)
 
-    def build(self, *, fe_total: int, problem_id: str) -> tuple[list[dict], list[dict]]:
-        windows, history = build_window_statistics(self.snapshots, fe_total=fe_total, problem_id=problem_id)
+    def build(self, *, fe_total: int, problem_id: str, algorithm: str) -> tuple[list[dict], list[dict]]:
+        windows, history = build_window_statistics(
+            self.snapshots,
+            fe_total=fe_total,
+            problem_id=problem_id,
+            algorithm=algorithm,
+        )
         retained_from_fe = int(history[0]["FE"])
         self.snapshots = [snapshot for snapshot in self.snapshots if snapshot.fe >= retained_from_fe]
         return windows, history
@@ -89,6 +93,7 @@ def build_window_statistics(
     *,
     fe_total: int,
     problem_id: str,
+    algorithm: str,
 ) -> tuple[list[dict], list[dict]]:
     if not snapshots:
         raise ValueError("native-update history must not be empty")
@@ -115,6 +120,7 @@ def build_window_statistics(
                 current=current,
                 anchor=anchor,
                 problem_id=problem_id,
+                algorithm=algorithm,
             )
         )
 
@@ -155,10 +161,10 @@ def _window_row(
     current: NativeUpdateSnapshot,
     anchor: NativeUpdateSnapshot,
     problem_id: str,
+    algorithm: str,
 ) -> dict:
     if current.population.shape != anchor.population.shape:
         raise ValueError("window endpoint populations must have identical shapes")
-    dimension = int(current.population.shape[1])
     current_population, current_fitness = _ordered_arrays(current.population, current.fitness)
     anchor_population, anchor_fitness = _ordered_arrays(anchor.population, anchor.fitness)
     current_diversity = _mean_pairwise_distance(current_population, problem_id=problem_id)
@@ -171,14 +177,29 @@ def _window_row(
     anchor_indices, current_indices = linear_sum_assignment(pairwise_distances)
     population_wasserstein = float(np.mean(pairwise_distances[anchor_indices, current_indices]))
     centroid_shift = float(np.linalg.norm(np.mean(current_scaled, axis=0) - np.mean(anchor_scaled, axis=0)))
+    elite_centroid_shift = float(
+        np.linalg.norm(
+            np.mean(_elite_subset(current_scaled, current_fitness), axis=0)
+            - np.mean(_elite_subset(anchor_scaled, anchor_fitness), axis=0)
+        )
+    )
+    covariance_trace_change = _relative_change(_covariance_trace(current_scaled), _covariance_trace(anchor_scaled))
+    covariance_effective_rank_change = _relative_change(
+        _covariance_effective_rank(current_scaled),
+        _covariance_effective_rank(anchor_scaled),
+    )
 
     anchor_quantiles = np.sort(anchor_fitness)
     current_quantiles = np.sort(current_fitness)
     quantile_improvements = anchor_quantiles - current_quantiles
     threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
     fitness_iqr_baseline = _fitness_iqr(anchor_fitness)
-    radius = 0.05 * max(current_diversity, EPS)
-    nearest = np.min(np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2), axis=0)
+    population_overlap = _population_overlap(
+        anchor_scaled,
+        current_scaled,
+        current_diversity=current_diversity,
+        algorithm=algorithm,
+    )
     return {
         "suffix": suffix,
         "nominal_window_ratio": float(nominal_ratio),
@@ -189,11 +210,17 @@ def _window_row(
         "anchor_distance_to_best": float(anchor_distance_to_best),
         "population_wasserstein_distance": population_wasserstein,
         "centroid_shift_distance": centroid_shift,
+        "population_chamfer_distance": float(
+            _population_overlap_chamfer_distance(anchor_scaled, current_scaled)
+        ),
+        "elite_centroid_shift": elite_centroid_shift,
+        "covariance_trace_change": covariance_trace_change,
+        "covariance_effective_rank_change": covariance_effective_rank_change,
         "fitness_quantile_improvement_fraction": float(np.mean(quantile_improvements > threshold)),
         "fitness_mean_improvement": float(np.mean(quantile_improvements)),
         "fitness_wasserstein_distance": float(np.mean(np.abs(quantile_improvements))),
         "fitness_iqr_baseline": float(fitness_iqr_baseline),
-        "population_overlap": float(np.mean(nearest <= radius)),
+        "population_overlap": float(population_overlap),
     }
 
 
@@ -225,6 +252,79 @@ def _mean_distance_to_best(population: np.ndarray, fitness: np.ndarray, *, probl
 def _fitness_iqr(fitness: np.ndarray) -> float:
     q75, q25 = np.percentile(np.asarray(fitness, dtype=float).reshape(-1), [75.0, 25.0])
     return float(q75 - q25)
+
+
+def _elite_subset(population_scaled: np.ndarray, fitness: np.ndarray) -> np.ndarray:
+    if population_scaled.shape[0] == 0:
+        return population_scaled
+    elite_count = min(population_scaled.shape[0], max(2, int(np.ceil(0.20 * population_scaled.shape[0]))))
+    elite_indices = np.argsort(fitness)[:elite_count]
+    return population_scaled[elite_indices]
+
+
+def _covariance_trace(population_scaled: np.ndarray) -> float:
+    if population_scaled.shape[0] < 2:
+        return 0.0
+    centered = population_scaled - np.mean(population_scaled, axis=0)
+    return float(np.trace(centered.T @ centered))
+
+
+def _covariance_effective_rank(population_scaled: np.ndarray) -> float:
+    if population_scaled.shape[0] < 2:
+        return 0.0
+    centered = population_scaled - np.mean(population_scaled, axis=0)
+    eigenvalues = np.maximum(np.linalg.eigvalsh(centered.T @ centered), 0.0)
+    total = float(np.sum(eigenvalues))
+    if total <= EPS:
+        return 0.0
+    probabilities = eigenvalues / total
+    entropy = -float(np.sum(probabilities * np.log(np.maximum(probabilities, EPS))))
+    return float(np.exp(entropy))
+
+
+def _population_overlap(
+    anchor_scaled: np.ndarray,
+    current_scaled: np.ndarray,
+    *,
+    current_diversity: float,
+    algorithm: str,
+) -> float:
+    if anchor_scaled.shape[0] == 0 or current_scaled.shape[0] == 0:
+        return 0.0
+    if algorithm.lower() == "cmaes":
+        return _population_overlap_chamfer(anchor_scaled, current_scaled, current_diversity=current_diversity)
+    return _population_overlap_nearest(anchor_scaled, current_scaled, current_diversity=current_diversity)
+
+
+def _population_overlap_nearest(
+    anchor_scaled: np.ndarray,
+    current_scaled: np.ndarray,
+    *,
+    current_diversity: float,
+) -> float:
+    radius = 0.05 * max(current_diversity, EPS)
+    nearest = np.min(np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2), axis=0)
+    return float(np.mean(nearest <= radius))
+
+
+def _population_overlap_chamfer_distance(
+    anchor_scaled: np.ndarray,
+    current_scaled: np.ndarray,
+) -> float:
+    forward = np.min(np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2), axis=0)
+    backward = np.min(np.linalg.norm(current_scaled[:, None, :] - anchor_scaled[None, :, :], axis=2), axis=0)
+    return float(0.5 * (float(np.mean(forward)) + float(np.mean(backward))))
+
+
+def _population_overlap_chamfer(
+    anchor_scaled: np.ndarray,
+    current_scaled: np.ndarray,
+    *,
+    current_diversity: float,
+) -> float:
+    radius = 0.05 * max(current_diversity, EPS)
+    chamfer = _population_overlap_chamfer_distance(anchor_scaled, current_scaled)
+    return float(np.clip(1.0 - chamfer / max(radius, EPS), 0.0, 1.0))
 
 
 def _scale_population_to_unit_cube(population: np.ndarray, *, problem_id: str) -> np.ndarray:
