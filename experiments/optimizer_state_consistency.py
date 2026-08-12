@@ -43,6 +43,7 @@ def check_optimizer_state_consistency(
         reference_problem = _problem(function, instance, dimension)
         restored_problem = _problem(function, instance, dimension)
         uninterrupted_problem = _problem(function, instance, dimension)
+        observed_problem = _problem(function, instance, dimension)
         try:
             settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
             reference = initialize_optimizer_state(
@@ -85,11 +86,31 @@ def check_optimizer_state_consistency(
                 fe_budget=checkpoint_fes[-1] - population_size,
             )
             _assert_state_equal(reference, uninterrupted, f"{key} uninterrupted final state")
+            observed = initialize_optimizer_state(
+                algorithm=key,
+                problem=observed_problem,
+                seed=seed,
+                settings=settings,
+            )
+            observed_updates = []
+            advance_optimizer_state(
+                state=observed,
+                problem=observed_problem,
+                fe_budget=checkpoint_fes[-1] - population_size,
+                on_native_update=lambda state: observed_updates.append(
+                    (int(state.evaluations), int(state.generation))
+                ),
+            )
+            _assert_state_equal(reference, observed, f"{key} with native-update observation")
+            if not observed_updates or observed_updates != sorted(set(observed_updates)):
+                raise ValueError(f"{key} native-update observations must be strictly increasing")
             rows[-1]["uninterrupted_final_exact"] = True
+            rows[-1]["native_update_observation_state_neutral"] = True
         finally:
             reference_problem.close()
             restored_problem.close()
             uninterrupted_problem.close()
+            observed_problem.close()
     return rows
 
 
@@ -169,9 +190,14 @@ def main() -> None:
     )
     for row in rows:
         final = " and uninterrupted final state" if row.get("uninterrupted_final_exact") else ""
+        observation = (
+            " with state-neutral native-update observation"
+            if row.get("native_update_observation_state_neutral")
+            else ""
+        )
         print(
             f"{row['algorithm']} FE={row['checkpoint_FE']}: "
-            f"checkpoint restore exact{final}"
+            f"checkpoint restore exact{final}{observation}"
         )
 
 

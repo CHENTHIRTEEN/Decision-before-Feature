@@ -92,6 +92,8 @@ def _check_shard(config: dict, path: Path, function: int, dimension: int) -> dic
     for row in rows:
         if str(row["optimizer_state_mode"]) != OPTIMIZER_STATE_MODE:
             raise ValueError(f"{path}: trajectory does not use native optimizer-state continuation")
+        if "window_statistics" not in row or "native_update_history" not in row:
+            raise ValueError(f"{path}: trajectory is missing strict native-update window statistics")
         best_fitness = float(row["best_fitness"])
         if not isfinite(best_fitness):
             raise ValueError(f"{path}: best_fitness must be finite")

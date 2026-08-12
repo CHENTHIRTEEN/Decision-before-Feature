@@ -36,6 +36,7 @@ from optimizers import (
 )
 from selection_reference.model import StatewiseSelectorModel, load_selector_model, make_selector_features
 from trajectory.records import TrajectoryRecord
+from trajectory.window_statistics import NativeUpdateWindowRecorder
 
 
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
@@ -1006,6 +1007,14 @@ def _run_threshold_policy(
         settings=settings,
     )
     prefix_algorithm = str(current_state.algorithm)
+    window_recorder = NativeUpdateWindowRecorder()
+    window_recorder.observe(
+        fe=int(current_state.evaluations),
+        native_updates=int(current_state.generation),
+        population=current_state.population,
+        fitness=current_state.fitness,
+        best_fitness=current_state.best_fitness,
+    )
     runtime_probe = perf_counter() - started
     current_fe = int(current_state.evaluations)
     triggered = False
@@ -1021,9 +1030,21 @@ def _run_threshold_policy(
         delta = checkpoint_fe - current_fe
         if delta <= 0:
             continue
-        continuation = advance_optimizer_state(state=current_state, problem=problem, fe_budget=delta)
+        continuation = advance_optimizer_state(
+            state=current_state,
+            problem=problem,
+            fe_budget=delta,
+            on_native_update=lambda updated: window_recorder.observe(
+                fe=int(updated.evaluations),
+                native_updates=int(updated.generation),
+                population=updated.population,
+                fitness=updated.fitness,
+                best_fitness=updated.best_fitness,
+            ),
+        )
         runtime_probe += continuation.runtime_seconds
         current_fe = checkpoint_fe
+        window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
         trajectory_record = TrajectoryRecord.from_arrays(
             problem_id=problem.problem_id,
             family=problem.family,
@@ -1033,6 +1054,8 @@ def _run_threshold_policy(
             fe=current_fe,
             fe_total=fe_total,
             native_updates=int(current_state.generation),
+            window_statistics=window_statistics,
+            native_update_history=native_update_history,
             population=current_state.population,
             fitness=current_state.fitness,
             best_fitness=current_state.best_fitness,

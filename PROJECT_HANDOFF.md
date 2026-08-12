@@ -25,7 +25,7 @@
 - 在线主协议与 dense decision-check 都使用同一连续状态；
 - 真实 BBOB 上的 checkpoint 保存/恢复与不中断运行逐状态完全一致。
 - behavior 的跨 checkpoint 空间变化使用经验 Wasserstein、centroid shift 与集合协方差形状，fitness 变化使用排序后的经验分位数；不保存 individual ID 或 ancestry。
-- trajectory 保存 `FE_total` 与完成的 `native_updates`；behavior 对 w02/w05/w10 分别保存实际 `effective_window_ratio_*`、`effective_window_fe_*`、`effective_native_updates_*`，且这些窗口测量 metadata 不进入 Decision 输入。
+- trajectory 保存 `FE_total`、完成的 `native_updates`、三个窗口的轻量集合/fitness 统计和最近10%预算内的逐 update 标量历史；w02/w05/w10 anchor 从逐次完整原生 update 中选择，量化误差小于一次 update。behavior 保存实际 `effective_window_ratio_*`、`effective_window_fe_*`、`effective_native_updates_*`，这些窗口测量 metadata 不进入 Decision 输入。
 - `behavior-permutation-check` 已在真实 BBOB 上对四种优化器逐 checkpoint 独立打乱 population 行序，25 个行为特征与9个窗口测量字段保持逐值一致。
 - Selection Reference 协议已升级为 v3：动作集合为 `continue_current` 加其余三个 portfolio algorithms，固定多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，remaining budget 连续输入，train 行使用 function-family cross-fitting；旧静态 bucket classifier 不再生成正式标签。
 - Utility label 增加 `best_observed_algorithm/loss`、`potential_gain_raw` 与 `selector_regret_raw`；handoff 影响和 query sampling FE 均不重复扣除。

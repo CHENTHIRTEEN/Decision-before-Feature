@@ -73,6 +73,7 @@ def check_population_permutation_consistency(
         reordered = extract_behavior_rows([row.copy() for row in permuted_rows])
         validate_behavior_rows(permuted_rows, reordered)
         _assert_behavior_equal(original, reordered, compared_columns, algorithm)
+        _assert_strict_native_update_windows(trajectory_rows, algorithm, population_size)
         summaries.append(
             {
                 "algorithm": algorithm,
@@ -82,6 +83,24 @@ def check_population_permutation_consistency(
             }
         )
     return summaries
+
+
+def _assert_strict_native_update_windows(
+    trajectory_rows: list[dict],
+    algorithm: str,
+    population_size: int,
+) -> None:
+    nominal_ratios = {"w02": 0.02, "w05": 0.05, "w10": 0.10}
+    for row in trajectory_rows:
+        history_fes = {int(item["FE"]) for item in row["native_update_history"]}
+        for statistic in row["window_statistics"]:
+            suffix = str(statistic["suffix"])
+            target_span = int(round(nominal_ratios[suffix] * int(row["FE_total"])))
+            actual_span = int(row["FE"]) - int(statistic["anchor_FE"])
+            if int(statistic["anchor_FE"]) not in history_fes:
+                raise ValueError(f"{algorithm} {suffix} anchor is not a recorded native update")
+            if not target_span <= actual_span < target_span + population_size:
+                raise ValueError(f"{algorithm} {suffix} is not aligned to the strict native-update window")
 
 
 def _assert_behavior_equal(

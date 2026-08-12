@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 
-OPTIMIZER_STATE_MODE = "native_optimizer_state"
+OPTIMIZER_STATE_MODE = "native_optimizer_state_with_update_window_statistics_v2"
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,8 @@ class TrajectoryRecord:
     FE_ratio: float
     FE_total: int
     native_updates: int
+    window_statistics: list[dict]
+    native_update_history: list[dict]
     population: list[list[float]]
     fitness: list[float]
     best_fitness: float
@@ -36,6 +38,8 @@ class TrajectoryRecord:
         fe: int,
         fe_total: int,
         native_updates: int,
+        window_statistics: list[dict],
+        native_update_history: list[dict],
         population: np.ndarray,
         fitness: np.ndarray,
         best_fitness: float,
@@ -61,6 +65,8 @@ class TrajectoryRecord:
             FE_ratio=float(fe_ratio if fe_ratio is not None else fe / fe_total),
             FE_total=int(fe_total),
             native_updates=int(native_updates),
+            window_statistics=[dict(item) for item in window_statistics],
+            native_update_history=[dict(item) for item in native_update_history],
             population=pop.tolist(),
             fitness=fit.tolist(),
             best_fitness=float(best_fitness),

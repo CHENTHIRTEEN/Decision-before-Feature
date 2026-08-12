@@ -4,7 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from math import exp, log, sqrt
 from time import perf_counter
-from typing import TypeAlias
+from typing import Callable, TypeAlias
 
 import numpy as np
 
@@ -190,7 +190,7 @@ def initialize_optimizer_state(
     rng = make_rng(seed, NATIVE_STREAMS[key])
     if key == "cmaes":
         state = _empty_cmaes_state(problem, population_size, rng)
-        _advance_cmaes(state, problem, population_size)
+        _advance_cmaes(state, problem, population_size, None)
         return state
 
     population = rng.uniform(
@@ -345,6 +345,7 @@ def advance_optimizer_state(
     state: OptimizerState,
     problem: Problem,
     fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None = None,
 ) -> StateAdvanceResult:
     """Advance an existing native optimizer state by exactly ``fe_budget`` evaluations."""
     if fe_budget < 0:
@@ -352,13 +353,13 @@ def advance_optimizer_state(
     _validate_population(problem, state.population, state.fitness)
     started = perf_counter()
     if isinstance(state, DEState):
-        evaluations = _advance_de(state, problem, fe_budget)
+        evaluations = _advance_de(state, problem, fe_budget, on_native_update)
     elif isinstance(state, PSOState):
-        evaluations = _advance_pso(state, problem, fe_budget)
+        evaluations = _advance_pso(state, problem, fe_budget, on_native_update)
     elif isinstance(state, CMAESState):
-        evaluations = _advance_cmaes(state, problem, fe_budget)
+        evaluations = _advance_cmaes(state, problem, fe_budget, on_native_update)
     elif isinstance(state, SHADEState):
-        evaluations = _advance_shade(state, problem, fe_budget)
+        evaluations = _advance_shade(state, problem, fe_budget, on_native_update)
     else:
         raise TypeError(f"unsupported optimizer state: {type(state).__name__}")
     if evaluations != fe_budget:
@@ -366,7 +367,12 @@ def advance_optimizer_state(
     return StateAdvanceResult(state=state, evaluations=evaluations, runtime_seconds=perf_counter() - started)
 
 
-def _advance_de(state: DEState, problem: Problem, fe_budget: int) -> int:
+def _advance_de(
+    state: DEState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+) -> int:
     completed = 0
     while completed < fe_budget:
         if state.pending_population is None:
@@ -390,6 +396,8 @@ def _advance_de(state: DEState, problem: Problem, fe_budget: int) -> int:
             state.pending_fitness = None
             state.pending_index = 0
             state.generation += 1
+            if on_native_update is not None:
+                on_native_update(state)
     return completed
 
 
@@ -413,7 +421,12 @@ def _start_de_generation(state: DEState, problem: Problem) -> None:
     state.rng_state = _rng_state(rng)
 
 
-def _advance_pso(state: PSOState, problem: Problem, fe_budget: int) -> int:
+def _advance_pso(
+    state: PSOState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+) -> int:
     completed = 0
     while completed < fe_budget:
         if state.pending_positions is None:
@@ -444,6 +457,8 @@ def _advance_pso(state: PSOState, problem: Problem, fe_budget: int) -> int:
             state.pending_fitness = None
             state.pending_index = 0
             state.generation += 1
+            if on_native_update is not None:
+                on_native_update(state)
     return completed
 
 
@@ -467,7 +482,12 @@ def _start_pso_generation(state: PSOState, problem: Problem) -> None:
     state.rng_state = _rng_state(rng)
 
 
-def _advance_cmaes(state: CMAESState, problem: Problem, fe_budget: int) -> int:
+def _advance_cmaes(
+    state: CMAESState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+) -> int:
     completed = 0
     strategy = state.strategy_state
     while completed < fe_budget:
@@ -486,6 +506,8 @@ def _advance_cmaes(state: CMAESState, problem: Problem, fe_budget: int) -> int:
         completed += batch
         if strategy.pending_index == len(strategy.pending_population):
             _finish_cmaes_generation(state)
+            if on_native_update is not None:
+                on_native_update(state)
     return completed
 
 
@@ -557,7 +579,12 @@ def _finish_cmaes_generation(state: CMAESState) -> None:
     state.generation += 1
 
 
-def _advance_shade(state: SHADEState, problem: Problem, fe_budget: int) -> int:
+def _advance_shade(
+    state: SHADEState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+) -> int:
     completed = 0
     while completed < fe_budget:
         if state.pending_population is None:
@@ -575,6 +602,8 @@ def _advance_shade(state: SHADEState, problem: Problem, fe_budget: int) -> int:
         completed += batch
         if state.pending_index == len(state.population):
             _finish_shade_generation(state)
+            if on_native_update is not None:
+                on_native_update(state)
     return completed
 
 

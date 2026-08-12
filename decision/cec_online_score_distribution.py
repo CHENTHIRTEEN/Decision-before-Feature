@@ -34,6 +34,7 @@ from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from optimizers import OptimizerSettings, advance_optimizer_state, initialize_optimizer_state
 from selection_reference.common import read_performance, single_best_solver
 from trajectory.records import TrajectoryRecord
+from trajectory.window_statistics import NativeUpdateWindowRecorder
 
 
 DEFAULT_NEAR_ZERO_THRESHOLD = -0.05
@@ -259,6 +260,14 @@ def _score_one_run(
             seed=seed,
             settings=settings,
         )
+        window_recorder = NativeUpdateWindowRecorder()
+        window_recorder.observe(
+            fe=int(current_state.evaluations),
+            native_updates=int(current_state.generation),
+            population=current_state.population,
+            fitness=current_state.fitness,
+            best_fitness=current_state.best_fitness,
+        )
         runtime_probe = perf_counter() - started
         current_fe = int(current_state.evaluations)
         rows = []
@@ -266,9 +275,21 @@ def _score_one_run(
             delta = checkpoint_fe - current_fe
             if delta <= 0:
                 continue
-            continuation = advance_optimizer_state(state=current_state, problem=problem, fe_budget=delta)
+            continuation = advance_optimizer_state(
+                state=current_state,
+                problem=problem,
+                fe_budget=delta,
+                on_native_update=lambda updated: window_recorder.observe(
+                    fe=int(updated.evaluations),
+                    native_updates=int(updated.generation),
+                    population=updated.population,
+                    fitness=updated.fitness,
+                    best_fitness=updated.best_fitness,
+                ),
+            )
             runtime_probe += continuation.runtime_seconds
             current_fe = checkpoint_fe
+            window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
             trajectory_record = TrajectoryRecord.from_arrays(
                 problem_id=problem.problem_id,
                 family=problem.family,
@@ -278,6 +299,8 @@ def _score_one_run(
                 fe=current_fe,
                 fe_total=fe_total,
                 native_updates=int(current_state.generation),
+                window_statistics=window_statistics,
+                native_update_history=native_update_history,
                 population=current_state.population,
                 fitness=current_state.fitness,
                 best_fitness=current_state.best_fitness,

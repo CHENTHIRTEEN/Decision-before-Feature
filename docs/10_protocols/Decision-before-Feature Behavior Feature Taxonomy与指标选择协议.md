@@ -1,6 +1,6 @@
 # Decision-before-Feature Behavior Feature Taxonomy与指标选择协议
 
-> 实现同步（2026-08-11）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。旧 behavior 曾把 population 行号解释为跨代个体身份，已撤回并不得复用。
+> 实现同步（2026-08-12）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。w02/w05/w10 已改为逐次完整原生 update 统计，不再从稀疏正式 checkpoint 中选择 anchor。旧 behavior 曾把 population 行号解释为跨代个体身份，已撤回并不得复用。
 
 ## 1. 文档定位
 
@@ -757,11 +757,11 @@ H3:
 | 类别 | Feature | 实现列名 | 口径 | Feature group |
 |---|---|---|---|---|
 | Progress | FE ratio | `bf_fe_ratio` | 当前 `FE/FE_total`；逐行强制等于元数据 `FE_ratio` | time_only, base, primary, primary_with_maturity, all_candidates |
-| Progress | improvement rate | `bf_improvement_rate_w02` | 2% FE-ratio窗口内 best fitness 相对改善率 | base, primary, primary_with_maturity, all_candidates |
-| Progress | improvement frequency | `bf_improvement_frequency_w02` | 2% FE-ratio窗口内相邻 checkpoint 发生严格 best-fitness 改善的比例 | base, primary, primary_with_maturity, all_candidates |
+| Progress | improvement rate | `bf_improvement_rate_w02` | 名义2% FE-ratio、按完整原生 update 对齐的窗口内 best fitness 相对改善率 | base, primary, primary_with_maturity, all_candidates |
+| Progress | improvement frequency | `bf_improvement_frequency_w02` | 名义2%窗口内相邻原生 update 发生严格 best-fitness 改善的比例 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
-| Diversity | diversity change | `bf_diversity_change_w05` | 5% FE-ratio窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
-| Diversity | diversity slope | `bf_diversity_slope_w05` | 5% FE-ratio窗口内 diversity 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
+| Diversity | diversity change | `bf_diversity_change_w05` | 名义5%、按完整原生 update 对齐窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
+| Diversity | diversity slope | `bf_diversity_slope_w05` | 名义5%窗口内逐 update diversity 对实际 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
 | Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差 | primary, primary_with_maturity, all_candidates |
 | Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | fitness标准差除以 `abs(mean fitness)+epsilon` | primary, primary_with_maturity, all_candidates |
 | Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
@@ -804,7 +804,7 @@ effective_window_fe_w10
 effective_native_updates_w10
 ```
 
-anchor 仍由相应名义窗口在稀疏 checkpoint 序列中选择最近且不晚于目标位置的已记录 checkpoint；rate与slope一律使用上述实际 FE 跨度。无可用 anchor 时，同一 suffix 的三个字段同时为空。`native_updates` 表示完整 optimizer state 中已经完成的原生 generation/update 数，差值只作计算来源记录，不作为 Decision 或 Selector 输入。
+anchor 从逐次完整原生 generation/update 的运行历史中选择，不再使用稀疏正式 checkpoint 序列。对名义窗口 (W\in\{0.02,0.05,0.10\})，目标位置为 `FE_t - round(W * FE_total)`；若该位置不是完整 update 边界，则选择不晚于目标位置的最近完整 update。因此实际跨度满足 `round(W*FE_total) <= effective_window_fe < round(W*FE_total) + population_size`。trajectory 行只保存三个 anchor 到当前 checkpoint 的轻量集合/fitness 比较统计，以及最近10%预算内用于 improvement frequency、stagnation 和 slope 的逐 update 标量历史；不重复保存逐 update 的 RNG 或完整优化器内部状态。rate与slope一律使用实际 FE 跨度。`native_updates` 差值只作计算来源记录，不作为 Decision 或 Selector 输入。
 
 其中：
 

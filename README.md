@@ -6,7 +6,7 @@
 
 截至 2026-08-12，四种优化器已改为完整状态推进：同一算法在 checkpoint 间保留内部状态与 RNG；只有 selector 确实切换算法时，才执行一次显式的 population transfer 初始化。可用 `uv run optimizer-state-check` 在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
 
-Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨 checkpoint 的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。w02/w05/w10 另外保存实际 anchor 跨度的 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`，所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
+Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨窗口的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。运行时逐次记录完整原生 update 的轻量窗口统计，正式 checkpoint 的 w02/w05/w10 anchor 不再从稀疏 checkpoint 中选择；若名义 FE 不能整除一次原生 update，则取不晚于目标位置的最近完整 update，误差严格小于一次 update，并保存 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`。所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
 
 Selection Reference 已改为逐共享状态候选动作损失回归：每个 state 对 `continue_current` 和其余三个 portfolio algorithm 分别进行真实 continuation，`remaining_budget_ratio` 作为连续输入；不再按静态 problem label 和 nearest performance bucket 选择算法。固定的多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，训练行使用按 function family 的交叉拟合预测，验证与外部评价加载仅由 BBOB train 拟合的 selector model。
 

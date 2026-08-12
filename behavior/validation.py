@@ -102,6 +102,11 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
                     abs_tol=1e-15,
                 ):
                     raise ValueError(f"effective {suffix} window ratio must equal FE span / FE_total")
+                nominal = {"w02": 0.02, "w05": 0.05, "w10": 0.10}[suffix]
+                population_size = len(trajectory_row["population"])
+                target_fe = int(round(nominal * int(trajectory_row["FE_total"])))
+                if not target_fe <= int(fe) < target_fe + population_size:
+                    raise ValueError(f"effective {suffix} window must be aligned within one native update")
 
         for column in BEHAVIOR_WINDOW_METADATA_COLUMNS:
             value = behavior_row[column]

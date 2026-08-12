@@ -308,8 +308,8 @@ uv run phase1-plan-shards --config configs/phase1_bbob_validation.yaml
 - fitness 跨窗口变化使用排序后的经验分位数，计算改善分位数比例、平均分布改善率和一维 Wasserstein 变化率。
 - 所有变化量按实际 `(FE_t-FE_anchor)/FE_total` 归一化；空间距离同时除以 `sqrt(dimension)`。
 - CMA-ES 每代样本不存在稳定个体身份，因此不得使用 row-wise displacement、row-wise fitness improvement 或由其派生的方向统计。
-- w02、w05、w10 先按名义 checkpoint ratio 选择不晚于目标位置的最近已记录 anchor，但实际跨度必须按 `(FE_t-FE_anchor)/FE_total` 计算，不能把名义2%、5%、10%当作实际跨度。
-- trajectory 必须保存 `FE_total` 与已完成的 `native_updates`。behavior 对每个窗口分别保存 `effective_window_ratio_w02/w05/w10`、`effective_window_fe_w02/w05/w10` 与 `effective_native_updates_w02/w05/w10`；无可用 anchor 时三项同时为空。
+- w02、w05、w10 必须从逐次完整原生 update 的运行历史中选择 anchor，不得再从稀疏正式 checkpoint 中回退选择。目标分别为当前 FE 之前 2%、5%、10% 总预算的位置；若目标不落在完整 update 边界，则选择不晚于目标位置的最近完整 update，使实际跨度不小于名义跨度且偏差小于一次 population update。
+- trajectory 必须保存 `FE_total`、已完成的 `native_updates`、三个窗口的轻量集合/fitness 统计和最近10%预算内的逐 update 标量历史。behavior 对每个窗口分别保存 `effective_window_ratio_w02/w05/w10`、`effective_window_fe_w02/w05/w10` 与 `effective_native_updates_w02/w05/w10`；rate与slope使用实际跨度，窗口 metadata 不进入 Decision 输入。
 - 上述9个窗口字段是计算来源 metadata，不属于 `BEHAVIOR_FEATURE_COLUMNS`，不得进入 Decision Model 或 Selector 输入。
 - directional entropy 及其 direction bins 已由 permutation-invariant 集合分布变化指标替代；活动实现不得重新引入依赖 individual ID、ancestry 或跨 checkpoint 行对应关系的方向统计。
 - 旧 behavior、utility labels、Decision dataset、模型和评价结果不得与新集合特征混用。

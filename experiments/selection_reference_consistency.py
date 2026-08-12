@@ -5,6 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 from time import perf_counter
+from math import ceil
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,7 @@ from selection_reference.model import (
     selection_rows,
 )
 from trajectory.records import TrajectoryRecord
+from trajectory.window_statistics import NativeUpdateWindowRecorder
 from utility_labels.generation import _utility_row, utility_schema
 from utility_labels.validation import validate_utility_label_file
 
@@ -143,8 +145,32 @@ def _check_query_specific_regression(
                 settings=settings,
             )
             trajectory_rows = []
-            for target_fe in (int(0.20 * fe_total), int(0.25 * fe_total), int(0.30 * fe_total)):
-                advance_optimizer_state(state=state, problem=problem, fe_budget=target_fe - int(state.evaluations))
+            window_recorder = NativeUpdateWindowRecorder()
+            window_recorder.observe(
+                fe=int(state.evaluations),
+                native_updates=int(state.generation),
+                population=state.population,
+                fitness=state.fitness,
+                best_fitness=state.best_fitness,
+            )
+            target_fes = tuple(
+                int(ceil(ratio * fe_total / settings.population_size) * settings.population_size)
+                for ratio in (0.20, 0.25, 0.30)
+            )
+            for target_fe in target_fes:
+                advance_optimizer_state(
+                    state=state,
+                    problem=problem,
+                    fe_budget=target_fe - int(state.evaluations),
+                    on_native_update=lambda updated: window_recorder.observe(
+                        fe=int(updated.evaluations),
+                        native_updates=int(updated.generation),
+                        population=updated.population,
+                        fitness=updated.fitness,
+                        best_fitness=updated.best_fitness,
+                    ),
+                )
+                window_statistics, native_update_history = window_recorder.build(fe_total=fe_total)
                 trajectory_rows.append(
                     TrajectoryRecord.from_arrays(
                         problem_id=problem.problem_id,
@@ -155,6 +181,8 @@ def _check_query_specific_regression(
                         fe=int(state.evaluations),
                         fe_total=fe_total,
                         native_updates=int(state.generation),
+                        window_statistics=window_statistics,
+                        native_update_history=native_update_history,
                         population=state.population,
                         fitness=state.fitness,
                         best_fitness=state.best_fitness,

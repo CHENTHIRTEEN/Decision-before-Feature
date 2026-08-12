@@ -46,7 +46,7 @@ Offline Utility Label。
 
 在生成 Utility 前，必须先对每个共享状态完整运行唯一候选动作集合：`continue_current` 加其余三个 portfolio algorithms。动作表保存 raw loss、逐状态 normalized action loss、transition mode、best observed action 和 action runtime；随后只用 BBOB train states 拟合连续预算 Selector。
 
-Trajectory Parquet 保存可观察的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates` 和 `optimizer_state_mode`，不把 RNG、velocity、evolution path、archive 等大型内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个 checkpoint 对 population、fitness、best-so-far 与 `native_updates` 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一 checkpoint 不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
+Trajectory Parquet 保存正式 checkpoint 的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates`、三个名义窗口的轻量集合/fitness 统计、最近10%预算内的逐 update 标量历史和 `optimizer_state_mode`，不把逐 update 的 RNG、velocity、evolution path、archive 等完整内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个 checkpoint 对 population、fitness、best-so-far 与 `native_updates` 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一 checkpoint 不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
 
 ## Strategy A: No-query
 

@@ -18,8 +18,15 @@ def read_performance(
     for shard in make_shards(config, only_functions, only_dimensions):
         if not shard.output_path.exists():
             raise FileNotFoundError(f"missing trajectory shard: {shard.output_path}")
-        if "optimizer_state_mode" not in pq.read_schema(shard.output_path).names:
-            raise ValueError(f"trajectory shard predates native optimizer-state continuation: {shard.output_path}")
+        schema_names = set(pq.read_schema(shard.output_path).names)
+        missing_protocol_columns = {"optimizer_state_mode", "window_statistics", "native_update_history"}.difference(
+            schema_names
+        )
+        if missing_protocol_columns:
+            raise ValueError(
+                "trajectory shard predates strict native-update behavior windows; "
+                f"missing {sorted(missing_protocol_columns)}: {shard.output_path}"
+            )
         table = pq.read_table(
             shard.output_path,
             columns=[

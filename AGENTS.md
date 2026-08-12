@@ -243,6 +243,8 @@ $$
 
 Selection Reference、Utility、Decision dataset 与在线输出必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；其中 `handoff_required = not selected_equals_prefix`，并与 `handoff_type == population_transfer_initialization` 逐行一致。不得生成 `label_source` 或以 `same_algorithm/changed_algorithm` 代替这些显式关系。
 
+Behavior 的 w02、w05、w10 必须基于逐次完整原生 optimizer update 的运行历史，不得从稀疏正式 checkpoint 中选择窗口 anchor。若名义 FE 位置不落在完整 update 边界，选择不晚于目标位置的最近完整 update，实际窗口必须不小于名义窗口且偏差小于一次 population update；实际 FE、ratio 与 native update 数只作 metadata，不进入 Decision Model 输入。
+
 ---
 
 # 3. 实验协议规范

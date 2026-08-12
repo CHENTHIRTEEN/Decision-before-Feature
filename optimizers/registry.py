@@ -43,17 +43,17 @@ def run_optimizer(
         advance_optimizer_state(
             state=state,
             problem=problem,
-            fe_budget=min(settings.population_size, fe_total - state.evaluations),
-        )
-        recorder.observe(
-            problem=problem,
-            algorithm=key,
-            seed=seed,
-            fe=state.evaluations,
-            fe_total=fe_total,
-            native_updates=state.generation,
-            population=state.population,
-            fitness=state.fitness,
-            best_fitness=state.best_fitness,
+            fe_budget=fe_total - state.evaluations,
+            on_native_update=lambda updated: recorder.observe(
+                problem=problem,
+                algorithm=key,
+                seed=seed,
+                fe=updated.evaluations,
+                fe_total=fe_total,
+                native_updates=updated.generation,
+                population=updated.population,
+                fitness=updated.fitness,
+                best_fitness=updated.best_fitness,
+            ),
         )
     return recorder.records

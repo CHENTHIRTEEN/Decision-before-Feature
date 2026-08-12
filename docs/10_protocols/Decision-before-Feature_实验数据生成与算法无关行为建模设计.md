@@ -427,6 +427,10 @@ FE_total,
 
 native_updates,
 
+window_statistics,
+
+native_update_history,
+
 effective_window_ratio_w02/w05/w10,
 
 effective_window_fe_w02/w05/w10,
