@@ -795,7 +795,7 @@ H3:
 
 # 16. 当前实现中的正式Feature分类
 
-当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含36个permutation-invariant算法无关行为特征，其中额外加入了 movement / direction / success 的集合级代理量与 DynamoRep-lite 低成本补充组，identity-aware 版本只作为诊断上界。`primary_with_dynamorep_lite` 是最紧凑的显式扩展组；`primary_with_movement` 在其上再加入 movement proxy；`primary_with_maturity` 则在此基础上加入 Search Maturity 派生特征。
+当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含36个permutation-invariant算法无关行为特征，其中额外加入了 movement / direction / success 的集合级代理量与 DynamoRep-lite 低成本补充组，identity-aware 版本只作为诊断上界。`primary_with_dynamorep_lite` 是最紧凑的显式扩展组；`primary_with_movement` 在其上再加入 movement proxy；`primary_with_maturity` 则在此基础上加入 Search Maturity 派生特征；`diagnostic_only` 仅保留 `bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr`，而 `all_candidates` 继续代表全部正式候选特征集合。
 
 这些特征只从已记录的 checkpoint population、fitness、best fitness、FE、FE_total、native update计数、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。native update计数仅用于窗口跨度记录，不进入特征集合。
 
@@ -807,7 +807,7 @@ H3:
 | Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity change | `bf_diversity_change_w05` | 名义5%、按完整原生 update 对齐窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity slope | `bf_diversity_slope_w05` | 名义5%窗口内逐 update diversity 对实际 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差（保留诊断口径） | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差；原始版本不进入正式主模型，仅保留为兼容/诊断口径 | diagnostic_only |
 | Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | 当前 checkpoint fitness 的四分位距相对初始 checkpoint IQR 的比值；shift-invariant 稳健尺度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
@@ -823,7 +823,7 @@ H3:
 | Movement proxy | population Chamfer distance | `bf_population_chamfer_distance_w05` | 5%窗口内 anchor 与 current population 的边界归一化 Chamfer 风格集合距离 | primary_with_movement, primary_with_maturity, all_candidates |
 | Movement proxy | covariance trace change | `bf_covariance_trace_change_w05` | 5%窗口内 covariance trace 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
 | Movement proxy | covariance effective-rank change | `bf_covariance_effective_rank_change_w05` | 5%窗口内 covariance effective-rank 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
-| Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例；CMA-ES 使用 Chamfer 风格集合代理 | all_candidates |
+| Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例；依赖距离半径与population size，仅作诊断 | diagnostic_only |
 | Convergence | distance decay | `bf_distance_decay_w10` | 10% FE-ratio窗口内到当前population-best平均距离的相对下降 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |
@@ -832,7 +832,7 @@ H3:
 | Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | primary, primary_with_maturity, all_candidates |
-| Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数 | all_candidates |
+| Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数；接近局部 landscape proxy，仅作诊断 | diagnostic_only |
 | State | Search maturity | `bf_search_maturity` | `ES_t(1-XS_t)` 的可执行行为特征版本 | primary_with_maturity, all_candidates |
 | State | linear Search maturity | `bf_search_maturity_linear` | maturity 的线性合成备选形式 | primary_with_maturity, all_candidates |
 | State | exploration/exploitation ratio | `bf_explore_exploit_ratio` | 行为探索分量除以行为开发分量 | primary_with_maturity, all_candidates |
@@ -867,7 +867,8 @@ anchor 从逐次完整原生 generation/update 的运行历史中选择，不再
 - `base` 使用9个紧凑、permutation-invariant行为特征；旧identity-dependent base不再保留为活动组；
 - `primary` 加入低成本的population与fitness集合变化特征；
 - `primary_with_maturity` 在 `primary` 基础上加入 Search Maturity 及其备选状态特征；
-- `all_candidates` 进一步加入 `bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr`，只作为消融和诊断口径，不作为主结论的单独证据。
+- `diagnostic_only` 仅保留 `bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr`；
+- `all_candidates` 代表除诊断专用字段外的全部正式候选特征集合。
 
 ------------------------------------------------------------------------
 
