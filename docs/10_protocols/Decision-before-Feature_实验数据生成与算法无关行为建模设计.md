@@ -200,7 +200,7 @@ $$ IR_t= \frac{f_{best}(t-k)-f_{best}(t)}{k} $$
 
 例如：
 
-平均距离：
+平均距离先按问题边界归一化到单位超立方体后计算：
 
 $$ D_t $$
 
@@ -211,7 +211,7 @@ $$ D_t $$
 包括：
 
 -   variance
--   centroid shift
+-   centroid shift（按搜索空间边界归一化后计算）
 -   covariance spectral concentration
 
 ------------------------------------------------------------------------
@@ -224,9 +224,9 @@ $$ D_t $$
 
 ### Exploration
 
--   diversity change
--   population Wasserstein change rate
--   centroid shift coherence
+-   diversity change（基于边界归一化坐标）
+-   population Wasserstein change rate（先按搜索空间边界归一化）
+-   centroid shift coherence（先按搜索空间边界归一化）
 
 ### Fitness distribution
 
@@ -236,9 +236,9 @@ $$ D_t $$
 
 ### Exploitation
 
--   distance decay
+-   distance decay（基于边界归一化后的 population-best 距离）
 -   stagnation
--   convergence speed
+-   convergence speed（基于边界归一化坐标的 diversity 下降）
 
 ------------------------------------------------------------------------
 

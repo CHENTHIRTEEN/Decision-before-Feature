@@ -6,6 +6,8 @@ from math import sqrt
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from benchmarks.factory import problem_bounds
+
 
 EPS = 1e-12
 WINDOW_RATIOS = {
@@ -52,8 +54,8 @@ class NativeUpdateWindowRecorder:
                 raise ValueError("native-update snapshots must be strictly increasing")
         self.snapshots.append(snapshot)
 
-    def build(self, *, fe_total: int) -> tuple[list[dict], list[dict]]:
-        windows, history = build_window_statistics(self.snapshots, fe_total=fe_total)
+    def build(self, *, fe_total: int, problem_id: str) -> tuple[list[dict], list[dict]]:
+        windows, history = build_window_statistics(self.snapshots, fe_total=fe_total, problem_id=problem_id)
         retained_from_fe = int(history[0]["FE"])
         self.snapshots = [snapshot for snapshot in self.snapshots if snapshot.fe >= retained_from_fe]
         return windows, history
@@ -86,6 +88,7 @@ def build_window_statistics(
     snapshots: list[NativeUpdateSnapshot],
     *,
     fe_total: int,
+    problem_id: str,
 ) -> tuple[list[dict], list[dict]]:
     if not snapshots:
         raise ValueError("native-update history must not be empty")
@@ -111,6 +114,7 @@ def build_window_statistics(
                 nominal_ratio=nominal_ratio,
                 current=current,
                 anchor=anchor,
+                problem_id=problem_id,
             )
         )
 
@@ -121,7 +125,7 @@ def build_window_statistics(
             "FE_ratio": float(snapshot.fe / fe_total),
             "native_updates": int(snapshot.native_updates),
             "best_fitness": float(snapshot.best_fitness),
-            "diversity_mean_pairwise": _mean_pairwise_distance(snapshot.population),
+            "diversity_mean_pairwise": _mean_pairwise_distance(snapshot.population, problem_id=problem_id),
         }
         for snapshot in snapshots
         if snapshot.fe >= long_anchor.fe
@@ -150,26 +154,23 @@ def _window_row(
     nominal_ratio: float,
     current: NativeUpdateSnapshot,
     anchor: NativeUpdateSnapshot,
+    problem_id: str,
 ) -> dict:
     if current.population.shape != anchor.population.shape:
         raise ValueError("window endpoint populations must have identical shapes")
     dimension = int(current.population.shape[1])
     current_population, current_fitness = _ordered_arrays(current.population, current.fitness)
     anchor_population, anchor_fitness = _ordered_arrays(anchor.population, anchor.fitness)
-    current_diversity = _mean_pairwise_distance(current_population)
-    anchor_diversity = _mean_pairwise_distance(anchor_population)
-    anchor_distance_to_best = _mean_distance_to_best(anchor_population, anchor_fitness)
+    current_diversity = _mean_pairwise_distance(current_population, problem_id=problem_id)
+    anchor_diversity = _mean_pairwise_distance(anchor_population, problem_id=problem_id)
+    anchor_distance_to_best = _mean_distance_to_best(anchor_population, anchor_fitness, problem_id=problem_id)
 
-    pairwise_distances = (
-        np.linalg.norm(anchor_population[:, None, :] - current_population[None, :, :], axis=2)
-        / sqrt(dimension)
-    )
+    current_scaled = _scale_population_to_unit_cube(current_population, problem_id=problem_id)
+    anchor_scaled = _scale_population_to_unit_cube(anchor_population, problem_id=problem_id)
+    pairwise_distances = np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2)
     anchor_indices, current_indices = linear_sum_assignment(pairwise_distances)
     population_wasserstein = float(np.mean(pairwise_distances[anchor_indices, current_indices]))
-    centroid_shift = float(
-        np.linalg.norm(np.mean(current_population, axis=0) - np.mean(anchor_population, axis=0))
-        / sqrt(dimension)
-    )
+    centroid_shift = float(np.linalg.norm(np.mean(current_scaled, axis=0) - np.mean(anchor_scaled, axis=0)))
 
     anchor_quantiles = np.sort(anchor_fitness)
     current_quantiles = np.sort(current_fitness)
@@ -177,7 +178,7 @@ def _window_row(
     threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
     fitness_scale = max(float(np.mean(np.abs(anchor_quantiles))), EPS)
     radius = 0.05 * max(current_diversity, EPS)
-    nearest = np.min(pairwise_distances, axis=0)
+    nearest = np.min(np.linalg.norm(anchor_scaled[:, None, :] - current_scaled[None, :, :], axis=2), axis=0)
     return {
         "suffix": suffix,
         "nominal_window_ratio": float(nominal_ratio),
@@ -203,17 +204,27 @@ def _ordered_arrays(population: np.ndarray, fitness: np.ndarray) -> tuple[np.nda
     return population[order], fitness[order]
 
 
-def _mean_pairwise_distance(population: np.ndarray) -> float:
+def _mean_pairwise_distance(population: np.ndarray, *, problem_id: str) -> float:
     if population.shape[0] < 2:
         return 0.0
-    dimension = int(population.shape[1])
-    deltas = population[:, None, :] - population[None, :, :]
+    scaled = _scale_population_to_unit_cube(population, problem_id=problem_id)
+    deltas = scaled[:, None, :] - scaled[None, :, :]
     distances = np.linalg.norm(deltas, axis=2)
-    upper = distances[np.triu_indices(population.shape[0], k=1)]
-    return float(np.mean(upper) / sqrt(dimension))
+    upper = distances[np.triu_indices(scaled.shape[0], k=1)]
+    return float(np.mean(upper))
 
 
-def _mean_distance_to_best(population: np.ndarray, fitness: np.ndarray) -> float:
+def _mean_distance_to_best(population: np.ndarray, fitness: np.ndarray, *, problem_id: str) -> float:
     best = population[int(np.argmin(fitness))]
-    distances = np.linalg.norm(population - best, axis=1)
-    return float(np.mean(distances) / sqrt(int(population.shape[1])))
+    scaled = _scale_population_to_unit_cube(population, problem_id=problem_id)
+    best_scaled = _scale_population_to_unit_cube(best.reshape(1, -1), problem_id=problem_id)[0]
+    distances = np.linalg.norm(scaled - best_scaled, axis=1)
+    return float(np.mean(distances))
+
+
+def _scale_population_to_unit_cube(population: np.ndarray, *, problem_id: str) -> np.ndarray:
+    lower, upper = problem_bounds(problem_id)
+    span = upper - lower
+    if np.any(span <= 0.0):
+        raise ValueError(f"invalid problem bounds for {problem_id}")
+    return np.clip((np.asarray(population, dtype=float) - lower) / span, 0.0, 1.0)

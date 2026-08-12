@@ -8,6 +8,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from benchmarks.factory import problem_bounds
 from trajectory.validation import validate_trajectory_file
 
 
@@ -214,10 +215,10 @@ def write_behavior_rows(behavior_rows: list[dict], output_path: str | Path) -> P
 def _checkpoint_stats(row: dict) -> dict[str, float]:
     population = _population(row)
     fitness = _fitness(row)
-    dimension = int(row["dimension"])
+    problem_id = str(row["problem_id"])
     return {
-        "diversity": _mean_pairwise_distance(population, dimension),
-        "distance_to_best": _mean_distance_to_population_best(population, fitness, dimension),
+        "diversity": _mean_pairwise_distance(population, problem_id=problem_id),
+        "distance_to_best": _mean_distance_to_population_best(population, fitness, problem_id=problem_id),
         "fitness_diversity": _fitness_diversity(fitness),
         "fitness_diversity_rel": _relative_fitness_diversity(fitness),
         "covariance_spectral_concentration": _covariance_spectral_concentration(population),
@@ -232,6 +233,14 @@ def _population(row: dict) -> np.ndarray:
 def _fitness(row: dict) -> np.ndarray:
     _, fitness = _checkpoint_arrays(row)
     return fitness
+
+
+def _scale_population_to_unit_cube(population: np.ndarray, *, problem_id: str) -> np.ndarray:
+    lower, upper = problem_bounds(problem_id)
+    span = upper - lower
+    if np.any(span <= 0.0):
+        raise ValueError(f"invalid problem bounds for {problem_id}")
+    return np.clip((np.asarray(population, dtype=float) - lower) / span, 0.0, 1.0)
 
 
 def _checkpoint_arrays(row: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -251,19 +260,22 @@ def _checkpoint_arrays(row: dict) -> tuple[np.ndarray, np.ndarray]:
     return population[order], fitness[order]
 
 
-def _mean_pairwise_distance(population: np.ndarray, dimension: int) -> float:
+def _mean_pairwise_distance(population: np.ndarray, *, problem_id: str) -> float:
     if population.shape[0] < 2:
         return 0.0
-    deltas = population[:, None, :] - population[None, :, :]
+    scaled = _scale_population_to_unit_cube(population, problem_id=problem_id)
+    deltas = scaled[:, None, :] - scaled[None, :, :]
     distances = np.linalg.norm(deltas, axis=2)
     upper = distances[np.triu_indices(population.shape[0], k=1)]
-    return float(np.mean(upper) / sqrt(dimension))
+    return float(np.mean(upper))
 
 
-def _mean_distance_to_population_best(population: np.ndarray, fitness: np.ndarray, dimension: int) -> float:
+def _mean_distance_to_population_best(population: np.ndarray, fitness: np.ndarray, *, problem_id: str) -> float:
     best = population[int(np.argmin(fitness))]
-    distances = np.linalg.norm(population - best, axis=1)
-    return float(np.mean(distances) / sqrt(dimension))
+    scaled = _scale_population_to_unit_cube(population, problem_id=problem_id)
+    best_scaled = _scale_population_to_unit_cube(best.reshape(1, -1), problem_id=problem_id)[0]
+    distances = np.linalg.norm(scaled - best_scaled, axis=1)
+    return float(np.mean(distances))
 
 
 def _fitness_diversity(fitness: np.ndarray) -> float:

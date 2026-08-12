@@ -173,10 +173,10 @@ $$ I_t= \frac{f_{best}(t-k)-f_{best}(t)} {k} $$
 
 例如：
 
-平均个体距离：
+平均个体距离先按问题搜索空间边界映射到单位超立方体后计算：
 
 $$ D_t= \frac{2}{N(N-1)}
-\sum_i\sum_j\|x_i-x_j\| $$
+\sum_i\sum_j\|\tilde{x}_i-\tilde{x}_j\| $$
 
 ------------------------------------------------------------------------
 
@@ -237,10 +237,10 @@ Search Maturity由两个因素共同决定。
 
 输入：
 
--   diversity下降速度
--   population Wasserstein变化率的稳定程度
+-   diversity下降速度（基于边界归一化坐标）
+-   population Wasserstein变化率的稳定程度（先按搜索空间边界归一化）
 -   covariance spectral concentration
--   centroid shift coherence
+-   centroid shift coherence（先按搜索空间边界归一化）
 
 当前可执行形式令：
 

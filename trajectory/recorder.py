@@ -52,7 +52,7 @@ class TrajectoryRecorder:
 
         if self._last_recorded_fe == fe:
             return
-        window_statistics, native_update_history = self._window_recorder.build(fe_total=fe_total)
+        window_statistics, native_update_history = self._window_recorder.build(fe_total=fe_total, problem_id=problem.problem_id)
         self.records.append(
             TrajectoryRecord.from_arrays(
                 problem_id=problem.problem_id,

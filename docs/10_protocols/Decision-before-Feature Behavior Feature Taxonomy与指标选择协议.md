@@ -1,6 +1,6 @@
 # Decision-before-Feature Behavior Feature Taxonomy与指标选择协议
 
-> 实现同步（2026-08-12）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。w02/w05/w10 已改为逐次完整原生 update 统计，不再从稀疏正式 checkpoint 中选择 anchor。旧 behavior 曾把 population 行号解释为跨代个体身份，已撤回并不得复用。
+> 实现同步（2026-08-12）：当前 extractor 生成 25 个 permutation-invariant、算法无关 `bf_*` 字段；正式模型比较的主组 `primary_with_maturity` 使用其中 23 个，`bf_population_overlap_w05` 与 `bf_best_distance_fitness_corr` 保留为诊断字段，不进入主组。w02/w05/w10 已改为逐次完整原生 update 统计，不再从稀疏正式 checkpoint 中选择 anchor。位置与距离类统计已按各问题搜索空间边界先归一化到 `[0,1]^d` 再计算，旧 behavior 中直接在原始坐标系上比较距离的口径已撤回并不得复用。
 
 ## 1. 文档定位
 
@@ -181,8 +181,14 @@ $$ w=0.02 $$
 
 定义：
 
+先将每一维按问题边界映射到单位超立方体：
+
+$$ \tilde{x}_{i,j}=\frac{x_{i,j}-l_j}{u_j-l_j} $$
+
+然后在归一化坐标上计算：
+
 $$ D_t= \frac{2}{N(N-1)}
-\sum_{i<j}\frac{\|x_i-x_j\|_2}{\sqrt{d}} $$
+\sum_{i<j}\|\tilde{x}_i-\tilde{x}_j\|_2 $$
 
 含义：
 
@@ -237,14 +243,18 @@ $$
 
 ## 6.1 Population Wasserstein Change
 
-当前与anchor population均视为等权经验分布，不按行建立个体对应关系。当前实现使用 $w=0.05$ 的FE-ratio窗口，并通过最小费用一一匹配计算经验Wasserstein-1：
+当前与anchor population均视为等权经验分布，不按行建立个体对应关系。当前实现使用 $w=0.05$ 的FE-ratio窗口，并先将两侧 population 按问题边界映射到单位超立方体，再通过最小费用一一匹配计算经验Wasserstein-1：
+
+$$
+\tilde{x}_{i,j}=\frac{x_{i,j}-l_j}{u_j-l_j}
+$$
 
 $$
 W_t^{(0.05)}=
 \frac{1}{r_t-r_a}
 \min_{\pi\in S_N}
 \frac{1}{N}\sum_i
-\frac{\lVert x_i^{(a)}-x_{\pi(i)}^{(t)}\rVert_2}{\sqrt d}.
+\lVert \tilde{x}_i^{(a)}-\tilde{x}_{\pi(i)}^{(t)}\rVert_2.
 $$
 
 该数值表示种群空间分布每单位预算比例的变化幅度，不表示真实个体运动。
@@ -255,9 +265,11 @@ $$
 
 centroid shift rate定义为：
 
+先在单位超立方体中计算 centroid，再除以预算跨度：
+
 $$
 G_t^{(0.05)}=
-\frac{\lVert \mu_t-\mu_a\rVert_2}{\sqrt d\,(r_t-r_a)}.
+\frac{\lVert \tilde{\mu}_t-\tilde{\mu}_a\rVert_2}{r_t-r_a}.
 $$
 
 coherence定义为未除预算跨度的centroid shift与Wasserstein distance之比。无集合变化时取0，其余裁剪到 $[0,1]$。该比值描述总体平移占集合分布变化的比例，不解释为个体方向一致性。
@@ -266,7 +278,7 @@ coherence定义为未除预算跨度的centroid shift与Wasserstein distance之�
 
 ## 6.3 Covariance与Fitness Distribution
 
-当前population的协方差谱集中度使用归一化Herfindahl concentration。令 $q=\min(d,N-1)$，协方差非负特征值为 $\lambda_j$：
+当前population的协方差谱集中度使用归一化Herfindahl concentration。该量仍在原始坐标系上计算，因为它反映的是方差结构占比而不是绝对位置距离。令 $q=\min(d,N-1)$，协方差非负特征值为 $\lambda_j$：
 
 $$
 C_t=\frac{q\frac{\sum_j\lambda_j^2}{(\sum_j\lambda_j)^2}-1}{q-1}.
@@ -294,9 +306,9 @@ $$
 
 定义：
 
-个体距离当前population-best位置的平均距离变化。
+个体距离当前population-best位置的平均距离变化。当前实现先将 population 与 best 按问题边界归一化到单位超立方体，再计算平均距离。
 
-$$ d_t=\frac{1}{N}\sum_i\frac{\|x_i-x_{best,t}\|_2}{\sqrt d} $$
+$$ d_t=\frac{1}{N}\sum_i\lVert \tilde{x}_i-\tilde{x}_{best,t}\rVert_2 $$
 
 当前实现使用：
 
@@ -352,7 +364,7 @@ $$
 
 $$ w=0.10 $$
 
-预算比例窗口内的相对diversity下降率：
+预算比例窗口内的相对diversity下降率，其中 diversity 先基于边界归一化后的坐标计算：
 
 $$ CR_t^{(0.10)}=
 \frac{D_a-D_t}{\max(D_a,\epsilon)}
