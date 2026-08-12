@@ -294,6 +294,39 @@ $$
 
 ------------------------------------------------------------------------
 
+## 6.4 Movement / Direction / Success Diagnostics
+
+当前代际逐个体的 movement、direction 和 success 定义默认要求跨 checkpoint 的第 `i` 行代表同一个体。这个假设对 PSO 只在稳定粒子编号下近似成立，对 DE / SHADE 只在 target index 或同源位点追踪下部分成立，对 CMA-ES 则不成立，因为每一代是重新采样的一批点，population 第 `i` 行不具备稳定跨代身份。
+
+因此，下列逐个体特征不再作为严格的跨算法主特征：
+
+- `bf_movement_magnitude`
+- `bf_movement_diversity`
+- `bf_direction_consistency_w05`
+- `bf_directional_entropy_w05`
+- `bf_success_rate_w02`
+- `bf_improvement_variance_w02`
+- `bf_best_improvement_ratio_w02`
+
+推荐处理是将其拆成两个版本：
+
+### 主模型：Permutation-invariant 版本
+
+用集合层面的变化替代逐行对应：
+
+- population Chamfer distance
+- elite centroid shift
+- covariance trace change
+- covariance effective-rank change
+
+这些量只依赖 checkpoint 集合分布，不依赖个体身份，因此可以作为算法无关主模型特征或诊断特征的候选。
+
+### 诊断上界：Identity-aware 版本
+
+仅对确实保留稳定个体身份语义的算法计算 movement / success 特征，并将其作为 algorithm-specific 上界或诊断对照，不进入主 Decision 模型，也不与 permutation-invariant 主特征混报。
+
+------------------------------------------------------------------------
+
 # 7. Category D: Exploitation Features
 
 描述：
@@ -579,7 +612,7 @@ $$ Query\ Utility\ Prediction $$
 
 可在方法章节使用：
 
-> Our behavior representation is motivated by prior behavioral analyses of metaheuristics, especially studies that characterize exploration, exploitation, diversity change, convergence, locality, and communication from optimization trajectories. However, our objective differs from whole-run algorithm similarity analysis and late-stage exploitation control. We therefore define checkpoint-level behavior states on a normalized evaluation-budget axis. Improvement rate, diversity change, permutation-invariant population and fitness distribution changes, distance decay, stagnation, and convergence rate are computed over fixed FE-ratio windows, so that the resulting variables are comparable across dimensions and optimizers and can be used before computing query features.
+> Our behavior representation is motivated by prior behavioral analyses of metaheuristics, especially studies that characterize exploration, exploitation, diversity change, convergence, locality, and communication from optimization trajectories. However, our objective differs from whole-run algorithm similarity analysis and late-stage exploitation control. We therefore define checkpoint-level behavior states on a normalized evaluation-budget axis. Improvement rate, diversity change, permutation-invariant population and fitness distribution changes, distance decay, stagnation, and convergence rate are computed over fixed FE-ratio windows, while movement / direction / success quantities are only retained as algorithm-specific diagnostics when stable individual identity exists. The resulting variables remain comparable across dimensions and optimizers and can be used before computing query features.
 
 可在相关工作章节使用：
 
