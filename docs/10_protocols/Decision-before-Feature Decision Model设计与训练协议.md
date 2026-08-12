@@ -84,7 +84,7 @@ $$ x_t $$
 
 包括：
 
-其中 fitness 相关输入采用 shift-invariant 稳健尺度，优先使用初始 checkpoint 的 fitness IQR 归一化，而不是均值或原始标准差，避免目标函数整体平移影响特征数值。movement / direction / success 类逐个体特征不作为主输入；若要纳入，只能通过集合层面的 permutation-invariant 代理量进入主模型，identity-aware 版本仅作算法特定诊断对照。
+其中 fitness 相关输入采用 shift-invariant 稳健尺度，优先使用初始 checkpoint 的 fitness IQR 归一化，而不是均值或原始标准差，避免目标函数整体平移影响特征数值。movement / direction / success 类逐个体特征不作为主输入；若要纳入，只能通过集合层面的 permutation-invariant 代理量进入主模型，identity-aware 版本仅作算法特定诊断对照。DynamoRep-lite 的 `robust_fitness_iqr_rel`、`fitness_spread_slope_w05`、`population_centroid_shift_w05`、`elite_centroid_shift_w05`、`covariance_trace_ratio_w05`、`covariance_effective_rank_w05` 与 `diversity_recovery_w05` 可作为最紧凑的显式扩展候选组。
 
 ## Progress
 

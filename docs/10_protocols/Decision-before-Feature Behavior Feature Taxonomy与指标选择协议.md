@@ -795,7 +795,7 @@ H3:
 
 # 16. 当前实现中的正式Feature分类
 
-当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含29个permutation-invariant算法无关行为特征，其中额外加入了 movement / direction / success 的集合级代理量，identity-aware 版本只作为诊断上界。
+当前 `behavior.features` 中的 `BEHAVIOR_FEATURE_COLUMNS` 共包含36个permutation-invariant算法无关行为特征，其中额外加入了 movement / direction / success 的集合级代理量与 DynamoRep-lite 低成本补充组，identity-aware 版本只作为诊断上界。`primary_with_dynamorep_lite` 是最紧凑的显式扩展组；`primary_with_movement` 在其上再加入 movement proxy；`primary_with_maturity` 则在此基础上加入 Search Maturity 派生特征。
 
 这些特征只从已记录的 checkpoint population、fitness、best fitness、FE、FE_total、native update计数、FE ratio 和 dimension 计算，不使用额外目标函数调用，不使用query feature，不使用function identity、algorithm identity 或优化器内部参数。native update计数仅用于窗口跨度记录，不进入特征集合。
 
@@ -807,14 +807,20 @@ H3:
 | Diversity | population diversity | `bf_diversity_mean_pairwise` | population平均两两距离，除以 `sqrt(dimension)` | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity change | `bf_diversity_change_w05` | 名义5%、按完整原生 update 对齐窗口内 population diversity 相对变化 | base, primary, primary_with_maturity, all_candidates |
 | Diversity | diversity slope | `bf_diversity_slope_w05` | 名义5%窗口内逐 update diversity 对实际 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差（保留诊断口径） | primary, primary_with_maturity, all_candidates |
-| Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | 当前 checkpoint fitness 的四分位距相对初始 checkpoint IQR 的比值；shift-invariant 稳健尺度 | primary, primary_with_maturity, all_candidates |
-| Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
-| Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
-| Set change | centroid shift coherence | `bf_centroid_shift_coherence_w05` | centroid shift占经验Wasserstein distance的比例 | primary, primary_with_maturity, all_candidates |
+| Diversity | fitness diversity | `bf_fitness_diversity` | 当前 checkpoint fitness values 的标准差（保留诊断口径） | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Diversity | relative fitness diversity | `bf_fitness_diversity_rel` | 当前 checkpoint fitness 的四分位距相对初始 checkpoint IQR 的比值；shift-invariant 稳健尺度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Set change | population Wasserstein rate | `bf_population_wasserstein_rate_w05` | 5%窗口等权经验Wasserstein-1，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Set change | centroid shift rate | `bf_centroid_shift_rate_w05` | 5%窗口centroid距离，除以 `sqrt(dimension)` 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Set change | centroid shift coherence | `bf_centroid_shift_coherence_w05` | centroid shift占经验Wasserstein distance的比例 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Set shape | covariance spectral concentration | `bf_covariance_spectral_concentration` | 当前population协方差特征值的归一化Herfindahl concentration | base, primary, primary_with_maturity, all_candidates |
+| DynamoRep-lite | robust fitness IQR | `bf_robust_fitness_iqr_rel` | 当前 checkpoint fitness IQR 相对初始 checkpoint IQR 的 shift-invariant 比值 | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | fitness spread slope | `bf_fitness_spread_slope_w05` | 5% FE-ratio 窗口内 fitness IQR 的局部斜率 | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | population centroid shift | `bf_population_centroid_shift_w05` | 5%窗口内 population centroid 的边界归一化 shift | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | elite centroid shift | `bf_elite_centroid_shift_w05` | 5%窗口内 elite centroid 的边界归一化 shift | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | covariance trace ratio | `bf_covariance_trace_ratio_w05` | 5%窗口内 covariance trace 相对 anchor 的比值 | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | covariance effective rank | `bf_covariance_effective_rank_w05` | 5%窗口内 covariance effective rank | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
+| DynamoRep-lite | diversity recovery | `bf_diversity_recovery_w05` | 5%窗口内 diversity 相对回升幅度 | primary_with_dynamorep_lite, primary_with_movement, primary_with_maturity, all_candidates |
 | Movement proxy | population Chamfer distance | `bf_population_chamfer_distance_w05` | 5%窗口内 anchor 与 current population 的边界归一化 Chamfer 风格集合距离 | primary_with_movement, primary_with_maturity, all_candidates |
-| Movement proxy | elite centroid shift | `bf_elite_centroid_shift_w05` | 5%窗口内 elite 集合的边界归一化 centroid shift | primary_with_movement, primary_with_maturity, all_candidates |
 | Movement proxy | covariance trace change | `bf_covariance_trace_change_w05` | 5%窗口内 covariance trace 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
 | Movement proxy | covariance effective-rank change | `bf_covariance_effective_rank_change_w05` | 5%窗口内 covariance effective-rank 的相对变化 | primary_with_movement, primary_with_maturity, all_candidates |
 | Set change | population overlap | `bf_population_overlap_w05` | 当前population到5%窗口anchor population的近邻重叠比例；CMA-ES 使用 Chamfer 风格集合代理 | all_candidates |
@@ -822,9 +828,9 @@ H3:
 | Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | base, primary, primary_with_maturity, all_candidates |
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | base, primary, primary_with_maturity, all_candidates |
 | Fitness distribution | quantile improvement fraction | `bf_fitness_quantile_improvement_fraction_w02` | 2%窗口内改善的经验fitness分位数比例 | primary, primary_with_maturity, all_candidates |
-| Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | primary, primary_with_maturity, all_candidates |
-| Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
-| Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_maturity, all_candidates |
+| Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
+| Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以anchor的初始 checkpoint fitness IQR 与实际FE-ratio跨度 | primary, primary_with_dynamorep_lite, primary_with_maturity, all_candidates |
 | Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | primary, primary_with_maturity, all_candidates |
 | Elite | best-distance fitness correlation | `bf_best_distance_fitness_corr` | 个体到当前population-best距离与fitness的相关系数 | all_candidates |
 | State | Search maturity | `bf_search_maturity` | `ES_t(1-XS_t)` 的可执行行为特征版本 | primary_with_maturity, all_candidates |

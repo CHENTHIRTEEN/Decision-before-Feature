@@ -69,6 +69,16 @@ PRIMARY_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_diversity_slope_w05",
 )
 
+DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS = (
+    "bf_robust_fitness_iqr_rel",
+    "bf_fitness_spread_slope_w05",
+    "bf_population_centroid_shift_w05",
+    "bf_elite_centroid_shift_w05",
+    "bf_covariance_trace_ratio_w05",
+    "bf_covariance_effective_rank_w05",
+    "bf_diversity_recovery_w05",
+)
+
 MOTION_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_population_chamfer_distance_w05",
     "bf_elite_centroid_shift_w05",
@@ -90,6 +100,7 @@ DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS = (
 BEHAVIOR_FEATURE_COLUMNS = (
     BASE_BEHAVIOR_FEATURE_COLUMNS
     + PRIMARY_BEHAVIOR_FEATURE_COLUMNS
+    + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS
     + MOTION_BEHAVIOR_FEATURE_COLUMNS
     + MATURITY_BEHAVIOR_FEATURE_COLUMNS
     + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
@@ -99,8 +110,9 @@ BEHAVIOR_FEATURE_GROUPS = {
     "time_only": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
     "base": BASE_BEHAVIOR_FEATURE_COLUMNS,
     "primary": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
-    "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
-    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_dynamorep_lite": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "all_candidates": BEHAVIOR_FEATURE_COLUMNS,
 }
 
@@ -200,8 +212,14 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                     medium_window,
                     "diversity_mean_pairwise",
                 ),
-                "bf_population_chamfer_distance_w05": float(medium_window["population_chamfer_distance"]),
+                "bf_robust_fitness_iqr_rel": _robust_fitness_iqr_rel(row),
+                "bf_fitness_spread_slope_w05": _window_slope(native_history, medium_window, "fitness_iqr_rel"),
+                "bf_population_centroid_shift_w05": float(medium_window["centroid_shift_distance"]),
                 "bf_elite_centroid_shift_w05": float(medium_window["elite_centroid_shift"]),
+                "bf_covariance_trace_ratio_w05": float(medium_window["covariance_trace_ratio"]),
+                "bf_covariance_effective_rank_w05": float(medium_window["covariance_effective_rank"]),
+                "bf_diversity_recovery_w05": _diversity_recovery(row, medium_window),
+                "bf_population_chamfer_distance_w05": float(medium_window["population_chamfer_distance"]),
                 "bf_covariance_trace_change_w05": float(medium_window["covariance_trace_change"]),
                 "bf_covariance_effective_rank_change_w05": float(medium_window["covariance_effective_rank_change"]),
                 "bf_population_overlap_w05": float(medium_window["population_overlap"]),
@@ -307,6 +325,18 @@ def _shift_invariant_fitness_diversity(fitness: np.ndarray, *, initial_fitness_i
 
 def _fitness_shift_invariant_baseline(row: dict) -> float:
     return _fitness_iqr(_fitness(row))
+
+
+def _robust_fitness_iqr_rel(row: dict) -> float:
+    return float(_fitness_iqr(_fitness(row)) / max(_fitness_shift_invariant_baseline(row), EPS))
+
+
+def _diversity_recovery(current: dict, window: dict) -> float:
+    current_diversity = float(_checkpoint_stats(current, initial_fitness_iqr=_fitness_shift_invariant_baseline(current))["diversity"])
+    anchor_diversity = float(window["anchor_diversity_mean_pairwise"])
+    if anchor_diversity <= EPS:
+        return 0.0
+    return float(max(0.0, (current_diversity - anchor_diversity) / (anchor_diversity + EPS)))
 
 
 def _window_statistic(row: dict, suffix: str, nominal_ratio: float) -> dict:

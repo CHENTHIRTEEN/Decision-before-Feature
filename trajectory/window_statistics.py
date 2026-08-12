@@ -28,6 +28,7 @@ class NativeUpdateSnapshot:
 class NativeUpdateWindowRecorder:
     def __init__(self) -> None:
         self.snapshots: list[NativeUpdateSnapshot] = []
+        self._initial_snapshot: NativeUpdateSnapshot | None = None
 
     def observe(
         self,
@@ -51,6 +52,8 @@ class NativeUpdateWindowRecorder:
                 return
             if snapshot.fe < previous.fe or snapshot.native_updates <= previous.native_updates:
                 raise ValueError("native-update snapshots must be strictly increasing")
+        else:
+            self._initial_snapshot = snapshot
         self.snapshots.append(snapshot)
 
     def build(self, *, fe_total: int, problem_id: str, algorithm: str) -> tuple[list[dict], list[dict]]:
@@ -62,6 +65,8 @@ class NativeUpdateWindowRecorder:
         )
         retained_from_fe = int(history[0]["FE"])
         self.snapshots = [snapshot for snapshot in self.snapshots if snapshot.fe >= retained_from_fe]
+        if self.snapshots:
+            self._initial_snapshot = self.snapshots[0]
         return windows, history
 
 
@@ -121,6 +126,7 @@ def build_window_statistics(
                 anchor=anchor,
                 problem_id=problem_id,
                 algorithm=algorithm,
+                initial_fitness_iqr=_fitness_iqr(snapshots[0].fitness),
             )
         )
 
@@ -132,6 +138,7 @@ def build_window_statistics(
             "native_updates": int(snapshot.native_updates),
             "best_fitness": float(snapshot.best_fitness),
             "diversity_mean_pairwise": _mean_pairwise_distance(snapshot.population, problem_id=problem_id),
+            "fitness_iqr": _fitness_iqr(snapshot.fitness),
         }
         for snapshot in snapshots
         if snapshot.fe >= long_anchor.fe
@@ -162,6 +169,7 @@ def _window_row(
     anchor: NativeUpdateSnapshot,
     problem_id: str,
     algorithm: str,
+    initial_fitness_iqr: float,
 ) -> dict:
     if current.population.shape != anchor.population.shape:
         raise ValueError("window endpoint populations must have identical shapes")
@@ -183,17 +191,23 @@ def _window_row(
             - np.mean(_elite_subset(anchor_scaled, anchor_fitness), axis=0)
         )
     )
-    covariance_trace_change = _relative_change(_covariance_trace(current_scaled), _covariance_trace(anchor_scaled))
+    covariance_trace_current = _covariance_trace(current_scaled)
+    covariance_trace_anchor = _covariance_trace(anchor_scaled)
+    covariance_trace_change = _relative_change(covariance_trace_current, covariance_trace_anchor)
+    covariance_effective_rank_current = _covariance_effective_rank(current_scaled)
+    covariance_effective_rank_anchor = _covariance_effective_rank(anchor_scaled)
     covariance_effective_rank_change = _relative_change(
-        _covariance_effective_rank(current_scaled),
-        _covariance_effective_rank(anchor_scaled),
+        covariance_effective_rank_current,
+        covariance_effective_rank_anchor,
     )
 
     anchor_quantiles = np.sort(anchor_fitness)
     current_quantiles = np.sort(current_fitness)
     quantile_improvements = anchor_quantiles - current_quantiles
     threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
-    fitness_iqr_baseline = _fitness_iqr(anchor_fitness)
+    fitness_iqr_baseline = initial_fitness_iqr
+    fitness_iqr_current = _fitness_iqr(current_fitness)
+    fitness_iqr_rel = fitness_iqr_current / max(fitness_iqr_baseline, EPS)
     population_overlap = _population_overlap(
         anchor_scaled,
         current_scaled,
@@ -214,12 +228,18 @@ def _window_row(
             _population_overlap_chamfer_distance(anchor_scaled, current_scaled)
         ),
         "elite_centroid_shift": elite_centroid_shift,
+        "covariance_trace_current": float(covariance_trace_current),
+        "covariance_trace_anchor": float(covariance_trace_anchor),
         "covariance_trace_change": covariance_trace_change,
+        "covariance_effective_rank_current": float(covariance_effective_rank_current),
+        "covariance_effective_rank_anchor": float(covariance_effective_rank_anchor),
         "covariance_effective_rank_change": covariance_effective_rank_change,
         "fitness_quantile_improvement_fraction": float(np.mean(quantile_improvements > threshold)),
         "fitness_mean_improvement": float(np.mean(quantile_improvements)),
         "fitness_wasserstein_distance": float(np.mean(np.abs(quantile_improvements))),
         "fitness_iqr_baseline": float(fitness_iqr_baseline),
+        "fitness_iqr_current": float(fitness_iqr_current),
+        "fitness_iqr_rel": float(fitness_iqr_rel),
         "population_overlap": float(population_overlap),
     }
 
@@ -325,6 +345,10 @@ def _population_overlap_chamfer(
     radius = 0.05 * max(current_diversity, EPS)
     chamfer = _population_overlap_chamfer_distance(anchor_scaled, current_scaled)
     return float(np.clip(1.0 - chamfer / max(radius, EPS), 0.0, 1.0))
+
+
+def _relative_change(current: float, anchor: float) -> float:
+    return float((current - anchor) / max(abs(anchor), EPS))
 
 
 def _scale_population_to_unit_cube(population: np.ndarray, *, problem_id: str) -> np.ndarray:

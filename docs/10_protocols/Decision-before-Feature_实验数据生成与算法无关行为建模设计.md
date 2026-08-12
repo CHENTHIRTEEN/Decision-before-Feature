@@ -186,7 +186,7 @@ Algorithm-specific state。
 -   mean fitness
 -   median fitness
 
-其中所有 fitness 相关的尺度化口径优先采用 shift-invariant 稳健尺度，避免目标函数整体平移导致的数值漂移。movement / direction / success 类逐个体统计仅在算法身份稳定时作为诊断数据，主建模仍采用 permutation-invariant 的集合级版本。
+其中所有 fitness 相关的尺度化口径优先采用 shift-invariant 稳健尺度，避免目标函数整体平移导致的数值漂移。movement / direction / success 类逐个体统计仅在算法身份稳定时作为诊断数据，主建模仍采用 permutation-invariant 的集合级版本。同时可以增加 `DynamoRep-lite` 低成本补充组，包括 robust fitness IQR、fitness spread slope、population centroid shift、elite centroid shift、covariance trace ratio、covariance effective rank 与 diversity recovery；这些特征只在 checkpoint 层面计算，不依赖个体跨代身份。
 ### Improvement rate
 
 $$ IR_t= \frac{f_{best}(t-k)-f_{best}(t)}{k} $$
