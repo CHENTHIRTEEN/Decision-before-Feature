@@ -124,6 +124,14 @@ FORBIDDEN_X_NAME_FRAGMENTS = (
 )
 TOP_K_FRACTIONS = (0.05, 0.10, 0.20)
 EPS = 1e-12
+RUN_KEY_COLUMNS = (
+    "split",
+    "problem_id",
+    "family",
+    "dimension",
+    "prefix_algorithm",
+    "seed",
+)
 
 
 def train_full_decision_models(
@@ -189,6 +197,7 @@ def train_full_decision_models(
         )
         oof_fold_frames.append(train_oof_fold_summary)
         frozen_threshold = _decision_threshold_from_scores(
+            frame=train,
             scores=train_oof_scores,
             observed=train[TARGET_COLUMN].to_numpy(dtype=float),
         )
@@ -710,6 +719,70 @@ def _family_oof_scores(
     return scores, pd.DataFrame(fold_rows)
 
 
+def _decision_run_key_columns(frame: pd.DataFrame) -> tuple[str, ...]:
+    missing = [column for column in RUN_KEY_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(f"missing run-key columns: {missing}")
+    return RUN_KEY_COLUMNS
+
+
+def _iter_decision_run_groups(frame: pd.DataFrame):
+    return frame.groupby(list(_decision_run_key_columns(frame)), sort=True, dropna=False)
+
+
+def _ordered_decision_run_frame(run_frame: pd.DataFrame) -> pd.DataFrame:
+    required = ["FE"]
+    missing = [column for column in required if column not in run_frame.columns]
+    if missing:
+        raise ValueError(f"run frame missing columns: {missing}")
+
+    order_columns = ["FE"]
+    if "decision_opportunity_index" in run_frame.columns:
+        if run_frame["decision_opportunity_index"].isna().any():
+            raise ValueError("decision_opportunity_index contains NaN values")
+        order_columns.append("decision_opportunity_index")
+    elif run_frame["FE"].duplicated().any():
+        raise ValueError(
+            "multiple decision opportunities share the same FE, but decision_opportunity_index is unavailable"
+        )
+
+    return run_frame.sort_values(order_columns, kind="mergesort").reset_index(drop=True)
+
+
+def _first_trigger_run_utility(
+    ordered_run_frame: pd.DataFrame,
+    *,
+    scores: np.ndarray,
+    observed: np.ndarray,
+    threshold: float,
+) -> tuple[bool, float]:
+    hit = np.flatnonzero(scores > threshold)
+    if hit.size == 0:
+        return False, 0.0
+    return True, float(observed[int(hit[0])])
+
+
+def _run_best_available_positive_utility(
+    ordered_run_frame: pd.DataFrame,
+    *,
+    scores: np.ndarray,
+    observed: np.ndarray,
+) -> float:
+    if len(scores) != len(ordered_run_frame) or len(observed) != len(ordered_run_frame):
+        raise ValueError("scores and observed arrays must match the ordered run frame")
+    best = 0.0
+    for threshold in _threshold_candidates(np.unique(scores)):
+        triggered, utility = _first_trigger_run_utility(
+            ordered_run_frame,
+            scores=scores,
+            observed=observed,
+            threshold=float(threshold),
+        )
+        if triggered and utility > best:
+            best = float(utility)
+    return float(max(0.0, best))
+
+
 def _nested_family_oof_predictions(
     *,
     spec: DecisionModelSpec,
@@ -736,8 +809,9 @@ def _nested_family_oof_predictions(
             outer_fold=int(outer_fold),
         )
         threshold = _decision_threshold_from_scores(
-            inner_scores,
-            outer_fit[TARGET_COLUMN].to_numpy(dtype=float),
+            frame=outer_fit,
+            scores=inner_scores,
+            observed=outer_fit[TARGET_COLUMN].to_numpy(dtype=float),
         )
         fitted = _fit_model(clone(spec.estimator), outer_fit, feature_columns, spec.objective)
         holdout_scores = _predict_model(fitted, outer_holdout, feature_columns)
@@ -789,25 +863,42 @@ def _nested_family_oof_predictions(
     return predictions, pd.concat(fold_frames, ignore_index=True)
 
 
-def _decision_threshold_from_scores(scores: np.ndarray, observed: np.ndarray) -> float:
+def _decision_threshold_from_scores(
+    frame: pd.DataFrame,
+    scores: np.ndarray,
+    observed: np.ndarray,
+) -> float:
     scores = np.asarray(scores, dtype=float).reshape(-1)
     observed = np.asarray(observed, dtype=float).reshape(-1)
-    if len(scores) != len(observed) or not len(scores):
-        raise ValueError("threshold fitting requires aligned non-empty score and Utility arrays")
+    if len(scores) != len(observed) or len(scores) != len(frame) or not len(scores):
+        raise ValueError("threshold fitting requires aligned non-empty frame, score, and Utility arrays")
     if not np.isfinite(scores).all() or not np.isfinite(observed).all():
         raise ValueError("threshold fitting requires finite scores and Utility values")
-    unique_scores = np.unique(scores)
-    call_all_threshold = float(np.nextafter(unique_scores[0], -np.inf))
-    candidates = np.concatenate([[call_all_threshold], unique_scores])
+
     best: tuple[float, int, float] | None = None
-    best_threshold = float(unique_scores[-1])
-    for threshold in candidates:
-        calls = scores > threshold
-        utility_sum = float(np.sum(observed[calls]))
-        criterion = (utility_sum, -int(np.sum(calls)), float(threshold))
+    best_threshold = float(np.inf)
+    for threshold in _threshold_candidates(np.unique(scores)):
+        decision_utility_sum = 0.0
+        call_runs = 0
+        for _, run_frame in _iter_decision_run_groups(frame):
+            ordered = _ordered_decision_run_frame(run_frame)
+            run_index = ordered.index.to_numpy()
+            run_scores = scores[run_index]
+            run_observed = observed[run_index]
+            triggered, utility = _first_trigger_run_utility(
+                ordered,
+                scores=run_scores,
+                observed=run_observed,
+                threshold=float(threshold),
+            )
+            if triggered:
+                call_runs += 1
+                decision_utility_sum += utility
+        criterion = (decision_utility_sum, -int(call_runs), float(threshold))
         if best is None or criterion > best:
             best = criterion
             best_threshold = float(threshold)
+
     if not np.isfinite(best_threshold):
         raise RuntimeError("OOF threshold selection produced a non-finite threshold")
     return best_threshold

@@ -208,8 +208,8 @@ def run_threshold_sweep(
         "query_protocol": get_query_spec(query_id).protocol,
         "sample_design_id": get_query_spec(query_id).sample_design_id,
         "research_question": (
-            "Does the frozen train-OOF threshold agree with a direct sweep over the same OOF scores, without using "
-            "BBOB-validation Utility for threshold selection?"
+            "Does the frozen run-level first-trigger threshold agree with a direct sweep over the same OOF scores, "
+            "without using BBOB-validation Utility for threshold selection?"
         ),
         "input_root": str(input_root),
         "feature_groups": feature_groups,
@@ -223,10 +223,10 @@ def run_threshold_sweep(
             "validation_threshold_grid_evaluated": False,
         },
         "threshold_policies": {
-            "zero": "Run the fixed query when decision_score > 0.",
-            "frozen_oof_utility": "Use the threshold fitted from full BBOB-train family-OOF scores.",
+            "zero": "Run the fixed query when decision_score > 0 under the run-level first-trigger rule.",
+            "frozen_oof_utility": "Use the run-level first-trigger threshold fitted from full BBOB-train family-OOF scores.",
             "train_oof_sweep_best_check": (
-                "Recompute the best threshold on the same train-OOF scores as an implementation consistency check."
+                "Recompute the best run-level first-trigger threshold on the same train-OOF scores as an implementation consistency check."
             ),
         },
         "rows": {
@@ -407,7 +407,123 @@ def _base_threshold_grid(threshold_min: float, threshold_max: float, threshold_s
 
 
 def _model_threshold_grid(base_grid: np.ndarray, train_scores: np.ndarray) -> np.ndarray:
-    return np.unique(np.concatenate([base_grid, train_scores.astype(float)]))
+    return _threshold_candidates(np.concatenate([base_grid, train_scores.astype(float)]))
+
+
+def _threshold_candidates(thresholds: np.ndarray) -> np.ndarray:
+    return np.unique(
+        np.concatenate(
+            [
+                np.asarray([-np.inf], dtype=float),
+                np.asarray(thresholds, dtype=float),
+                np.asarray([np.inf], dtype=float),
+            ]
+        )
+    )
+
+
+def _deployable_policy_name(threshold_policy: str) -> bool:
+    return threshold_policy in {"zero", "frozen_oof_utility"}
+
+
+def _run_group_key_columns(frame: pd.DataFrame) -> tuple[str, ...]:
+    columns = list(RUN_KEY_COLUMNS)
+    missing = [column for column in columns if column not in frame.columns]
+    if missing:
+        raise ValueError(f"missing run-key columns: {missing}")
+
+    for protocol_column in ("query_protocol", "sampling_protocol"):
+        if protocol_column in frame.columns and frame[protocol_column].nunique(dropna=False) > 1:
+            raise ValueError(f"{protocol_column} is not constant within a run-group frame")
+
+    if "FE_analysis_ratio" in frame.columns and frame["FE_analysis_ratio"].nunique(dropna=False) > 1:
+        raise ValueError("FE_analysis_ratio is not constant within a run-group frame")
+
+    return tuple(columns)
+
+
+def _iter_run_groups(
+    frame: pd.DataFrame,
+    run_key_columns: tuple[str, ...],
+):
+    return frame.groupby(list(run_key_columns), sort=True, dropna=False)
+
+
+def _ordered_run_frame(
+    run_frame: pd.DataFrame,
+    *,
+    score_column: str,
+    utility_column: str,
+) -> pd.DataFrame:
+    required = ["FE", score_column, utility_column]
+    missing = [column for column in required if column not in run_frame.columns]
+    if missing:
+        raise ValueError(f"run frame missing columns: {missing}")
+
+    order_columns = ["FE"]
+    if "decision_opportunity_index" in run_frame.columns:
+        if run_frame["decision_opportunity_index"].isna().any():
+            raise ValueError("decision_opportunity_index contains NaN values")
+        order_columns.append("decision_opportunity_index")
+    elif run_frame["FE"].duplicated().any():
+        raise ValueError(
+            "multiple decision opportunities share the same FE, but decision_opportunity_index is unavailable"
+        )
+
+    ordered = run_frame.sort_values(order_columns, kind="mergesort").reset_index(drop=True)
+
+    scores = ordered[score_column].to_numpy(dtype=float)
+    utility = ordered[utility_column].to_numpy(dtype=float)
+
+    if not np.all(np.isfinite(scores)):
+        raise ValueError("decision scores contain NaN or infinite values")
+    if not np.all(np.isfinite(utility)):
+        raise ValueError("utility values contain NaN or infinite values")
+
+    return ordered
+
+
+def _first_trigger_run_contribution(
+    ordered_run_frame: pd.DataFrame,
+    *,
+    threshold: float,
+    score_column: str = "decision_score",
+    utility_column: str = "u_query_lamT_1",
+) -> tuple[bool, float, float | None, float | None]:
+    scores = ordered_run_frame[score_column].to_numpy(dtype=float)
+    observed = ordered_run_frame[utility_column].to_numpy(dtype=float)
+
+    hit = np.flatnonzero(scores > threshold)
+    if hit.size == 0:
+        return False, 0.0, None, None
+
+    first_index = int(hit[0])
+    first_row = ordered_run_frame.iloc[first_index]
+    first_fe = float(first_row["FE"])
+    first_fe_ratio = float(first_row["FE_ratio"]) if "FE_ratio" in ordered_run_frame.columns else None
+    first_utility = float(observed[first_index])
+    return True, first_utility, first_fe, first_fe_ratio
+
+
+def _run_best_available_positive_utility(
+    ordered_run_frame: pd.DataFrame,
+    *,
+    score_column: str = "decision_score",
+    utility_column: str = "u_query_lamT_1",
+) -> float:
+    scores = ordered_run_frame[score_column].to_numpy(dtype=float)
+    utilities = ordered_run_frame[utility_column].to_numpy(dtype=float)
+    if len(scores) == 0:
+        return 0.0
+
+    best = 0.0
+    max_score_so_far = -np.inf
+    for score, utility in zip(scores, utilities, strict=True):
+        if score > max_score_so_far:
+            if utility > best:
+                best = float(utility)
+            max_score_so_far = float(score)
+    return float(max(0.0, best))
 
 
 def _sweep_metrics(
@@ -422,74 +538,117 @@ def _sweep_metrics(
     group: dict[str, Any],
     threshold_policy: str,
     uses_validation_utility_for_threshold: bool,
+    score_column: str = "decision_score",
+    utility_column: str = "u_query_lamT_1",
 ) -> pd.DataFrame:
-    scores = frame["decision_score"].to_numpy(dtype=float)
-    observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
-    order = np.argsort(scores)
-    sorted_scores = scores[order]
-    sorted_observed = observed[order]
-    positive = sorted_observed > 0.0
-    unhelpful = ~positive
-    rows = len(frame)
-    total_utility = float(np.sum(sorted_observed))
-    total_positive_rows = int(np.sum(positive))
-    total_positive_utility = float(np.sum(sorted_observed[positive]))
-    total_unhelpful_rows = int(np.sum(unhelpful))
-    total_unhelpful_utility = float(np.sum(sorted_observed[unhelpful]))
+    run_key_columns = _run_group_key_columns(frame)
 
-    csum_utility = np.concatenate([[0.0], np.cumsum(sorted_observed)])
-    csum_positive_rows = np.concatenate([[0], np.cumsum(positive.astype(int))])
-    csum_positive_utility = np.concatenate([[0.0], np.cumsum(np.where(positive, sorted_observed, 0.0))])
-    csum_unhelpful_rows = np.concatenate([[0], np.cumsum(unhelpful.astype(int))])
-    csum_unhelpful_utility = np.concatenate([[0.0], np.cumsum(np.where(unhelpful, sorted_observed, 0.0))])
+    prepared_runs: list[tuple[pd.DataFrame, float]] = []
+    for _, run_frame in _iter_run_groups(frame, run_key_columns):
+        ordered = _ordered_run_frame(
+            run_frame,
+            score_column=score_column,
+            utility_column=utility_column,
+        )
+        best_available_positive_utility = _run_best_available_positive_utility(
+            ordered,
+            score_column=score_column,
+            utility_column=utility_column,
+        )
+        prepared_runs.append((ordered, best_available_positive_utility))
 
-    indexes = np.searchsorted(sorted_scores, thresholds, side="right")
-    call_rows = rows - indexes
-    decision_utility_sum = total_utility - csum_utility[indexes]
-    captured_positive_rows = total_positive_rows - csum_positive_rows[indexes]
-    captured_positive_utility = total_positive_utility - csum_positive_utility[indexes]
-    unhelpful_call_rows = total_unhelpful_rows - csum_unhelpful_rows[indexes]
-    unhelpful_call_utility = total_unhelpful_utility - csum_unhelpful_utility[indexes]
+    run_count = len(prepared_runs)
+    if run_count == 0:
+        raise ValueError("sweep_metrics requires at least one run")
 
-    result = pd.DataFrame(
-        {
-            "feature_group": feature_group,
-            "model_name": model_name,
-            "model_family": model_family,
-            "eval_split": eval_split,
-            "layer": layer,
-            "group": _group_label(group),
-            "selected_equals_default": group.get("selected_equals_default"),
-            "selected_equals_prefix": group.get("selected_equals_prefix"),
-            "handoff_required": group.get("handoff_required"),
-            "dimension": group.get("dimension"),
-            "sampling_phase": group.get("sampling_phase"),
-            "sampling_opportunity_type": group.get("sampling_opportunity_type"),
-            "prefix_algorithm": group.get("prefix_algorithm"),
-            "family": group.get("family"),
-            "threshold_policy": threshold_policy,
-            "threshold": thresholds.astype(float),
-            "deployable_policy": True,
-            "uses_validation_utility_for_threshold": uses_validation_utility_for_threshold,
-            "rows": rows,
-            "u_gt_zero_rows": total_positive_rows,
-            "u_gt_zero_rate": total_positive_rows / max(rows, 1),
-            "positive_utility_sum": total_positive_utility,
-            "decision_query_call_rows": call_rows.astype(int),
-            "query_call_rate": call_rows / max(rows, 1),
-            "precision_u_gt_zero_under_calls": _safe_divide(captured_positive_rows, call_rows),
-            "recall_u_gt_zero": captured_positive_rows / max(total_positive_rows, 1),
-            "utility_capture_rate": (
-                captured_positive_utility / total_positive_utility if total_positive_utility > 0.0 else 0.0
-            ),
-            "decision_utility_sum": decision_utility_sum,
-            "decision_mean_utility": decision_utility_sum / max(rows, 1),
-            "average_selected_utility": _safe_divide(decision_utility_sum, call_rows),
-            "unhelpful_call_rows": unhelpful_call_rows.astype(int),
-            "unhelpful_call_cost_sum": -unhelpful_call_utility,
-        }
-    )
-    return result
+    candidate_thresholds = _threshold_candidates(thresholds)
+    oracle_positive_run_count = sum(best_available_positive_utility > 0.0 for _, best_available_positive_utility in prepared_runs)
+    oracle_positive_utility_sum = float(sum(best_available_positive_utility for _, best_available_positive_utility in prepared_runs))
+
+    rows: list[dict[str, Any]] = []
+    for threshold in candidate_thresholds:
+        call_runs = 0
+        helpful_call_runs = 0
+        unhelpful_call_runs = 0
+        decision_utility_sum = 0.0
+        selected_positive_utility_sum = 0.0
+        unhelpful_call_cost_sum = 0.0
+        trigger_fe_ratios: list[float] = []
+        harmful_early_trigger_miss_runs = 0
+        no_call_missed_positive_runs = 0
+
+        for ordered, best_available_positive_utility in prepared_runs:
+            triggered, first_utility, _, first_fe_ratio = _first_trigger_run_contribution(
+                ordered,
+                threshold=float(threshold),
+                score_column=score_column,
+                utility_column=utility_column,
+            )
+
+            if triggered:
+                call_runs += 1
+                decision_utility_sum += first_utility
+                if first_fe_ratio is not None:
+                    trigger_fe_ratios.append(first_fe_ratio)
+                if first_utility > 0.0:
+                    helpful_call_runs += 1
+                    selected_positive_utility_sum += first_utility
+                else:
+                    unhelpful_call_runs += 1
+                    unhelpful_call_cost_sum += -first_utility
+                    if best_available_positive_utility > 0.0:
+                        harmful_early_trigger_miss_runs += 1
+            else:
+                if best_available_positive_utility > 0.0:
+                    no_call_missed_positive_runs += 1
+
+        query_call_rate = _safe_ratio(call_runs, run_count)
+        decision_mean_utility = _safe_ratio(decision_utility_sum, run_count)
+
+        rows.append(
+            {
+                "feature_group": feature_group,
+                "model_name": model_name,
+                "model_family": model_family,
+                "eval_split": eval_split,
+                "layer": layer,
+                "group": _group_label(group),
+                "selected_equals_default": group.get("selected_equals_default"),
+                "selected_equals_prefix": group.get("selected_equals_prefix"),
+                "handoff_required": group.get("handoff_required"),
+                "dimension": group.get("dimension"),
+                "sampling_phase": group.get("sampling_phase"),
+                "sampling_opportunity_type": group.get("sampling_opportunity_type"),
+                "prefix_algorithm": group.get("prefix_algorithm"),
+                "family": group.get("family"),
+                "threshold_policy": threshold_policy,
+                "threshold": float(threshold),
+                "deployable_policy": _deployable_policy_name(threshold_policy),
+                "uses_validation_utility_for_threshold": bool(uses_validation_utility_for_threshold),
+                "runs": run_count,
+                "oracle_u_gt_zero_runs": oracle_positive_run_count,
+                "oracle_u_gt_zero_rate": _safe_ratio(oracle_positive_run_count, run_count),
+                "oracle_positive_utility_sum": oracle_positive_utility_sum,
+                "decision_query_call_runs": call_runs,
+                "query_call_rate": query_call_rate,
+                "helpful_call_runs": helpful_call_runs,
+                "unhelpful_call_runs": unhelpful_call_runs,
+                "precision_u_gt_zero_under_calls": _safe_ratio(helpful_call_runs, call_runs),
+                "recall_positive_opportunity_runs": _safe_ratio(helpful_call_runs, oracle_positive_run_count),
+                "selected_positive_utility_sum": selected_positive_utility_sum,
+                "utility_capture_rate": _safe_ratio(selected_positive_utility_sum, oracle_positive_utility_sum),
+                "decision_utility_sum": decision_utility_sum,
+                "decision_mean_utility": decision_mean_utility,
+                "mean_utility_under_calls": _safe_ratio(decision_utility_sum, call_runs),
+                "unhelpful_call_cost_sum": unhelpful_call_cost_sum,
+                "harmful_early_trigger_miss_runs": harmful_early_trigger_miss_runs,
+                "no_call_missed_positive_runs": no_call_missed_positive_runs,
+                "mean_trigger_FE_ratio": float(np.mean(trigger_fe_ratios)) if trigger_fe_ratios else float("nan"),
+                "median_trigger_FE_ratio": float(np.median(trigger_fe_ratios)) if trigger_fe_ratios else float("nan"),
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def _safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
@@ -685,14 +844,14 @@ def _draw_plots(*, sweep_summary: pd.DataFrame, output_dir: Path) -> dict[str, l
         output_dir=output_dir,
         stem="threshold_vs_summed_utility",
         y_column="decision_utility_sum",
-        y_label="Summed selected utility",
+        y_label="Run-level summed selected utility",
     )
     plot_paths["threshold_vs_call_rate"] = _plot_threshold_metric(
         train_oof,
         output_dir=output_dir,
         stem="threshold_vs_call_rate",
         y_column="query_call_rate",
-        y_label="Query call rate",
+        y_label="Run-level query call rate",
     )
     plot_paths["utility_precision_call_curve"] = _plot_utility_precision_call(train_oof, output_dir=output_dir)
     return plot_paths
@@ -713,7 +872,7 @@ def _plot_threshold_metric(
     ax.axvline(0.0, color="black", linewidth=0.8, linestyle="--")
     ax.set_xlabel("Threshold")
     ax.set_ylabel(y_label)
-    ax.set_title(y_label + " across BBOB-train family-OOF thresholds")
+    ax.set_title(y_label + " across BBOB-train family-OOF thresholds under the run-level first-trigger rule")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=7, ncol=2)
     fig.tight_layout()
@@ -734,10 +893,10 @@ def _plot_utility_precision_call(frame: pd.DataFrame, *, output_dir: Path) -> li
         axes[1].plot(group["query_call_rate"], group["utility_capture_rate"], linewidth=1.2, label=label)
     axes[0].set_xlabel("Precision under Query calls")
     axes[0].set_ylabel("Utility capture rate")
-    axes[0].set_title("Utility capture vs precision")
-    axes[1].set_xlabel("Query call rate")
+    axes[0].set_title("Run-level utility capture vs precision")
+    axes[1].set_xlabel("Run-level query call rate")
     axes[1].set_ylabel("Utility capture rate")
-    axes[1].set_title("Utility capture vs call rate")
+    axes[1].set_title("Run-level utility capture vs call rate")
     for ax in axes:
         ax.grid(True, alpha=0.25)
     axes[1].legend(fontsize=7, ncol=1)
@@ -806,15 +965,15 @@ def _markdown_report(
             "",
             "- Existing Decision predictions are reused; no model is retrained.",
             "- Utility labels are not regenerated or modified.",
-            "- Threshold candidates are selected from BBOB-train family-OOF predictions only.",
-            "- BBOB-validation Utility is evaluated only at thresholds frozen before validation.",
-            "- Metadata layers are used only for stratified reporting.",
+            "- Threshold candidates are selected from BBOB-train family-OOF predictions only under the run-level first-trigger rule.",
+            "- BBOB-validation Utility is evaluated only at thresholds frozen before validation under the same run-level first-trigger rule.",
+            "- Metadata layers are used only for stratified reporting under the run-level first-trigger rule.",
             "",
             "## Threshold policies",
             "",
             _markdown_table(threshold_policy_table[policy_columns].sort_values(["feature_group", "model_name", "threshold_policy"])),
             "",
-            "## Best deployable validation policies",
+            "## Best deployable validation policies under the run-level first-trigger rule",
             "",
             _markdown_table(deployable[metric_columns].head(20)),
             "",
@@ -875,7 +1034,7 @@ def _group_label(group: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Check frozen Decision thresholds against BBOB-train family-OOF score sweeps."
+        description="Check frozen run-level first-trigger Decision thresholds against BBOB-train family-OOF score sweeps."
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--input-root", type=Path, default=None)
