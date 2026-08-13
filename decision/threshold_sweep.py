@@ -527,8 +527,9 @@ def _first_trigger_run_contribution(
     *,
     threshold: float,
     score_column: str = "decision_score",
-    utility_column: str = "u_query_lamT_1",
+    utility_column: str | None = None,
 ) -> tuple[bool, float, float | None, float | None]:
+    utility_column = utility_column or TARGET_COLUMN
     scores = ordered_run_frame[score_column].to_numpy(dtype=float)
     observed = ordered_run_frame[utility_column].to_numpy(dtype=float)
 
@@ -548,8 +549,9 @@ def _run_best_available_positive_utility(
     ordered_run_frame: pd.DataFrame,
     *,
     score_column: str = "decision_score",
-    utility_column: str = "u_query_lamT_1",
+    utility_column: str | None = None,
 ) -> float:
+    utility_column = utility_column or TARGET_COLUMN
     scores = ordered_run_frame[score_column].to_numpy(dtype=float)
     utilities = ordered_run_frame[utility_column].to_numpy(dtype=float)
     if len(scores) == 0:
@@ -578,8 +580,9 @@ def _sweep_metrics(
     threshold_policy: str,
     uses_validation_utility_for_threshold: bool,
     score_column: str = "decision_score",
-    utility_column: str = "u_query_lamT_1",
+    utility_column: str | None = None,
 ) -> pd.DataFrame:
+    utility_column = utility_column or TARGET_COLUMN
     run_key_columns = _run_group_key_columns(frame)
 
     prepared_runs: list[tuple[pd.DataFrame, float]] = []
@@ -674,10 +677,12 @@ def _sweep_metrics(
                 "unhelpful_call_runs": unhelpful_call_runs,
                 "precision_u_gt_zero_under_calls": _safe_ratio(helpful_call_runs, call_runs),
                 "recall_positive_opportunity_runs": _safe_ratio(helpful_call_runs, oracle_positive_run_count),
+                "recall_u_gt_zero": _safe_ratio(helpful_call_runs, oracle_positive_run_count),
                 "selected_positive_utility_sum": selected_positive_utility_sum,
                 "utility_capture_rate": _safe_ratio(selected_positive_utility_sum, oracle_positive_utility_sum),
                 "decision_utility_sum": decision_utility_sum,
                 "decision_mean_utility": decision_mean_utility,
+                "average_selected_utility": decision_mean_utility,
                 "mean_utility_under_calls": _safe_ratio(decision_utility_sum, call_runs),
                 "unhelpful_call_cost_sum": unhelpful_call_cost_sum,
                 "harmful_early_trigger_miss_runs": harmful_early_trigger_miss_runs,
@@ -688,6 +693,10 @@ def _sweep_metrics(
         )
 
     return pd.DataFrame(rows)
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    return float(numerator / denominator) if denominator else 0.0
 
 
 def _safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
