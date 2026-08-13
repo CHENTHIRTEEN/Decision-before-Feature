@@ -300,8 +300,12 @@ def _read_validation_labels(utility_root: Path, query_id: str) -> pd.DataFrame:
         "p_skip",
         "p_query",
         "performance_gain_norm",
+        "runtime_query_total",
+        "runtime_no_query_total",
         "runtime_query",
         "runtime_selection",
+        "runtime_handoff",
+        "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "runtime_query_optimization",
         "FE_query",
@@ -469,8 +473,8 @@ def _policy_rows(
         policy["policy_final_performance"] = np.where(call, policy["p_query"], policy["p_skip"])
         policy["policy_runtime_seconds"] = overhead + np.where(
             call,
-            policy["runtime_query"] + policy["runtime_selection"] + policy["runtime_query_optimization"],
-            policy["runtime_no_query_optimization"],
+            policy["runtime_query_total"],
+            policy["runtime_no_query_total"],
         )
         policy["policy_FE_query"] = np.where(call, policy["FE_query"], 0)
         denominator = np.maximum(np.maximum(np.abs(policy["p_skip"]), np.abs(policy["policy_final_performance"])), EPS)
@@ -670,8 +674,8 @@ def _random_repetition_summary(
         final_performance = np.where(call, frame["p_query"], frame["p_skip"])
         runtime = np.where(
             call,
-            frame["runtime_query"] + frame["runtime_selection"] + frame["runtime_query_optimization"],
-            frame["runtime_no_query_optimization"],
+            frame["runtime_query_total"],
+            frame["runtime_no_query_total"],
         )
         utility = np.where(call, frame[TARGET_COLUMN], 0.0)
         rows.append(

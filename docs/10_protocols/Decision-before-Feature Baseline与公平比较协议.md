@@ -293,7 +293,7 @@ Query 方法：
 
 必须扣除分析阶段消耗。
 
-等总 FE 主协议通过 `FE_query_optimization = FE_total - FE_prefix - FE_query` 扣除 sampling FE；Utility 不能再减同一笔 FE。只额外计算 feature/selector runtime 与内存等未进入 final loss 的成本。
+等总 FE 主协议通过 `FE_query_optimization = FE_total - FE_prefix - FE_query` 扣除 sampling FE；Utility 不能再按 FE 数量减同一笔成本。wall-clock 必须比较 Query 与 No-query 两条完整路径，既计入 Query 样本评价时间，也减去 Query 路径因后续优化 FE 较少而少用的优化时间；纯 feature/selector/handoff 计算开销另作诊断，内存作为独立资源维度记录。
 
 否则：
 

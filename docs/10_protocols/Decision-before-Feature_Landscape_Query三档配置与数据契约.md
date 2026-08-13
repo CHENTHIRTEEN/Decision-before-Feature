@@ -28,7 +28,7 @@ standard 包含 PCA、NBC、dispersion、information content 和 ELA distributio
 results/landscape_queries/samples/{sample_design_id}/{split}/samples.parquet
 ```
 
-样本行保存 `sample_design_id`、`sampling_protocol`、`sample_seed`、`sample_size`、`FE_query`、`runtime_sampling_evaluation`、边界、(X) 和 (y)。随机种子由 base seed、stream code、function、instance、dimension 与整数 design code 共同进入 `numpy.random.SeedSequence`；不得使用字符串哈希。
+样本行保存 `sample_design_id`、`sampling_protocol`、`sample_seed`、`sample_size`、`FE_query`、`runtime_query_sampling`、`runtime_query_evaluation`、兼容汇总字段 `runtime_sampling_evaluation`、边界、(X) 和 (y)。随机种子由 base seed、stream code、function、instance、dimension 与整数 design code 共同进入 `numpy.random.SeedSequence`；不得使用字符串哈希。
 
 特征结果保存到：
 
@@ -36,10 +36,11 @@ results/landscape_queries/samples/{sample_design_id}/{split}/samples.parquet
 results/landscape_queries/features/{query_id}/{split}/features.parquet
 ```
 
-每行必须包含 `query_id`、`query_protocol`、`sample_design_id`、固定 `query_feature_columns`、`runtime_feature_computation`、`feature_status`、逐 group 状态、非有限值记录与失败信息，并满足：
+每行必须包含 `query_id`、`query_protocol`、`sample_design_id`、固定 `query_feature_columns`、`runtime_query_feature_computation`、兼容别名 `runtime_feature_computation`、`feature_status`、逐 group 状态、非有限值记录与失败信息，并满足：
 
 ```text
-runtime_query = runtime_sampling_evaluation + runtime_feature_computation
+runtime_sampling_evaluation = runtime_query_sampling + runtime_query_evaluation
+runtime_query = runtime_query_sampling + runtime_query_evaluation + runtime_query_feature_computation
 additional_function_evaluations = 0
 ```
 

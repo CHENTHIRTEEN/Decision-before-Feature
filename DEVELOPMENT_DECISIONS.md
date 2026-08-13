@@ -358,9 +358,23 @@ FE_no_query_optimization
 FE_query_optimization
 runtime_query
 runtime_selection
+runtime_handoff
+runtime_no_query_handoff
 runtime_no_query_optimization
 runtime_query_optimization
+runtime_query_total
+runtime_no_query_total
+runtime_net
 ```
+
+主时间成本使用：
+
+```text
+time_cost_norm = runtime_net / max(runtime_no_query_total, 1e-12)
+runtime_net = runtime_query_total - runtime_no_query_total
+```
+
+其中 `runtime_query_total` 覆盖 query 采样、样本目标评价、特征计算、选择、handoff 与后续优化；`runtime_no_query_total` 覆盖 No-query handoff 与后续优化。`runtime_net` 有符号。纯 feature/selection/handoff 的 `analysis_compute_cost_norm` 只作诊断，不进入主 Utility。
 
 主标签口径：
 

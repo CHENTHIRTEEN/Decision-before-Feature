@@ -28,7 +28,7 @@ $$
 U_{query}=(P_{skip}-p_{query})-\lambda_T C_T-\lambda_M C_M.
 $$
 
-其中 `FE_query` 已通过减少 Run Query 的后续优化预算进入 $p_{query}$，不得重复扣除。`runtime_query` 包含采样评价时间与特征计算时间。
+其中 `FE_query` 已通过减少 Run Query 的后续优化预算进入 $p_{query}$，不得重复按 FE 数量扣除。主 $C_T$ 比较 Query 与 No-query 的完整端到端 wall-clock：`runtime_query` 包含采样、样本目标评价与特征计算时间，同时两条路径的后续优化运行时间相减；纯分析计算开销另作诊断。
 
 ### 2.2 结论是否依赖 representation
 

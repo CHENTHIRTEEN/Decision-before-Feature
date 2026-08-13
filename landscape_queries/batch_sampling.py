@@ -123,6 +123,8 @@ def sample_schema() -> pa.Schema:
             ("sample_seed", pa.int64()),
             ("sample_size", pa.int64()),
             ("FE_query", pa.int64()),
+            ("runtime_query_sampling", pa.float64()),
+            ("runtime_query_evaluation", pa.float64()),
             ("runtime_sampling_evaluation", pa.float64()),
             ("lower_bounds", pa.list_(pa.float64())),
             ("upper_bounds", pa.list_(pa.float64())),

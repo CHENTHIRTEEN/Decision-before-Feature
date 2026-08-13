@@ -29,7 +29,7 @@
 - 行为字段合同已冻结为 34 个唯一输出、31 个正式输入和 3 个诊断字段，`T0/B1/B2/B3=1/19/25/31`。`bf_fitness_diversity_rel` 是唯一的相对 IQR 字段，baseline 为优化器初始化后、任何原生 update 前的已评估 population IQR。
 - `behavior-permutation-check` 在真实 BBOB 上对四种优化器逐状态独立打乱 population 行序，冻结行为特征与 9 个窗口测量字段必须保持逐值一致。
 - 主采样协议为 `phase1_dynamic_budget_event_v1`：`0.20–0.60` 步长 `0.01` 的候选监测网格、12 个预算里程碑加状态事件，每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；里程碑合并行不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`，每个 run 输出 12–18 个状态。
-- Selection Reference 当前协议为 `query_specific_statewise_action_loss_regression_v5`：动作集合为 `continue_current` 加其余三个 portfolio algorithms，固定多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，remaining budget 连续输入，train 行使用 function-family cross-fitting；旧静态 bucket classifier 不再生成正式标签。
+- Selection Reference 当前协议为 `query_specific_statewise_action_loss_regression_v6`：动作集合为 `continue_current` 加其余三个 portfolio algorithms，固定多输出 Random Forest 预测 `statewise_minmax_observed_action_loss`，remaining budget 连续输入，train 行使用 function-family cross-fitting；handoff 与后续优化运行时间拆分保存，主时间成本使用 Query/No-query 完整路径的有符号端到端差；旧静态 bucket classifier 不再生成正式标签。
 - Utility label 增加 `best_observed_algorithm/loss`、`potential_gain_raw` 与 `selector_regret_raw`；handoff 影响和 query sampling FE 均不重复扣除。
 - Selection Reference、Utility、Decision dataset 与在线策略输出统一保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required`、`no_query_algorithm` 和 `handoff_type`；活动分析不再生成 selected-vs-default 字符串分层。
 - 三档 `LandscapeQuerySpec`、共享/独立 LHS 样本边界、隔离 pflacco 1.2.2 提取和 query-generic 数据契约已实现。

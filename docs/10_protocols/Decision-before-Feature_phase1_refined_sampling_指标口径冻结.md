@@ -53,9 +53,35 @@ performance_gain_norm =
 时间成本归一化为：
 
 ```text
+runtime_query_total =
+    runtime_query_sampling
+    + runtime_query_evaluation
+    + runtime_query_feature_computation
+    + runtime_selection
+    + runtime_handoff
+    + runtime_query_optimization
+
+runtime_no_query_total =
+    runtime_no_query_handoff
+    + runtime_no_query_optimization
+
+runtime_net = runtime_query_total - runtime_no_query_total
+
 time_cost_norm =
-    (runtime_query + runtime_selection) / max(runtime_no_query_optimization, 1e-12)
+    runtime_net / max(runtime_no_query_total, 1e-12)
 ```
+
+`time_cost_norm` 是有符号的端到端 wall-clock 相对差：大于 0 表示 Query 路径总时间更长，等于 0 表示相同，小于 0 表示 Query 路径因后续优化 FE 较少等原因总时间更短。主 Utility 使用该端到端口径。
+
+纯分析计算开销另存为诊断字段，不进入主 Utility：
+
+```text
+analysis_compute_cost_norm =
+    (runtime_query_feature_computation + runtime_selection + runtime_handoff)
+    / max(runtime_no_query_optimization, 1e-12)
+```
+
+该字段不含 Query 样本目标评价时间，也不抵消两条路径的后续优化时间；不得与 `time_cost_norm` 混在同一成本字段中。
 
 当前 phase1 主口径中：
 
@@ -112,7 +138,7 @@ FE_query_optimization = FE_total - FE_prefix - FE_query
 FE_no_query_optimization = FE_total - FE_prefix
 ```
 
-因此，主 `U_query` 中不得再次扣除同一笔 query FE 成本。主 `U_query` 只额外扣除已记录的非 FE 成本，例如 query feature computation runtime、selection runtime，以及后续可能正式记录的同量纲内存开销。
+因此，主 `U_query` 中不得再次以 FE 数量扣除同一笔 query FE 成本。wall-clock 计量仍必须比较两条完整路径：Query 样本评价时间进入 Query 总时间，同时 Query 分支因预算减少而少执行的优化时间通过 `runtime_query_optimization - runtime_no_query_optimization` 抵消。主 Utility 不使用只累加 Query 组件而不减 No-query 路径的旧成本公式。
 
 只有另设“额外 query FE”扩展实验，并且 query FE 不从优化预算中扣除时，才允许使用单独公式：
 
@@ -150,7 +176,7 @@ prefix_algorithm == default_algorithm == train-derived SBS
 skip_switches_from_prefix == false
 ```
 
-因此主数据中 `selected_equals_default == selected_equals_prefix`，但两个字段仍分别保存。`handoff_required=false` 的行不调整参数、不重启、不改变预算或风险策略；Query 路径与 No-query 路径从同一完整状态和 RNG state 原生推进，只少 `FE_query` 对应的优化预算。对保存 best-so-far 的实现，`performance_gain_raw` 应不大于 0，`U_query` 还需扣除非 FE 成本，因此不得把偶然大于 0 的值解释为“确认信息价值”。若观察到这类值，应先检查状态一致性、预算账本和数值记录。
+因此主数据中 `selected_equals_default == selected_equals_prefix`，但两个字段仍分别保存。`handoff_required=false` 的行不调整参数、不重启、不改变预算或风险策略；Query 路径与 No-query 路径从同一完整状态和 RNG state 原生推进，只少 `FE_query` 对应的优化预算。对保存 best-so-far 的实现，`performance_gain_raw` 应不大于 0；但有符号端到端 `time_cost_norm` 可能小于 0，因此该类行的 `U_query` 仍可能大于 0，含义是 Query 路径较短的 wall-clock 节省超过性能差，而不是 Query 改善了最终 performance。若 `performance_gain_raw > 0`，应先检查状态一致性、预算账本和数值记录。
 
 其他 prefix 行写入独立 cross-probe 数据，用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主训练、主 threshold 或主结果汇总。
 
@@ -181,7 +207,7 @@ selected_matches_best_observed
 
 ## 7. best-observed-action、capture 与 precision
 
-`selected_matches_best_observed` 只表示现实 selector 是否选择了逐状态已运行候选动作中的最小 loss 动作。它不代表 `U_query` 必然大于 0，因为 No-query 具有更多 continuation FE，且 Query 还需计算非 FE 成本。任何 selector 诊断都必须同时报告 `selector_regret_raw`、observed `p_query`、observed `U_query`、capture 和 precision。
+`selected_matches_best_observed` 只表示现实 selector 是否选择了逐状态已运行候选动作中的最小 loss 动作。它不决定 `U_query` 的符号：No-query 具有更多 continuation FE，Query 具有采样、特征、选择和可能的 handoff 开销，而两条路径的端到端 wall-clock 差可以为正或负。任何 selector 诊断都必须同时报告 `selector_regret_raw`、observed `p_query`、observed `U_query`、capture 和 precision。
 
 `U_query>0 capture` 的主口径为捕获到的正效用总量占全部正效用总量：
 

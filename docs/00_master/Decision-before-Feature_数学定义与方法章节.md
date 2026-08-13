@@ -226,7 +226,15 @@ $$
 U_{query}=G-\lambda_T C_T-\lambda_M C_M.
 $$
 
-主协议采用等总 FE；query sampling FE 通过减少 Query continuation budget 进入 $p_{query}$，不得再次扣除。$C_T,C_M$ 只表示尚未进入 performance loss 的额外时间与内存成本。
+主协议采用等总 FE；query sampling FE 通过减少 Query continuation budget 进入 $p_{query}$，不得再次扣除。$C_T$ 表示两条路径的时间差，$C_M$ 表示尚未进入 performance loss 的额外内存成本。
+
+主时间成本使用两条完整路径的有符号 wall-clock 相对差。令 $T_{query,total}$ 包含 query 采样、样本目标评价、特征计算、选择、必要的 population transfer 初始化与 Query 后续优化，$T_{skip,total}$ 包含 No-query 必要的 transfer 初始化与后续优化，则
+
+$$
+C_T=\frac{T_{query,total}-T_{skip,total}}{\max(T_{skip,total},10^{-12})}.
+$$
+
+因此 query 样本评价时间进入 Query 总时间，但 Query 分支因等总 FE 而少执行的后续优化时间也被抵消。纯 feature/selection/handoff 计算开销只作诊断分解，不替代主 $C_T$。
 
 令：
 

@@ -35,7 +35,7 @@ Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。�
 - Decision feature-group 正式消融固定为 `T0/B1/B2/B3=1/19/25/31`；T0 的数学输入是 `X={FE_ratio}`，实现为逐行等于 `FE_ratio` 的 `bf_fe_ratio`。`all_candidates` 仅是 B3 的兼容别名，不含 3 个诊断字段，也不作为第五个独立消融组。
 - Decision Model 活动候选严格为 LDA、Logistic Regression、Ridge；主选择指标为 nested function-family OOF decision utility。AUROC、Average Precision、Spearman 为辅助指标，连续 Utility RMSE 只对 Ridge 定义。
 - BBOB-validation 不参与 preprocessing、模型、候选选择或 threshold 拟合；部署阈值模式固定为 `oof_utility`。
-- 主效用标签为 `u_query_lamT_1`；query 的 FE 成本通过减少后续优化预算体现，不重复扣除。
+- 主效用标签为 `u_query_lamT_1`；query 的 FE 成本通过减少后续优化预算体现，不重复按 FE 数量扣除。主时间成本为 Query 与 No-query 两条完整路径的有符号端到端 wall-clock 相对差，纯分析计算开销另存诊断字段。
 - 第一篇论文主 probe/default 固定为训练集 SBS；SBS 只从 BBOB-train 的完整预算 `final_performance.parquet` 计算：先在每个 `problem_id × algorithm` 上对全部 seeds 的 `best_fitness` 取算术均值，再在每个 problem 内对算法排名，最后按算法跨 problem 平均排名；平均排名并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。No-query 原生继续当前 SBS 的完整 checkpoint state。
 - Query 后选择当前 prefix 时原生继续；选择其他算法时采用一次 checkpoint population transfer；query 采样点不并入后续优化 population。
 - 多 prefix 行单独用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不进入主 Decision 数据。

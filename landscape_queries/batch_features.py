@@ -28,8 +28,11 @@ FEATURE_METADATA_COLUMNS = (
     "sample_seed",
     "sample_size",
     "FE_query",
+    "runtime_query_sampling",
+    "runtime_query_evaluation",
     "runtime_sampling_evaluation",
     "runtime_feature_computation",
+    "runtime_query_feature_computation",
     "runtime_query",
     "feature_status",
     "feature_count",
@@ -68,6 +71,8 @@ def extract_descriptor_features(
             raise ValueError(f"cannot extract features from failed sample row: {row['problem_id']}")
         if str(row["sample_design_id"]) != spec.sample_design_id:
             raise ValueError(f"{spec.query_id} requires sample design {spec.sample_design_id}")
+        if str(row["sampling_protocol"]) != spec.sample_design.protocol:
+            raise ValueError(f"{spec.query_id} requires sampling protocol {spec.sample_design.protocol}")
         started = perf_counter()
         group_status: dict[str, dict[str, object]] = {}
         failures: list[str] = []
@@ -112,12 +117,15 @@ def extract_descriptor_features(
                         "sample_seed",
                         "sample_size",
                         "FE_query",
+                        "runtime_query_sampling",
+                        "runtime_query_evaluation",
                         "runtime_sampling_evaluation",
                     )
                 },
                 "query_id": spec.query_id,
                 "query_protocol": spec.protocol,
                 "runtime_feature_computation": float(runtime_feature),
+                "runtime_query_feature_computation": float(runtime_feature),
                 "runtime_query": float(row["runtime_sampling_evaluation"] + runtime_feature),
                 "feature_status": "failed" if failures else "ok",
                 "feature_count": int(len(spec.feature_columns) - len(nonfinite)),
@@ -156,8 +164,11 @@ def feature_schema(feature_columns: tuple[str, ...]) -> pa.Schema:
         ("sample_seed", pa.int64()),
         ("sample_size", pa.int64()),
         ("FE_query", pa.int64()),
+        ("runtime_query_sampling", pa.float64()),
+        ("runtime_query_evaluation", pa.float64()),
         ("runtime_sampling_evaluation", pa.float64()),
         ("runtime_feature_computation", pa.float64()),
+        ("runtime_query_feature_computation", pa.float64()),
         ("runtime_query", pa.float64()),
         ("feature_status", pa.string()),
         ("feature_count", pa.int32()),

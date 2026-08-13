@@ -227,6 +227,9 @@ def _check_query_specific_regression(
                     "query_id": spec.query_id,
                     "query_protocol": spec.protocol,
                     "sample_design_id": spec.sample_design_id,
+                    "runtime_query_sampling": float(sample["runtime_query_sampling"]),
+                    "runtime_query_evaluation": float(sample["runtime_query_evaluation"]),
+                    "runtime_query_feature_computation": float(runtime_feature),
                     "runtime_query": float(sample["runtime_sampling_evaluation"] + runtime_feature),
                     "feature_status": "ok",
                     "feature_failure": "[]",
@@ -250,13 +253,11 @@ def _check_query_specific_regression(
             )
             fe_query = sample_design.sample_size(dimension)
             query_budget = fe_total - int(state.evaluations) - fe_query
-            skip_started = perf_counter()
             skip = advance_optimizer_state(
                 state=clone_optimizer_state(state),
                 problem=problem,
                 fe_budget=fe_total - int(state.evaluations),
             )
-            runtime_skip = perf_counter() - skip_started
             outcomes = evaluate_candidate_actions(
                 checkpoint_state=state,
                 problem=problem,
@@ -286,7 +287,8 @@ def _check_query_specific_regression(
                 "FE_query_optimization": query_budget,
                 "remaining_budget_ratio": float(query_budget / fe_total),
                 "p_skip": float(skip.best_fitness),
-                "runtime_no_query_optimization": float(runtime_skip),
+                "runtime_no_query_handoff": 0.0,
+                "runtime_no_query_optimization": float(skip.runtime_seconds),
                 "no_query_transition_mode": "native_optimizer_state",
                 "action_loss_protocol": ACTION_LOSS_PROTOCOL,
             }
@@ -383,8 +385,8 @@ def _check_query_specific_regression(
             pass
         else:
             raise ValueError("legacy Selection Reference label protocol was not rejected")
-        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v5":
-            raise ValueError("Selection Reference protocol version is not frozen at v5")
+        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v6":
+            raise ValueError("Selection Reference protocol version is not frozen at v6")
     print("query-specific action-loss regression and utility consistency passed on 2 BBOB families")
 
 
@@ -471,13 +473,11 @@ def _check_action_loss_budget_separation(
             design = get_sample_design_spec(sample_design_id)
             fe_query = design.sample_size(dimension)
             query_budget = fe_total - int(state.evaluations) - fe_query
-            skip_started = perf_counter()
             skip = advance_optimizer_state(
                 state=clone_optimizer_state(state),
                 problem=problem,
                 fe_budget=fe_total - int(state.evaluations),
             )
-            runtime_skip = perf_counter() - skip_started
             outcomes = evaluate_candidate_actions(
                 checkpoint_state=state,
                 problem=problem,
@@ -507,7 +507,8 @@ def _check_action_loss_budget_separation(
                 "FE_query_optimization": query_budget,
                 "remaining_budget_ratio": float(query_budget / fe_total),
                 "p_skip": float(skip.best_fitness),
-                "runtime_no_query_optimization": float(runtime_skip),
+                "runtime_no_query_handoff": 0.0,
+                "runtime_no_query_optimization": float(skip.runtime_seconds),
                 "no_query_transition_mode": "native_optimizer_state",
                 "action_loss_protocol": ACTION_LOSS_PROTOCOL,
             }

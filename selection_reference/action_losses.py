@@ -36,7 +36,7 @@ from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCH
 
 EPS = 1e-12
 MIN_LABEL_RATIO = 0.12
-ACTION_LOSS_PROTOCOL = "shared_state_query_budget_native_continue_or_population_transfer_v3"
+ACTION_LOSS_PROTOCOL = "shared_state_query_budget_native_continue_or_population_transfer_v4"
 STATE_KEY_COLUMNS = (
     "split",
     "problem_id",
@@ -140,13 +140,14 @@ def evaluate_candidate_actions(
         raise ValueError("prefix algorithm must belong to the action portfolio")
     outcomes = []
     for target_algorithm in portfolio:
-        started = perf_counter()
         if target_algorithm == prefix_algorithm:
             action = "continue_current"
             state = clone_optimizer_state(checkpoint_state)
             transition_mode = "native_optimizer_state"
+            runtime_handoff = 0.0
         else:
             action = target_algorithm
+            handoff_started = perf_counter()
             state = initialize_transferred_optimizer_state(
                 algorithm=target_algorithm,
                 source_state=checkpoint_state,
@@ -156,6 +157,7 @@ def evaluate_candidate_actions(
                 instance=instance,
                 event=QUERY_TRANSFER_EVENT,
             )
+            runtime_handoff = perf_counter() - handoff_started
             transition_mode = "population_transfer_initialization"
         result = advance_optimizer_state(state=state, problem=problem, fe_budget=fe_budget)
         outcomes.append(
@@ -164,7 +166,8 @@ def evaluate_candidate_actions(
                 "target_algorithm": target_algorithm,
                 "transition_mode": transition_mode,
                 "action_loss": float(result.best_fitness),
-                "runtime_action_optimization": float(perf_counter() - started),
+                "runtime_handoff": float(runtime_handoff),
+                "runtime_action_optimization": float(result.runtime_seconds),
             }
         )
     _complete_action_diagnostics(outcomes, prefix_algorithm=prefix_algorithm, portfolio=portfolio)
@@ -234,11 +237,12 @@ def _evaluate_shard(
                 raise ValueError("query sample budget does not match FE_total")
             remaining_budget = fe_total - checkpoint_fe - fe_query
             skip_budget = fe_total - checkpoint_fe
-            skip_started = perf_counter()
             if default_algorithm == prefix_algorithm:
                 skip_state = clone_optimizer_state(state)
                 no_query_transition_mode = "native_optimizer_state"
+                runtime_no_query_handoff = 0.0
             else:
+                no_query_handoff_started = perf_counter()
                 skip_state = initialize_transferred_optimizer_state(
                     algorithm=default_algorithm,
                     source_state=state,
@@ -248,9 +252,9 @@ def _evaluate_shard(
                     instance=instance,
                     event=NO_QUERY_TRANSFER_EVENT,
                 )
+                runtime_no_query_handoff = perf_counter() - no_query_handoff_started
                 no_query_transition_mode = "population_transfer_initialization"
             skip_result = advance_optimizer_state(state=skip_state, problem=problem, fe_budget=skip_budget)
-            runtime_skip = perf_counter() - skip_started
             outcomes = evaluate_candidate_actions(
                 checkpoint_state=state,
                 problem=problem,
@@ -283,7 +287,8 @@ def _evaluate_shard(
                 "FE_query_optimization": remaining_budget,
                 "remaining_budget_ratio": float(remaining_budget / fe_total),
                 "p_skip": float(skip_result.best_fitness),
-                "runtime_no_query_optimization": float(runtime_skip),
+                "runtime_no_query_handoff": float(runtime_no_query_handoff),
+                "runtime_no_query_optimization": float(skip_result.runtime_seconds),
                 "no_query_transition_mode": no_query_transition_mode,
                 "action_loss_protocol": ACTION_LOSS_PROTOCOL,
             }
@@ -373,6 +378,7 @@ def _schema() -> pa.Schema:
         ("FE_query_optimization", pa.int64()),
         ("remaining_budget_ratio", pa.float64()),
         ("p_skip", pa.float64()),
+        ("runtime_no_query_handoff", pa.float64()),
         ("runtime_no_query_optimization", pa.float64()),
         ("no_query_transition_mode", pa.string()),
         ("action", pa.string()),
@@ -380,6 +386,7 @@ def _schema() -> pa.Schema:
         ("transition_mode", pa.string()),
         ("action_loss", pa.float64()),
         ("action_loss_norm", pa.float64()),
+        ("runtime_handoff", pa.float64()),
         ("runtime_action_optimization", pa.float64()),
         ("best_observed_algorithm", pa.string()),
         ("best_observed_loss", pa.float64()),

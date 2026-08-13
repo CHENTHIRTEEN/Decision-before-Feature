@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-LANDSCAPE_QUERY_PROTOCOL_VERSION = "landscape_query_v1"
-SAMPLE_PROTOCOL_VERSION = "lhs_problem_sample_v1"
+LANDSCAPE_QUERY_PROTOCOL_VERSION = "landscape_query_v2"
+SAMPLE_PROTOCOL_VERSION = "lhs_problem_sample_v2"
 MAIN_QUERY_ID = "descriptor_cheap"
 
 

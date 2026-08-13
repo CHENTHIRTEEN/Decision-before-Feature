@@ -125,20 +125,68 @@ def _validate_row(row: dict) -> None:
         if not isclose(float(row[column]), expected, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError(f"{column} is inconsistent")
     runtime_columns = (
+        "runtime_query_sampling",
+        "runtime_query_evaluation",
+        "runtime_query_feature_computation",
         "runtime_query",
         "runtime_selection",
+        "runtime_handoff",
+        "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "runtime_query_optimization",
+        "runtime_query_total",
+        "runtime_no_query_total",
     )
     if any(not isfinite(float(row[column])) or float(row[column]) < 0.0 for column in runtime_columns):
         raise ValueError("runtime fields must be finite and non-negative")
-    expected_time_cost = (float(row["runtime_query"]) + float(row["runtime_selection"])) / max(
-        float(row["runtime_no_query_optimization"]), 1e-12
+    signed_runtime_columns = ("runtime_net", "time_cost_norm")
+    if any(not isfinite(float(row[column])) for column in signed_runtime_columns):
+        raise ValueError("signed runtime fields must be finite")
+    if not isfinite(float(row["analysis_compute_cost_norm"])) or float(row["analysis_compute_cost_norm"]) < 0.0:
+        raise ValueError("analysis_compute_cost_norm must be finite and non-negative")
+    expected_runtime_query = (
+        float(row["runtime_query_sampling"])
+        + float(row["runtime_query_evaluation"])
+        + float(row["runtime_query_feature_computation"])
     )
+    if not isclose(float(row["runtime_query"]), expected_runtime_query, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("runtime_query decomposition is inconsistent")
+    expected_query_total = (
+        expected_runtime_query
+        + float(row["runtime_selection"])
+        + float(row["runtime_handoff"])
+        + float(row["runtime_query_optimization"])
+    )
+    expected_no_query_total = (
+        float(row["runtime_no_query_handoff"])
+        + float(row["runtime_no_query_optimization"])
+    )
+    expected_runtime_net = expected_query_total - expected_no_query_total
+    total_checks = {
+        "runtime_query_total": expected_query_total,
+        "runtime_no_query_total": expected_no_query_total,
+        "runtime_net": expected_runtime_net,
+    }
+    for column, expected in total_checks.items():
+        if not isclose(float(row[column]), expected, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(f"{column} is inconsistent")
+    expected_time_cost = expected_runtime_net / max(expected_no_query_total, 1e-12)
     if not isclose(float(row["time_cost_norm"]), expected_time_cost, rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("time_cost_norm is inconsistent")
+    expected_analysis_cost = (
+        float(row["runtime_query_feature_computation"])
+        + float(row["runtime_selection"])
+        + float(row["runtime_handoff"])
+    ) / max(float(row["runtime_no_query_optimization"]), 1e-12)
+    if not isclose(
+        float(row["analysis_compute_cost_norm"]),
+        expected_analysis_cost,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("analysis_compute_cost_norm is inconsistent")
     if float(row["memory_cost_norm"]) != 0.0:
-        raise ValueError("v1 memory_cost_norm must be 0.0")
+        raise ValueError("phase1 memory_cost_norm must be 0.0")
     for utility_column, need_column, weight in zip(
         UTILITY_VALUE_COLUMNS,
         NEED_QUERY_COLUMNS,

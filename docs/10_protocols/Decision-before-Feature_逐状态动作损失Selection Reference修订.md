@@ -111,7 +111,7 @@ U_{query}(s_t)=
 \]
 
 其中 query sampling FE 已通过 \(L_{selector}\) 使用较少 continuation FE 体现，不再额外相减。
-时间成本中的 `runtime_selection` 必须包含单状态模型推理和动作选择，不能只计已有预测分数上的 `argmin` 时间。
+主时间成本使用 Query/No-query 两条完整路径的有符号端到端 wall-clock 相对差。`runtime_selection` 必须包含单状态模型推理和动作选择，不能只计已有预测分数上的 `argmin` 时间；`runtime_handoff` 与 `runtime_query_optimization` 必须拆分保存，避免把 transfer 初始化隐含在后续优化中。
 
 逐状态最佳已观测动作只用于以下恒等分解：
 
