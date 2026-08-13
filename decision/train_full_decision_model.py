@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sklearn.base import clone
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.metrics import average_precision_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
@@ -134,6 +134,31 @@ RUN_KEY_COLUMNS = (
 )
 
 
+class ConstantBinaryClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, positive_probability: float = 0.0):
+        self.positive_probability = positive_probability
+
+    def fit(self, X: Any, y: Any) -> "ConstantBinaryClassifier":
+        probability = float(self.positive_probability)
+        if not np.isfinite(probability) or probability < 0.0 or probability > 1.0:
+            raise ValueError("constant positive probability must be finite and in [0, 1]")
+        self.classes_ = np.asarray([0, 1], dtype=int)
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        probability = float(self.positive_probability)
+        rows = len(X)
+        return np.column_stack(
+            [
+                np.full(rows, 1.0 - probability, dtype=float),
+                np.full(rows, probability, dtype=float),
+            ]
+        )
+
+    def predict(self, X: Any) -> np.ndarray:
+        return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+
+
 def _threshold_candidates(thresholds: np.ndarray) -> np.ndarray:
     values = np.asarray(thresholds, dtype=float).reshape(-1)
     values = values[np.isfinite(values)]
@@ -220,7 +245,12 @@ def train_full_decision_models(
             raise RuntimeError("OOF threshold-neighborhood width must be finite and non-negative")
 
         started = perf_counter()
-        fitted = _fit_model(clone(spec.estimator), train, feature_columns, spec.objective)
+        fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
+            clone(spec.estimator),
+            train,
+            feature_columns,
+            spec.objective,
+        )
         fit_seconds = perf_counter() - started
 
         started = perf_counter()
@@ -276,6 +306,9 @@ def train_full_decision_models(
                 "estimator": spec.estimator_name,
                 "train_rows": int(len(train)),
                 "validation_rows": int(len(validation)),
+                "train_positive_utility_rows": int(fit_positive_rows),
+                "train_negative_utility_rows": int(fit_negative_rows),
+                "uses_constant_classifier": bool(used_constant_classifier),
                 "fit_seconds": float(fit_seconds),
                 "validation_prediction_seconds": float(validation_prediction_seconds),
                 "validation_prediction_seconds_per_row": float(prediction_seconds_per_row),
@@ -655,8 +688,6 @@ def _check_family_split(train: pd.DataFrame, validation: pd.DataFrame) -> None:
 def _target_for_objective(frame: pd.DataFrame, objective: str) -> np.ndarray:
     if objective == "classification":
         target = frame[AUXILIARY_LABEL_COLUMN].to_numpy(dtype=bool).astype(int)
-        if set(np.unique(target)) != {0, 1}:
-            raise ValueError("each classification fit fold must contain both Utility classes")
         return target
     if objective == "regression":
         return frame[TARGET_COLUMN].to_numpy(dtype=float)
@@ -668,11 +699,24 @@ def _fit_model(
     train: pd.DataFrame,
     feature_columns: list[str],
     objective: str,
-) -> Pipeline:
+) -> tuple[Pipeline, bool, int, int]:
+    target = _target_for_objective(train, objective)
+    positive_rows = int(np.sum(target)) if objective == "classification" else int(np.sum(train[TARGET_COLUMN].to_numpy(dtype=float) > 0.0))
+    negative_rows = int(len(target) - positive_rows)
+    uses_constant_classifier = False
+    if objective == "classification" and len(np.unique(target)) < 2:
+        model = Pipeline(
+            [
+                ("imputer", clone(model.named_steps["imputer"])),
+                ("scaler", clone(model.named_steps["scaler"])),
+                ("classifier", ConstantBinaryClassifier(float(positive_rows / max(len(target), 1)))),
+            ]
+        )
+        uses_constant_classifier = True
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model.fit(train[feature_columns], _target_for_objective(train, objective))
-    return model
+        model.fit(train[feature_columns], target)
+    return model, uses_constant_classifier, positive_rows, negative_rows
 
 
 def _predict_model(model: Pipeline, frame: pd.DataFrame, feature_columns: list[str]) -> np.ndarray:
@@ -704,7 +748,12 @@ def _family_oof_scores(
         overlap = sorted(set(fit_families).intersection(holdout_families))
         if overlap:
             raise RuntimeError(f"function-family OOF fold overlap: {overlap}")
-        fitted = _fit_model(clone(spec.estimator), fit_frame, feature_columns, spec.objective)
+        fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
+            clone(spec.estimator),
+            fit_frame,
+            feature_columns,
+            spec.objective,
+        )
         scores[holdout_index] = _predict_model(fitted, holdout_frame, feature_columns)
         fold_rows.append(
             {
@@ -717,6 +766,9 @@ def _family_oof_scores(
                 "n_splits": int(n_splits),
                 "fit_rows": int(len(fit_frame)),
                 "holdout_rows": int(len(holdout_frame)),
+                "fit_positive_utility_rows": int(fit_positive_rows),
+                "fit_negative_utility_rows": int(fit_negative_rows),
+                "uses_constant_classifier": bool(used_constant_classifier),
                 "fit_families": ",".join(fit_families),
                 "holdout_families": ",".join(holdout_families),
                 "family_overlap_count": 0,
@@ -822,7 +874,12 @@ def _nested_family_oof_predictions(
             scores=inner_scores,
             observed=outer_fit[TARGET_COLUMN].to_numpy(dtype=float),
         )
-        fitted = _fit_model(clone(spec.estimator), outer_fit, feature_columns, spec.objective)
+        fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
+            clone(spec.estimator),
+            outer_fit,
+            feature_columns,
+            spec.objective,
+        )
         holdout_scores = _predict_model(fitted, outer_holdout, feature_columns)
         calls = holdout_scores > threshold
         output = outer_holdout[list(METADATA_COLUMNS) + [TARGET_COLUMN, AUXILIARY_LABEL_COLUMN]].copy()
@@ -856,6 +913,9 @@ def _nested_family_oof_predictions(
                         "n_splits": int(n_splits),
                         "fit_rows": int(len(outer_fit)),
                         "holdout_rows": int(len(outer_holdout)),
+                        "fit_positive_utility_rows": int(fit_positive_rows),
+                        "fit_negative_utility_rows": int(fit_negative_rows),
+                        "uses_constant_classifier": bool(used_constant_classifier),
                         "fit_families": ",".join(fit_families),
                         "holdout_families": ",".join(holdout_families),
                         "family_overlap_count": 0,
@@ -884,31 +944,33 @@ def _decision_threshold_from_scores(
     if not np.isfinite(scores).all() or not np.isfinite(observed).all():
         raise ValueError("threshold fitting requires finite scores and Utility values")
 
-    best: tuple[float, int, float] | None = None
-    best_threshold = float(np.inf)
-    for threshold in _threshold_candidates(np.unique(scores)):
-        decision_utility_sum = 0.0
-        call_runs = 0
-        for _, run_frame in _iter_decision_run_groups(frame):
-            ordered = _ordered_decision_run_frame(run_frame)
-            run_positions = frame.index.get_indexer(ordered.index)
-            if (run_positions < 0).any():
-                raise RuntimeError("ordered run rows are not aligned with the threshold-fitting frame")
-            run_scores = scores[run_positions]
-            run_observed = observed[run_positions]
-            triggered, utility = _first_trigger_run_utility(
-                ordered,
-                scores=run_scores,
-                observed=run_observed,
-                threshold=float(threshold),
-            )
-            if triggered:
-                call_runs += 1
-                decision_utility_sum += utility
-        criterion = (decision_utility_sum, -int(call_runs), float(threshold))
-        if best is None or criterion > best:
-            best = criterion
-            best_threshold = float(threshold)
+    thresholds = _threshold_candidates(np.unique(scores))
+    utility_delta = np.zeros(len(thresholds) + 1, dtype=float)
+    call_delta = np.zeros(len(thresholds) + 1, dtype=int)
+
+    for _, run_frame in _iter_decision_run_groups(frame):
+        ordered = _ordered_decision_run_frame(run_frame)
+        run_positions = frame.index.get_indexer(ordered.index)
+        if (run_positions < 0).any():
+            raise RuntimeError("ordered run rows are not aligned with the threshold-fitting frame")
+        run_scores = scores[run_positions]
+        run_observed = observed[run_positions]
+        max_previous_score = -np.inf
+        for score, utility in zip(run_scores, run_observed, strict=True):
+            start = int(np.searchsorted(thresholds, max_previous_score, side="left"))
+            end = int(np.searchsorted(thresholds, float(score), side="left"))
+            if start < end:
+                utility_delta[start] += float(utility)
+                utility_delta[end] -= float(utility)
+                call_delta[start] += 1
+                call_delta[end] -= 1
+            if float(score) > max_previous_score:
+                max_previous_score = float(score)
+
+    decision_utility_sums = np.cumsum(utility_delta[:-1])
+    call_runs = np.cumsum(call_delta[:-1])
+    best_order = np.lexsort((thresholds, -call_runs, decision_utility_sums))
+    best_threshold = float(thresholds[int(best_order[-1])])
 
     if not np.isfinite(best_threshold):
         raise RuntimeError("OOF threshold selection produced a non-finite threshold")
