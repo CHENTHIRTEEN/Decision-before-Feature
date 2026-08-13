@@ -700,6 +700,9 @@ def _read_external_query_features(path: Path, query_id: str) -> dict[tuple[int, 
         "query_id",
         "query_protocol",
         "sample_design_id",
+        "runtime_query_sampling",
+        "runtime_query_evaluation",
+        "runtime_query_feature_computation",
         "runtime_query",
         "feature_status",
         "feature_failure",
@@ -737,8 +740,9 @@ def _read_external_query_features(path: Path, query_id: str) -> dict[tuple[int, 
     if not np.isfinite(runtimes).all() or (runtimes < 0.0).any():
         raise ValueError("external query runtime must be finite and non-negative")
     expected_runtime = (
-        frame["runtime_sampling_evaluation"].astype(float)
-        + frame["runtime_feature_computation"].astype(float)
+        frame["runtime_query_sampling"].astype(float)
+        + frame["runtime_query_evaluation"].astype(float)
+        + frame["runtime_query_feature_computation"].astype(float)
     ).to_numpy()
     if not np.allclose(runtimes, expected_runtime, rtol=0.0, atol=1e-12):
         raise ValueError("external runtime_query is not sampling evaluation plus feature computation")
@@ -983,7 +987,11 @@ def _run_threshold_policy(
     selector_remaining_budget_ratio = None
     selector_status = "not_used"
     runtime_query = 0.0
+    runtime_query_sampling = 0.0
+    runtime_query_evaluation = 0.0
+    runtime_query_feature_computation = 0.0
     runtime_selection = 0.0
+    runtime_handoff = 0.0
     decision_check_count = 0
     trigger_sampling_metadata: dict[str, Any] = {
         f"trigger_{column}": None for column in SAMPLING_METADATA_COLUMNS
@@ -1035,6 +1043,11 @@ def _run_threshold_policy(
             if str(query_feature_row["problem_id"]) != problem.problem_id:
                 raise ValueError("saved query feature row does not match the online problem")
             runtime_query = float(query_feature_row["runtime_query"])
+            runtime_query_sampling = float(query_feature_row["runtime_query_sampling"])
+            runtime_query_evaluation = float(query_feature_row["runtime_query_evaluation"])
+            runtime_query_feature_computation = float(
+                query_feature_row["runtime_query_feature_computation"]
+            )
             query_features = {
                 column: query_feature_row.get(column)
                 for column in selector.model.query_feature_columns
@@ -1050,11 +1063,11 @@ def _run_threshold_policy(
 
     if triggered:
         remaining_budget = max(fe_total - current_fe - fe_query, 0)
-        after_started = perf_counter()
         if selected_algorithm == prefix_algorithm:
             after_state = current_state
             transition_mode = "native_optimizer_state"
         else:
+            handoff_started = perf_counter()
             after_state = initialize_transferred_optimizer_state(
                 algorithm=selected_algorithm,
                 source_state=current_state,
@@ -1064,10 +1077,11 @@ def _run_threshold_policy(
                 instance=1,
                 event=QUERY_TRANSFER_EVENT,
             )
+            runtime_handoff = perf_counter() - handoff_started
             transition_mode = "population_transfer_initialization"
         after = advance_optimizer_state(state=after_state, problem=problem, fe_budget=remaining_budget)
         final_performance = float(after.best_fitness)
-        runtime_after = float(perf_counter() - after_started)
+        runtime_after = float(after.runtime_seconds)
         fe_after = int(after.evaluations)
         if fe_after != remaining_budget:
             raise ValueError("query continuation did not consume its assigned FE budget")
@@ -1127,10 +1141,19 @@ def _run_threshold_policy(
         "FE_after_decision_optimization": int(fe_after),
         "FE_used": int(fe_used),
         "runtime_probe": float(runtime_probe),
+        "runtime_query_sampling": float(runtime_query_sampling),
+        "runtime_query_evaluation": float(runtime_query_evaluation),
+        "runtime_query_feature_computation": float(runtime_query_feature_computation),
         "runtime_query": float(runtime_query),
         "runtime_selection": float(runtime_selection),
+        "runtime_handoff": float(runtime_handoff),
+        "runtime_no_query_handoff": 0.0,
+        "runtime_query_optimization": float(runtime_after) if triggered else 0.0,
+        "runtime_no_query_optimization": 0.0 if triggered else float(runtime_after),
         "runtime_after_decision_optimization": float(runtime_after),
-        "runtime_total": float(runtime_probe + runtime_query + runtime_selection + runtime_after),
+        "runtime_total": float(
+            runtime_probe + runtime_query + runtime_selection + runtime_handoff + runtime_after
+        ),
         "final_performance": final_performance,
     }
 

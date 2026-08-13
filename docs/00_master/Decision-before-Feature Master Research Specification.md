@@ -400,7 +400,7 @@ $$
 
 其中：
 
-Query sampling FE 已通过减少 Run Query 分支的后续优化预算进入 $p_{query}$，不得再次扣除。$C_T$ 与 $C_M$ 只表示尚未进入 performance loss 的 feature/selector runtime 与额外内存成本。
+Query sampling FE 已通过减少 Run Query 分支的后续优化预算进入 $p_{query}$，不得再次按 FE 数量扣除。$C_T$ 使用两条完整路径的有符号端到端 wall-clock 相对差：Query 路径包含采样、样本目标评价、特征计算、选择、必要的 population transfer 初始化与后续优化，No-query 路径包含必要的 transfer 初始化与后续优化。由此既计入 Query 评价时间，也抵消 Query 分支少执行的优化时间。纯 feature/selection/handoff 计算开销另作诊断；$C_M$ 表示尚未进入 performance loss 的额外内存成本。
 
 逐状态最佳已观测动作只用于诊断分解：
 

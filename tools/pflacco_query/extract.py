@@ -69,6 +69,8 @@ def extract_pflacco_features(
             raise ValueError(f"cannot extract pflacco features from failed sample: {row['problem_id']}")
         if str(row["sample_design_id"]) != spec.sample_design_id:
             raise ValueError(f"{query_id} requires sample design {spec.sample_design_id}")
+        if str(row["sampling_protocol"]) != spec.sample_design.protocol:
+            raise ValueError(f"{query_id} requires sampling protocol {spec.sample_design.protocol}")
         x = pd.DataFrame(np.asarray(row["X"], dtype=float))
         y = pd.Series(np.asarray(row["y"], dtype=float))
         started = perf_counter()
@@ -139,12 +141,15 @@ def extract_pflacco_features(
                         "sample_seed",
                         "sample_size",
                         "FE_query",
+                        "runtime_query_sampling",
+                        "runtime_query_evaluation",
                         "runtime_sampling_evaluation",
                     )
                 },
                 "query_id": spec.query_id,
                 "query_protocol": spec.protocol,
                 "runtime_feature_computation": float(runtime_feature),
+                "runtime_query_feature_computation": float(runtime_feature),
                 "runtime_query": float(row["runtime_sampling_evaluation"] + runtime_feature),
                 "feature_status": "failed" if failures else "ok",
                 "feature_count": int(sum(value is not None for value in values.values())),

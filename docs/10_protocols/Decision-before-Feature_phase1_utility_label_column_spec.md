@@ -111,10 +111,19 @@ FE_query
 FE_no_query_optimization
 FE_query_optimization
 runtime_query
+runtime_query_sampling
+runtime_query_evaluation
+runtime_query_feature_computation
 runtime_selection
+runtime_handoff
+runtime_no_query_handoff
 runtime_no_query_optimization
 runtime_query_optimization
+runtime_query_total
+runtime_no_query_total
+runtime_net
 time_cost_norm
+analysis_compute_cost_norm
 memory_cost_norm
 ```
 
@@ -123,13 +132,28 @@ memory_cost_norm
 ```text
 FE_no_query_optimization = FE_total - FE_prefix
 FE_query_optimization = FE_total - FE_prefix - FE_query
+runtime_query =
+    runtime_query_sampling
+    + runtime_query_evaluation
+    + runtime_query_feature_computation
+runtime_query_total =
+    runtime_query
+    + runtime_selection
+    + runtime_handoff
+    + runtime_query_optimization
+runtime_no_query_total =
+    runtime_no_query_handoff
+    + runtime_no_query_optimization
+runtime_net = runtime_query_total - runtime_no_query_total
 time_cost_norm =
-    (runtime_query + runtime_selection)
+    runtime_net / max(runtime_no_query_total, 1e-12)
+analysis_compute_cost_norm =
+    (runtime_query_feature_computation + runtime_selection + runtime_handoff)
     / max(runtime_no_query_optimization, 1e-12)
 memory_cost_norm = 0.0
 ```
 
-`runtime_query` 已等于 query 样本评价时间与 feature computation 时间之和。`FE_query` 已通过减少 Query continuation budget 进入 `p_query`，主 Utility 不得重复扣除。
+`time_cost_norm` 是有符号的端到端 wall-clock 相对差；其分子允许为负。`analysis_compute_cost_norm` 只作拆分诊断，不进入主 Utility。`FE_query` 已通过减少 Query continuation budget 进入 `p_query`，主 Utility 不得再次按 FE 数量扣除，但必须在 wall-clock 中同时计入 Query 样本评价时间和两条路径的后续优化时间差。
 
 ---
 

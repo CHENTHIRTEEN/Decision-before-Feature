@@ -21,7 +21,7 @@ from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, STATE_KEY_CO
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
-SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v5"
+SELECTION_REFERENCE_PROTOCOL = "query_specific_statewise_action_loss_regression_v6"
 SELECTOR_TARGET_TRANSFORM = "statewise_minmax_observed_action_loss"
 EPS = 1e-12
 
@@ -149,6 +149,7 @@ def prepare_state_matrix(
         "FE_query_optimization",
         "remaining_budget_ratio",
         "p_skip",
+        "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "no_query_transition_mode",
         "default_algorithm",
@@ -158,6 +159,7 @@ def prepare_state_matrix(
         "transition_mode",
         "action_loss",
         "action_loss_norm",
+        "runtime_handoff",
         "runtime_action_optimization",
         "best_observed_algorithm",
         "best_observed_loss",
@@ -170,12 +172,23 @@ def prepare_state_matrix(
         raise ValueError("state-action loss inputs use an unsupported continuation protocol")
     if set(action_losses["sample_design_id"].astype(str)) != {query_spec.sample_design_id}:
         raise ValueError(f"{query_spec.query_id} is paired with the wrong query-FE action-loss table")
+    if set(action_losses["sample_design_protocol"].astype(str)) != {query_spec.sample_design.protocol}:
+        raise ValueError(f"{query_spec.query_id} is paired with an unsupported sample protocol")
     key = list(STATE_KEY_COLUMNS)
     if action_losses.duplicated(key + ["target_algorithm"]).any():
         raise ValueError("state-action loss input contains duplicate state/algorithm rows")
     numeric_losses = action_losses[["action_loss", "action_loss_norm", "best_observed_loss"]].to_numpy(dtype=float)
     if not np.isfinite(numeric_losses).all():
         raise ValueError("state-action losses and diagnostics must be finite")
+    runtime_columns = (
+        "runtime_no_query_handoff",
+        "runtime_no_query_optimization",
+        "runtime_handoff",
+        "runtime_action_optimization",
+    )
+    runtime_values = action_losses[list(runtime_columns)].to_numpy(dtype=float)
+    if not np.isfinite(runtime_values).all() or (runtime_values < 0.0).any():
+        raise ValueError("state-action runtimes must be finite and non-negative")
     portfolio = tuple(sorted(action_losses["target_algorithm"].astype(str).unique()))
     if len(portfolio) != 4:
         raise ValueError("state-action loss input must contain exactly four unique portfolio algorithms")
@@ -202,6 +215,9 @@ def prepare_state_matrix(
     )
     if not np.array_equal(action_losses["transition_mode"].astype(str).to_numpy(), expected_transition):
         raise ValueError("transition_mode does not match target_algorithm and prefix_algorithm")
+    expected_zero_handoff = action_losses["transition_mode"].astype(str) == "native_optimizer_state"
+    if not bool((action_losses.loc[expected_zero_handoff, "runtime_handoff"].astype(float) == 0.0).all()):
+        raise ValueError("native continuation must have zero handoff runtime")
     if not bool(
         (action_losses["no_query_algorithm"].astype(str) == action_losses["default_algorithm"].astype(str)).all()
     ):
@@ -225,6 +241,7 @@ def prepare_state_matrix(
         "FE_query_optimization",
         "remaining_budget_ratio",
         "p_skip",
+        "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "no_query_transition_mode",
         "default_algorithm",
@@ -276,12 +293,21 @@ def prepare_state_matrix(
         columns="target_algorithm",
         values="runtime_action_optimization",
     ).reset_index()
+    handoff_runtimes = action_losses.pivot(
+        index=key,
+        columns="target_algorithm",
+        values="runtime_handoff",
+    ).reset_index()
     raw = raw.rename(columns={algorithm: f"observed_loss_{algorithm}" for algorithm in portfolio})
     normalized = normalized.rename(columns={algorithm: f"target_loss_norm_{algorithm}" for algorithm in portfolio})
     runtimes = runtimes.rename(columns={algorithm: f"runtime_action_optimization_{algorithm}" for algorithm in portfolio})
+    handoff_runtimes = handoff_runtimes.rename(
+        columns={algorithm: f"runtime_handoff_{algorithm}" for algorithm in portfolio}
+    )
     states = states.merge(raw, on=key, how="inner", validate="one_to_one")
     states = states.merge(normalized, on=key, how="inner", validate="one_to_one")
     states = states.merge(runtimes, on=key, how="inner", validate="one_to_one")
+    states = states.merge(handoff_runtimes, on=key, how="inner", validate="one_to_one")
     states = _join_selector_inputs(
         states=states,
         behavior=behavior,
@@ -364,8 +390,12 @@ def selection_rows(
             "FE_query_optimization",
             "remaining_budget_ratio",
             "p_skip",
+            "runtime_no_query_handoff",
             "runtime_no_query_optimization",
             "no_query_transition_mode",
+            "runtime_query_sampling",
+            "runtime_query_evaluation",
+            "runtime_query_feature_computation",
             "runtime_query",
             "feature_status",
             "feature_failure",
@@ -383,6 +413,7 @@ def selection_rows(
     selected_losses = []
     selected_scores = []
     selected_runtimes = []
+    selected_handoff_runtimes = []
     best_losses = output["best_observed_loss"].to_numpy(dtype=float)
     worst_losses = states[[f"observed_loss_{algorithm}" for algorithm in portfolio]].max(axis=1).to_numpy(dtype=float)
     for row_index in range(len(output)):
@@ -394,6 +425,7 @@ def selection_rows(
         selected_scores.append(float(output.at[row_index, f"predicted_loss_norm_{selected}"]))
         selected_losses.append(float(output.at[row_index, f"observed_loss_{selected}"]))
         selected_runtimes.append(float(states.at[row_index, f"runtime_action_optimization_{selected}"]))
+        selected_handoff_runtimes.append(float(states.at[row_index, f"runtime_handoff_{selected}"]))
     output["selected_algorithm"] = selected_algorithms
     output["selected_action"] = np.where(
         output["selected_algorithm"].astype(str) == output["prefix_algorithm"].astype(str),
@@ -415,6 +447,7 @@ def selection_rows(
     output["handoff_type"] = output["selected_transition_mode"].astype(str)
     output["selected_action_loss"] = selected_losses
     output["runtime_selected_action_optimization"] = selected_runtimes
+    output["runtime_handoff"] = selected_handoff_runtimes
     output["selected_predicted_loss_norm"] = selected_scores
     output["selector_regret_raw"] = output["selected_action_loss"].astype(float) - output[
         "best_observed_loss"
@@ -553,6 +586,9 @@ def _join_selector_inputs(
         "query_id",
         "query_protocol",
         "sample_design_id",
+        "runtime_query_sampling",
+        "runtime_query_evaluation",
+        "runtime_query_feature_computation",
         "runtime_query",
         "feature_status",
         "feature_failure",
@@ -578,6 +614,18 @@ def _join_selector_inputs(
         raise ValueError("query feature input does not use the frozen feature-column list")
     if (query_features["additional_function_evaluations"].astype(int) != 0).any():
         raise ValueError("query feature input reports additional objective evaluations")
+    query_runtime_columns = (
+        "runtime_query_sampling",
+        "runtime_query_evaluation",
+        "runtime_query_feature_computation",
+        "runtime_query",
+    )
+    query_runtimes = query_features[list(query_runtime_columns)].to_numpy(dtype=float)
+    if not np.isfinite(query_runtimes).all() or (query_runtimes < 0.0).any():
+        raise ValueError("query feature runtimes must be finite and non-negative")
+    expected_runtime_query = query_runtimes[:, 0] + query_runtimes[:, 1] + query_runtimes[:, 2]
+    if not np.allclose(query_runtimes[:, 3], expected_runtime_query, rtol=0.0, atol=EPS):
+        raise ValueError("runtime_query must equal query sampling, evaluation, and feature computation")
     for row in query_features.to_dict(orient="records"):
         group_status = json.loads(str(row["feature_group_status"]))
         if set(group_status) != set(query_spec.feature_groups):

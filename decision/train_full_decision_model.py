@@ -37,7 +37,7 @@ from decision.model_protocol import (
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
-from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
+from utility_labels.fields import NEED_QUERY_COLUMNS, RUNTIME_COST_COLUMNS, UTILITY_VALUE_COLUMNS
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -78,6 +78,7 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
+    *RUNTIME_COST_COLUMNS,
 )
 ACTION_RELATION_COLUMNS = (
     "selected_equals_default",
@@ -100,11 +101,20 @@ FORBIDDEN_X_COLUMNS = {
     "p_query",
     "performance_gain_raw",
     "performance_gain_norm",
+    "runtime_query_sampling",
+    "runtime_query_evaluation",
+    "runtime_query_feature_computation",
     "runtime_query",
     "runtime_selection",
+    "runtime_handoff",
+    "runtime_no_query_handoff",
     "runtime_no_query_optimization",
     "runtime_query_optimization",
+    "runtime_query_total",
+    "runtime_no_query_total",
+    "runtime_net",
     "time_cost_norm",
+    "analysis_compute_cost_norm",
     "memory_cost_norm",
     "u_query_lamT_0",
     "u_query_lamT_025",
@@ -691,8 +701,6 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
         raise ValueError("selector_target_transform is inconsistent")
     if set(dataset["selection_reference_protocol"].astype(str)) != {SELECTION_REFERENCE_PROTOCOL}:
         raise ValueError("selection_reference_protocol is inconsistent")
-    if ((~handoff_required) & (target.to_numpy(dtype=float) > 0.0)).any():
-        raise ValueError("main-protocol rows that select the current SBS must not have positive query utility")
     for column in feature_columns:
         values = pd.to_numeric(dataset[column], errors="coerce")
         non_null = values.notna()

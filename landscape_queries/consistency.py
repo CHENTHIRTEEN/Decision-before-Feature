@@ -91,6 +91,8 @@ def _check_samples(samples: pd.DataFrame) -> None:
         "sample_seed",
         "sample_size",
         "FE_query",
+        "runtime_query_sampling",
+        "runtime_query_evaluation",
         "runtime_sampling_evaluation",
         "X",
         "y",
@@ -105,6 +107,8 @@ def _check_samples(samples: pd.DataFrame) -> None:
         raise ValueError("consistency inputs contain failed sample rows")
     for row in samples.to_dict(orient="records"):
         design = get_sample_design_spec(str(row["sample_design_id"]))
+        if str(row["sampling_protocol"]) != design.protocol:
+            raise ValueError("sample row uses an unsupported sampling protocol")
         expected_size = design.sample_size(int(row["dimension"]))
         if int(row["sample_size"]) != expected_size or int(row["FE_query"]) != expected_size:
             raise ValueError("sample_size and FE_query must match the frozen dimension multiplier")
@@ -116,6 +120,19 @@ def _check_samples(samples: pd.DataFrame) -> None:
             raise ValueError("saved X or y shape is inconsistent with its sample design")
         if not np.isfinite(x).all() or not np.isfinite(y).all():
             raise ValueError("saved X and y must be finite")
+        runtime_parts = (
+            float(row["runtime_query_sampling"]),
+            float(row["runtime_query_evaluation"]),
+        )
+        if any(not np.isfinite(value) or value < 0.0 for value in runtime_parts):
+            raise ValueError("query sampling runtimes must be finite and non-negative")
+        if not np.isclose(
+            float(row["runtime_sampling_evaluation"]),
+            sum(runtime_parts),
+            rtol=0.0,
+            atol=1e-12,
+        ):
+            raise ValueError("runtime_sampling_evaluation must equal sampling plus objective evaluation")
 
 
 def _check_features(features: pd.DataFrame, samples: pd.DataFrame) -> None:
@@ -147,6 +164,11 @@ def _check_features(features: pd.DataFrame, samples: pd.DataFrame) -> None:
         ].astype(float)
         if not np.allclose(frame["runtime_query"].astype(float), runtime, rtol=0.0, atol=1e-12):
             raise ValueError(f"{query_id} runtime_query is not sampling + feature computation")
+        if not np.array_equal(
+            frame["runtime_query_feature_computation"].astype(float).to_numpy(),
+            frame["runtime_feature_computation"].astype(float).to_numpy(),
+        ):
+            raise ValueError(f"{query_id} query feature-computation runtime alias is inconsistent")
         if (frame["additional_function_evaluations"].astype(int) != 0).any():
             raise ValueError(f"{query_id} must not perform additional objective evaluations")
         for row in frame.to_dict(orient="records"):
@@ -162,12 +184,27 @@ def _check_features(features: pd.DataFrame, samples: pd.DataFrame) -> None:
 
     if not samples.empty:
         sample_meta = samples[
-            key + ["sample_seed", "sample_size", "FE_query", "runtime_sampling_evaluation"]
+            key
+            + [
+                "sample_seed",
+                "sample_size",
+                "FE_query",
+                "runtime_query_sampling",
+                "runtime_query_evaluation",
+                "runtime_sampling_evaluation",
+            ]
         ]
         joined = features.merge(sample_meta, on=key, how="left", suffixes=("_feature", "_sample"), indicator=True)
         if not joined["_merge"].eq("both").all():
             raise ValueError("every feature row must map to exactly one saved X,y sample row")
-        for column in ("sample_seed", "sample_size", "FE_query", "runtime_sampling_evaluation"):
+        for column in (
+            "sample_seed",
+            "sample_size",
+            "FE_query",
+            "runtime_query_sampling",
+            "runtime_query_evaluation",
+            "runtime_sampling_evaluation",
+        ):
             left = joined[f"{column}_feature"].astype(float)
             right = joined[f"{column}_sample"].astype(float)
             if not np.array_equal(left.to_numpy(), right.to_numpy()):
@@ -230,7 +267,18 @@ def _check_feature_row_status(row: dict, spec) -> None:
 
 
 def _check_action_losses(action_losses: pd.DataFrame) -> None:
-    required = {"sample_design_id", "FE_query", "FE_total", "dimension", "action_loss_protocol"}
+    required = {
+        "sample_design_id",
+        "FE_query",
+        "FE_total",
+        "dimension",
+        "transition_mode",
+        "runtime_no_query_handoff",
+        "runtime_no_query_optimization",
+        "runtime_handoff",
+        "runtime_action_optimization",
+        "action_loss_protocol",
+    }
     missing = required.difference(action_losses.columns)
     if missing:
         raise ValueError(f"action-loss data are missing query-budget columns: {sorted(missing)}")
@@ -242,6 +290,18 @@ def _check_action_losses(action_losses: pd.DataFrame) -> None:
         ratios = frame["FE_query"].astype(float) / frame["FE_total"].astype(float)
         if not np.allclose(ratios, design.fe_ratio, rtol=0.0, atol=1e-12):
             raise ValueError(f"{design_id} action losses use an inconsistent FE ratio")
+    runtime_columns = (
+        "runtime_no_query_handoff",
+        "runtime_no_query_optimization",
+        "runtime_handoff",
+        "runtime_action_optimization",
+    )
+    runtimes = action_losses[list(runtime_columns)].to_numpy(dtype=float)
+    if not np.isfinite(runtimes).all() or (runtimes < 0.0).any():
+        raise ValueError("action-loss runtimes must be finite and non-negative")
+    native = action_losses["transition_mode"].astype(str) == "native_optimizer_state"
+    if not bool((action_losses.loc[native, "runtime_handoff"].astype(float) == 0.0).all()):
+        raise ValueError("native action continuations must have zero handoff runtime")
 
 
 def main() -> None:

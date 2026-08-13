@@ -178,7 +178,7 @@ $$
 U_{query}=G-\lambda_T C_T-\lambda_M C_M,
 $$
 
-其中 $C_T$ 与 $C_M$ 只包含尚未进入 performance loss 的额外时间与内存成本。若未来采用额外 query FE 而非等总 FE，必须另设实验条件和公式。
+其中 $C_T$ 是 Query 与 No-query 两条完整路径的有符号端到端 wall-clock 相对差，$C_M$ 是尚未进入 performance loss 的额外内存成本。Query 样本评价时间进入 Query 总时间，同时 Query 分支少执行的后续优化时间通过两条路径相减抵消。纯 feature/selector/handoff 计算开销只作诊断。若未来采用额外 query FE 而非等总 FE，必须另设实验条件和公式。
 
 逐状态 best observed action 定义为：
 

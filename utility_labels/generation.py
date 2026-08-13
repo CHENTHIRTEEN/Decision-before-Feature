@@ -124,14 +124,38 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     performance_gain_norm = performance_gain_raw / scale
     potential_gain_norm = potential_gain_raw / scale
     selector_regret_norm = selector_regret_raw / scale
+    runtime_query_sampling = float(row["runtime_query_sampling"])
+    runtime_query_evaluation = float(row["runtime_query_evaluation"])
+    runtime_query_feature = float(row["runtime_query_feature_computation"])
     runtime_query = float(row["runtime_query"])
     runtime_selection = float(row["runtime_selection"])
+    runtime_handoff = float(row["runtime_handoff"])
+    runtime_no_query_handoff = float(row["runtime_no_query_handoff"])
     runtime_skip = float(row["runtime_no_query_optimization"])
     runtime_selected = float(row["runtime_selected_action_optimization"])
-    runtimes = (runtime_query, runtime_selection, runtime_skip, runtime_selected)
+    runtimes = (
+        runtime_query_sampling,
+        runtime_query_evaluation,
+        runtime_query_feature,
+        runtime_query,
+        runtime_selection,
+        runtime_handoff,
+        runtime_no_query_handoff,
+        runtime_skip,
+        runtime_selected,
+    )
     if any(not isfinite(value) or value < 0.0 for value in runtimes):
         raise ValueError("query and optimization runtimes must be finite and non-negative")
-    time_cost_norm = (runtime_query + runtime_selection) / max(runtime_skip, EPS)
+    expected_runtime_query = runtime_query_sampling + runtime_query_evaluation + runtime_query_feature
+    if not np.isclose(runtime_query, expected_runtime_query, rtol=0.0, atol=EPS):
+        raise ValueError("runtime_query must equal sampling, evaluation, and feature-computation time")
+    runtime_query_total = runtime_query + runtime_selection + runtime_handoff + runtime_selected
+    runtime_no_query_total = runtime_no_query_handoff + runtime_skip
+    runtime_net = runtime_query_total - runtime_no_query_total
+    time_cost_norm = runtime_net / max(runtime_no_query_total, EPS)
+    analysis_compute_cost_norm = (
+        runtime_query_feature + runtime_selection + runtime_handoff
+    ) / max(runtime_skip, EPS)
     utility_values = {
         column: performance_gain_norm - weight * time_cost_norm
         for column, weight in zip(UTILITY_VALUE_COLUMNS, UTILITY_LAMBDAS, strict=True)
@@ -187,11 +211,20 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "selector_regret_decomposition_norm": float(selector_regret_norm),
         "performance_gain_raw": float(performance_gain_raw),
         "performance_gain_norm": float(performance_gain_norm),
+        "runtime_query_sampling": runtime_query_sampling,
+        "runtime_query_evaluation": runtime_query_evaluation,
+        "runtime_query_feature_computation": runtime_query_feature,
         "runtime_query": runtime_query,
         "runtime_selection": runtime_selection,
+        "runtime_handoff": runtime_handoff,
+        "runtime_no_query_handoff": runtime_no_query_handoff,
         "runtime_no_query_optimization": runtime_skip,
         "runtime_query_optimization": runtime_selected,
+        "runtime_query_total": float(runtime_query_total),
+        "runtime_no_query_total": float(runtime_no_query_total),
+        "runtime_net": float(runtime_net),
         "time_cost_norm": float(time_cost_norm),
+        "analysis_compute_cost_norm": float(analysis_compute_cost_norm),
         "memory_cost_norm": 0.0,
         **utility_values,
         **need_values,
@@ -253,11 +286,20 @@ def utility_schema() -> pa.Schema:
         ("selector_regret_decomposition_norm", pa.float64()),
         ("performance_gain_raw", pa.float64()),
         ("performance_gain_norm", pa.float64()),
+        ("runtime_query_sampling", pa.float64()),
+        ("runtime_query_evaluation", pa.float64()),
+        ("runtime_query_feature_computation", pa.float64()),
         ("runtime_query", pa.float64()),
         ("runtime_selection", pa.float64()),
+        ("runtime_handoff", pa.float64()),
+        ("runtime_no_query_handoff", pa.float64()),
         ("runtime_no_query_optimization", pa.float64()),
         ("runtime_query_optimization", pa.float64()),
+        ("runtime_query_total", pa.float64()),
+        ("runtime_no_query_total", pa.float64()),
+        ("runtime_net", pa.float64()),
         ("time_cost_norm", pa.float64()),
+        ("analysis_compute_cost_norm", pa.float64()),
         ("memory_cost_norm", pa.float64()),
     ]
     fields.extend((column, pa.float64()) for column in UTILITY_VALUE_COLUMNS)

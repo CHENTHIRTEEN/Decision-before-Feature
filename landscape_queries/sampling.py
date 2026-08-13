@@ -49,12 +49,14 @@ def sample_problem(
         sample_design=sample_design,
     )
     sample_size = sample_design.sample_size(problem.dimension)
-    started = perf_counter()
+    sampling_started = perf_counter()
     sampler = qmc.LatinHypercube(d=problem.dimension, seed=sample_seed)
     unit = sampler.random(n=sample_size)
     x = qmc.scale(unit, problem.lower_bounds, problem.upper_bounds)
+    runtime_sampling = perf_counter() - sampling_started
+    evaluation_started = perf_counter()
     y = np.asarray(problem.evaluate(x), dtype=float).reshape(-1)
-    runtime = perf_counter() - started
+    runtime_evaluation = perf_counter() - evaluation_started
     if x.shape != (sample_size, problem.dimension) or y.shape != (sample_size,):
         raise ValueError("landscape-query sample has an unexpected shape")
     if not np.isfinite(x).all() or not np.isfinite(y).all():
@@ -63,7 +65,9 @@ def sample_problem(
         "sample_seed": sample_seed,
         "sample_size": sample_size,
         "FE_query": sample_size,
-        "runtime_sampling_evaluation": float(runtime),
+        "runtime_query_sampling": float(runtime_sampling),
+        "runtime_query_evaluation": float(runtime_evaluation),
+        "runtime_sampling_evaluation": float(runtime_sampling + runtime_evaluation),
         "lower_bounds": np.asarray(problem.lower_bounds, dtype=float).tolist(),
         "upper_bounds": np.asarray(problem.upper_bounds, dtype=float).tolist(),
         "X": x.tolist(),

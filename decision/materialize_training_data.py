@@ -18,7 +18,7 @@ from behavior.features import (
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
-from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
+from utility_labels.fields import NEED_QUERY_COLUMNS, RUNTIME_COST_COLUMNS, UTILITY_VALUE_COLUMNS
 
 
 DEFAULT_BEHAVIOR_ROOT = Path("results/phase1_refined_sampling")
@@ -67,6 +67,7 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
+    *RUNTIME_COST_COLUMNS,
 )
 DATASET_COLUMNS = (
     METADATA_COLUMNS
@@ -121,11 +122,20 @@ FORBIDDEN_INPUT_COLUMNS = {
     "selector_regret_decomposition_norm",
     "performance_gain_raw",
     "performance_gain_norm",
+    "runtime_query_sampling",
+    "runtime_query_evaluation",
+    "runtime_query_feature_computation",
     "runtime_query",
     "runtime_selection",
+    "runtime_handoff",
+    "runtime_no_query_handoff",
     "runtime_no_query_optimization",
     "runtime_query_optimization",
+    "runtime_query_total",
+    "runtime_no_query_total",
+    "runtime_net",
     "time_cost_norm",
+    "analysis_compute_cost_norm",
     "memory_cost_norm",
     "u_query_lamT_0",
     "u_query_lamT_025",
@@ -406,6 +416,7 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         "no_query_transition_mode",
         "query_transition_mode",
         "handoff_type",
+        *RUNTIME_COST_COLUMNS,
         *UTILITY_VALUE_COLUMNS,
         *NEED_QUERY_COLUMNS,
     }
@@ -470,6 +481,7 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "no_query_transition_mode",
             "query_transition_mode",
             "handoff_type",
+            *RUNTIME_COST_COLUMNS,
             *UTILITY_VALUE_COLUMNS,
             *NEED_QUERY_COLUMNS,
             *BEHAVIOR_FEATURE_COLUMNS,
@@ -524,6 +536,49 @@ def _metadata_value_is_null(value: Any) -> bool:
 
 
 def _check_targets(dataset: pd.DataFrame) -> None:
+    runtime_nonnegative = [
+        column
+        for column in RUNTIME_COST_COLUMNS
+        if column not in {"runtime_net", "time_cost_norm"}
+    ]
+    for column in runtime_nonnegative:
+        values = dataset[column].to_numpy(dtype=float)
+        if not np.isfinite(values).all() or (values < 0.0).any():
+            raise ValueError(f"{column} must be finite and non-negative")
+    for column in ("runtime_net", "time_cost_norm"):
+        if not np.isfinite(dataset[column].to_numpy(dtype=float)).all():
+            raise ValueError(f"{column} must be finite")
+    runtime_checks = {
+        "runtime_query": (
+            dataset["runtime_query_sampling"].astype(float)
+            + dataset["runtime_query_evaluation"].astype(float)
+            + dataset["runtime_query_feature_computation"].astype(float)
+        ),
+        "runtime_query_total": (
+            dataset["runtime_query"].astype(float)
+            + dataset["runtime_selection"].astype(float)
+            + dataset["runtime_handoff"].astype(float)
+            + dataset["runtime_query_optimization"].astype(float)
+        ),
+        "runtime_no_query_total": (
+            dataset["runtime_no_query_handoff"].astype(float)
+            + dataset["runtime_no_query_optimization"].astype(float)
+        ),
+    }
+    for column, expected in runtime_checks.items():
+        if not np.allclose(dataset[column].to_numpy(dtype=float), expected, rtol=0.0, atol=EPS):
+            raise ValueError(f"{column} decomposition is inconsistent")
+    expected_net = dataset["runtime_query_total"].astype(float) - dataset[
+        "runtime_no_query_total"
+    ].astype(float)
+    if not np.allclose(dataset["runtime_net"].to_numpy(dtype=float), expected_net, rtol=0.0, atol=EPS):
+        raise ValueError("runtime_net is inconsistent")
+    expected_time_cost = expected_net / np.maximum(
+        dataset["runtime_no_query_total"].to_numpy(dtype=float),
+        EPS,
+    )
+    if not np.allclose(dataset["time_cost_norm"].to_numpy(dtype=float), expected_time_cost, rtol=0.0, atol=EPS):
+        raise ValueError("time_cost_norm is inconsistent")
     for target_column, label_column in zip(UTILITY_VALUE_COLUMNS, NEED_QUERY_COLUMNS, strict=True):
         target = dataset[target_column].to_numpy(dtype=float)
         if dataset[target_column].isna().any():
@@ -616,11 +671,6 @@ def _primary_protocol_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("primary protocol has no rows with prefix_algorithm == default_algorithm")
     if set(primary["split"].astype(str)) != set(dataset["split"].astype(str)):
         raise ValueError("primary protocol must retain every input split")
-    invalid_no_action_gain = primary[
-        ~primary["handoff_required"].astype(bool) & (primary[TARGET_COLUMN].astype(float) > 0.0)
-    ]
-    if not invalid_no_action_gain.empty:
-        raise ValueError("primary no-action-change rows must not have positive query utility")
     return primary.reset_index(drop=True)
 
 

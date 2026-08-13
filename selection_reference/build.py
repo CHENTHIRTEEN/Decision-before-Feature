@@ -189,6 +189,10 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         ).all()
     ):
         raise ValueError("handoff_required must match the selected transition mode")
+    if not bool(
+        (reference.loc[~reference["handoff_required"].astype(bool), "runtime_handoff"].astype(float) == 0.0).all()
+    ):
+        raise ValueError("native selected actions must have zero handoff runtime")
     regret = reference["selected_action_loss"].astype(float) - reference["best_observed_loss"].astype(float)
     if bool((regret < -1e-12).any()):
         raise ValueError("selector regret cannot be smaller than zero")

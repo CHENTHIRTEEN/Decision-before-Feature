@@ -16,6 +16,7 @@ from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
+from utility_labels.fields import RUNTIME_COST_COLUMNS
 
 
 TRAIN_SPLIT = "bbob_train"
@@ -54,6 +55,7 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
+    *RUNTIME_COST_COLUMNS,
 )
 FORBIDDEN_X_COLUMNS = {
     *METADATA_COLUMNS,
@@ -70,11 +72,20 @@ FORBIDDEN_X_COLUMNS = {
     "p_query",
     "performance_gain_raw",
     "performance_gain_norm",
+    "runtime_query_sampling",
+    "runtime_query_evaluation",
+    "runtime_query_feature_computation",
     "runtime_query",
     "runtime_selection",
+    "runtime_handoff",
+    "runtime_no_query_handoff",
     "runtime_no_query_optimization",
     "runtime_query_optimization",
+    "runtime_query_total",
+    "runtime_no_query_total",
+    "runtime_net",
     "time_cost_norm",
+    "analysis_compute_cost_norm",
     "memory_cost_norm",
     "u_query_lamT_0",
     "u_query_lamT_025",
