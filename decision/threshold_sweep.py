@@ -31,6 +31,14 @@ TARGET_COLUMN = DEFAULT_TARGET_COLUMN
 AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
+RUN_KEY_COLUMNS = (
+    "split",
+    "problem_id",
+    "family",
+    "dimension",
+    "prefix_algorithm",
+    "seed",
+)
 REQUIRED_BASE_COLUMNS = {
     "data_split",
     "model_name",
