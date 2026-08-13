@@ -21,14 +21,17 @@ from decision.sampling_opportunities import (
 )
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
+from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
 
 
 DEFAULT_FEATURE_GROUPS = ("T0", "B1", "B2", "B3")
-TARGET_COLUMN = "u_query_lamT_1"
-AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+DEFAULT_TARGET_COLUMN = "u_query_lamT_1"
+DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+TARGET_COLUMN = DEFAULT_TARGET_COLUMN
+AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-REQUIRED_COLUMNS = {
+REQUIRED_BASE_COLUMNS = {
     "data_split",
     "model_name",
     "model_family",
@@ -53,8 +56,6 @@ REQUIRED_COLUMNS = {
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    TARGET_COLUMN,
-    AUXILIARY_LABEL_COLUMN,
     "decision_score",
     "decision_run_query_zero",
     "decision_utility_zero",
@@ -85,7 +86,13 @@ def run_threshold_sweep(
     threshold_max: float,
     threshold_step: float,
     overwrite: bool,
+    target_column: str = DEFAULT_TARGET_COLUMN,
+    auxiliary_label_column: str = DEFAULT_AUXILIARY_LABEL_COLUMN,
 ) -> dict[str, Any]:
+    _set_utility_target_columns(
+        target_column=target_column,
+        auxiliary_label_column=auxiliary_label_column,
+    )
     _check_args(threshold_min, threshold_max, threshold_step)
     if tuple(feature_groups) != DEFAULT_FEATURE_GROUPS:
         raise ValueError(
@@ -214,6 +221,7 @@ def run_threshold_sweep(
         "input_root": str(input_root),
         "feature_groups": feature_groups,
         "target_column": TARGET_COLUMN,
+        "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
         "decision_opportunity_set": "all accepted dynamic budget-milestone and causal-event rows",
         "threshold_grid": {
             "min": threshold_min,
@@ -301,6 +309,19 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"threshold sweep outputs already exist; pass --overwrite: {existing[0]}")
 
 
+def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: str) -> None:
+    if target_column not in UTILITY_VALUE_COLUMNS:
+        raise ValueError(f"target_column must be one of {list(UTILITY_VALUE_COLUMNS)}")
+    if auxiliary_label_column not in NEED_QUERY_COLUMNS:
+        raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
+    expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+    if auxiliary_label_column != expected_label:
+        raise ValueError(f"{target_column} must use corresponding auxiliary label {expected_label}")
+    global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN
+    TARGET_COLUMN = target_column
+    AUXILIARY_LABEL_COLUMN = auxiliary_label_column
+
+
 def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> dict[str, Any]:
     group_dir = input_root / feature_group
     train_path = group_dir / "train_oof_predictions.parquet"
@@ -323,6 +344,15 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
     validate_query_payload(summary, query_id=query_id, artifact=f"{feature_group} training summary")
     if summary.get("feature_group") != feature_group:
         raise ValueError(f"training summary feature_group mismatch for {feature_group}")
+    if summary.get("target_column") != TARGET_COLUMN:
+        raise ValueError(
+            f"{feature_group} training summary target_column must be {TARGET_COLUMN}, got {summary.get('target_column')}"
+        )
+    if summary.get("auxiliary_label_column") != AUXILIARY_LABEL_COLUMN:
+        raise ValueError(
+            f"{feature_group} training summary auxiliary_label_column must be {AUXILIARY_LABEL_COLUMN}, "
+            f"got {summary.get('auxiliary_label_column')}"
+        )
     return {
         "feature_group": feature_group,
         "train_oof": train_oof,
@@ -333,7 +363,8 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
 
 
 def _check_prediction_frame(frame: pd.DataFrame, *, expected_data_split: str, feature_group: str) -> None:
-    missing = sorted(REQUIRED_COLUMNS.difference(frame.columns))
+    required_columns = set(REQUIRED_BASE_COLUMNS) | {TARGET_COLUMN, AUXILIARY_LABEL_COLUMN}
+    missing = sorted(required_columns.difference(frame.columns))
     if missing:
         raise ValueError(f"{feature_group} predictions missing required columns: {missing}")
     if set(frame["data_split"].astype(str).unique()) != {expected_data_split}:
@@ -1043,8 +1074,13 @@ def main() -> None:
     parser.add_argument("--threshold-min", type=float, default=-0.5)
     parser.add_argument("--threshold-max", type=float, default=0.5)
     parser.add_argument("--threshold-step", type=float, default=0.005)
+    parser.add_argument("--target-column", choices=UTILITY_VALUE_COLUMNS, default=DEFAULT_TARGET_COLUMN)
+    parser.add_argument("--auxiliary-label-column", choices=NEED_QUERY_COLUMNS, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    auxiliary_label_column = args.auxiliary_label_column or NEED_QUERY_COLUMNS[
+        UTILITY_VALUE_COLUMNS.index(args.target_column)
+    ]
     query_root = decision_query_root(args.query_id)
     run_threshold_sweep(
         query_id=args.query_id,
@@ -1055,6 +1091,8 @@ def main() -> None:
         threshold_max=args.threshold_max,
         threshold_step=args.threshold_step,
         overwrite=args.overwrite,
+        target_column=args.target_column,
+        auxiliary_label_column=auxiliary_label_column,
     )
 
 

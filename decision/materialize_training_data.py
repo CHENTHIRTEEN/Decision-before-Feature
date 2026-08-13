@@ -18,6 +18,7 @@ from behavior.features import (
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
+from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
 
 
 DEFAULT_BEHAVIOR_ROOT = Path("results/phase1_refined_sampling")
@@ -69,7 +70,8 @@ METADATA_COLUMNS = (
 )
 DATASET_COLUMNS = (
     METADATA_COLUMNS
-    + (TARGET_COLUMN, AUXILIARY_LABEL_COLUMN)
+    + UTILITY_VALUE_COLUMNS
+    + NEED_QUERY_COLUMNS
     + BEHAVIOR_FEATURE_COLUMNS
 )
 FORBIDDEN_INPUT_COLUMNS = {
@@ -404,8 +406,8 @@ def _check_required_columns(utility: pd.DataFrame, behavior: pd.DataFrame) -> No
         "no_query_transition_mode",
         "query_transition_mode",
         "handoff_type",
-        TARGET_COLUMN,
-        AUXILIARY_LABEL_COLUMN,
+        *UTILITY_VALUE_COLUMNS,
+        *NEED_QUERY_COLUMNS,
     }
     behavior_required = set(JOIN_KEY_COLUMNS) | {
         "FE_ratio",
@@ -468,8 +470,8 @@ def _materialized_dataset(joined: pd.DataFrame) -> pd.DataFrame:
             "no_query_transition_mode",
             "query_transition_mode",
             "handoff_type",
-            TARGET_COLUMN,
-            AUXILIARY_LABEL_COLUMN,
+            *UTILITY_VALUE_COLUMNS,
+            *NEED_QUERY_COLUMNS,
             *BEHAVIOR_FEATURE_COLUMNS,
         ]
     ].copy()
@@ -522,15 +524,16 @@ def _metadata_value_is_null(value: Any) -> bool:
 
 
 def _check_targets(dataset: pd.DataFrame) -> None:
-    target = dataset[TARGET_COLUMN].to_numpy(dtype=float)
-    if dataset[TARGET_COLUMN].isna().any():
-        raise ValueError(f"target column {TARGET_COLUMN} must not contain null values")
-    if not np.isfinite(target).all():
-        raise ValueError(f"target column {TARGET_COLUMN} must contain only finite values")
-    expected_label = dataset[TARGET_COLUMN].to_numpy(dtype=float) > 0.0
-    observed_label = dataset[AUXILIARY_LABEL_COLUMN].to_numpy(dtype=bool)
-    if not np.array_equal(expected_label, observed_label):
-        raise ValueError(f"{AUXILIARY_LABEL_COLUMN} must equal {TARGET_COLUMN} > 0")
+    for target_column, label_column in zip(UTILITY_VALUE_COLUMNS, NEED_QUERY_COLUMNS, strict=True):
+        target = dataset[target_column].to_numpy(dtype=float)
+        if dataset[target_column].isna().any():
+            raise ValueError(f"target column {target_column} must not contain null values")
+        if not np.isfinite(target).all():
+            raise ValueError(f"target column {target_column} must contain only finite values")
+        expected_label = target > 0.0
+        observed_label = dataset[label_column].to_numpy(dtype=bool)
+        if not np.array_equal(expected_label, observed_label):
+            raise ValueError(f"{label_column} must equal {target_column} > 0")
 
 
 def _check_feature_values(dataset: pd.DataFrame) -> None:
@@ -844,6 +847,8 @@ def _schema_payload(dataset: pd.DataFrame) -> dict[str, Any]:
         "sample_design_id": str(dataset["sample_design_id"].iloc[0]),
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
+        "utility_value_columns": list(UTILITY_VALUE_COLUMNS),
+        "need_query_columns": list(NEED_QUERY_COLUMNS),
         "input_columns": list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
         "diagnostic_columns": list(DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS),
         "metadata_columns": list(METADATA_COLUMNS),

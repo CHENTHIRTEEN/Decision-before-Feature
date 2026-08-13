@@ -37,12 +37,15 @@ from decision.model_protocol import (
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
+from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
 
 
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_query_lamT_1"
-AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+DEFAULT_TARGET_COLUMN = "u_query_lamT_1"
+DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+TARGET_COLUMN = DEFAULT_TARGET_COLUMN
+AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
 METADATA_COLUMNS = (
     "split",
     "problem_id",
@@ -177,7 +180,13 @@ def train_full_decision_models(
     overwrite: bool,
     random_seed: int,
     feature_group: str,
+    target_column: str = DEFAULT_TARGET_COLUMN,
+    auxiliary_label_column: str = DEFAULT_AUXILIARY_LABEL_COLUMN,
 ) -> dict[str, Any]:
+    _set_utility_target_columns(
+        target_column=target_column,
+        auxiliary_label_column=auxiliary_label_column,
+    )
     _check_output_paths(output_dir, overwrite)
     if feature_group not in {"T0", "B1", "B2", "B3"}:
         raise ValueError(
@@ -585,6 +594,19 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
     existing = [path for path in outputs if path.exists()] + list(model_outputs)
     if existing and not overwrite:
         raise FileExistsError(f"full training outputs already exist; pass --overwrite: {existing[0]}")
+
+
+def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: str) -> None:
+    if target_column not in UTILITY_VALUE_COLUMNS:
+        raise ValueError(f"target_column must be one of {list(UTILITY_VALUE_COLUMNS)}")
+    if auxiliary_label_column not in NEED_QUERY_COLUMNS:
+        raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
+    expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+    if auxiliary_label_column != expected_label:
+        raise ValueError(f"{target_column} must use corresponding auxiliary label {expected_label}")
+    global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN
+    TARGET_COLUMN = target_column
+    AUXILIARY_LABEL_COLUMN = auxiliary_label_column
 
 
 def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
@@ -1662,8 +1684,13 @@ def main() -> None:
         default="B3",
     )
     parser.add_argument("--random-seed", type=int, default=1701)
+    parser.add_argument("--target-column", choices=UTILITY_VALUE_COLUMNS, default=DEFAULT_TARGET_COLUMN)
+    parser.add_argument("--auxiliary-label-column", choices=NEED_QUERY_COLUMNS, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    auxiliary_label_column = args.auxiliary_label_column or NEED_QUERY_COLUMNS[
+        UTILITY_VALUE_COLUMNS.index(args.target_column)
+    ]
 
     materialized = Path("results/decision") / args.query_id / "materialized_training_data"
     train_full_decision_models(
@@ -1675,6 +1702,8 @@ def main() -> None:
         overwrite=args.overwrite,
         random_seed=args.random_seed,
         feature_group=args.feature_group,
+        target_column=args.target_column,
+        auxiliary_label_column=auxiliary_label_column,
     )
 
 
