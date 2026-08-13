@@ -192,8 +192,27 @@ def _markdown_report(*, query_id: str, shards: pd.DataFrame, summary: pd.DataFra
         "",
     ]
     if not summary.empty:
-        lines.append(summary.to_markdown(index=False))
+        lines.append(_markdown_table(summary))
         lines.append("")
+    return "\n".join(lines)
+
+
+def _markdown_table(frame: pd.DataFrame) -> str:
+    def format_value(value: Any) -> str:
+        if pd.isna(value):
+            return ""
+        if isinstance(value, float):
+            return f"{value:.6g}"
+        return str(value)
+
+    columns = list(frame.columns)
+    headers = [str(column) for column in columns]
+    rows = [[format_value(row[column]) for column in columns] for _, row in frame.iterrows()]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return "\n".join(lines)
 
 

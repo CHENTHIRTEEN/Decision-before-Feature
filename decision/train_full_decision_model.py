@@ -134,6 +134,15 @@ RUN_KEY_COLUMNS = (
 )
 
 
+def _threshold_candidates(thresholds: np.ndarray) -> np.ndarray:
+    values = np.asarray(thresholds, dtype=float).reshape(-1)
+    values = values[np.isfinite(values)]
+    if len(values) == 0:
+        raise ValueError("threshold candidates require at least one finite score")
+    lower = np.nextafter(float(np.min(values)), -np.inf)
+    return np.unique(np.concatenate([np.asarray([lower], dtype=float), values]))
+
+
 def train_full_decision_models(
     *,
     query_id: str,
@@ -746,7 +755,7 @@ def _ordered_decision_run_frame(run_frame: pd.DataFrame) -> pd.DataFrame:
             "multiple decision opportunities share the same FE, but decision_opportunity_index is unavailable"
         )
 
-    return run_frame.sort_values(order_columns, kind="mergesort").reset_index(drop=True)
+    return run_frame.sort_values(order_columns, kind="mergesort")
 
 
 def _first_trigger_run_utility(
@@ -882,9 +891,11 @@ def _decision_threshold_from_scores(
         call_runs = 0
         for _, run_frame in _iter_decision_run_groups(frame):
             ordered = _ordered_decision_run_frame(run_frame)
-            run_index = ordered.index.to_numpy()
-            run_scores = scores[run_index]
-            run_observed = observed[run_index]
+            run_positions = frame.index.get_indexer(ordered.index)
+            if (run_positions < 0).any():
+                raise RuntimeError("ordered run rows are not aligned with the threshold-fitting frame")
+            run_scores = scores[run_positions]
+            run_observed = observed[run_positions]
             triggered, utility = _first_trigger_run_utility(
                 ordered,
                 scores=run_scores,

@@ -211,9 +211,9 @@ def materialize_decision_training_data(
     )
     utility_only = int(utility_to_behavior["_merge"].ne("both").sum())
     behavior_only = int(behavior_to_utility["_merge"].ne("both").sum())
-    if utility_only or behavior_only:
+    if utility_only:
         raise ValueError(
-            "utility and behavior state-key coverage must be bidirectional; "
+            "utility labels must be covered by behavior state keys; "
             f"utility_only={utility_only}, behavior_only={behavior_only}"
         )
 
@@ -268,6 +268,8 @@ def materialize_decision_training_data(
         join_coverage=join_coverage,
         utility_duplicates=utility_duplicates,
         behavior_duplicates=behavior_duplicates,
+        utility_only=utility_only,
+        behavior_only=behavior_only,
         fe_ratio_mismatch_count=fe_ratio_mismatch_count,
     )
     input_legality = _input_legality_summary()
@@ -628,6 +630,8 @@ def _join_summary(
     join_coverage: float,
     utility_duplicates: int,
     behavior_duplicates: int,
+    utility_only: int,
+    behavior_only: int,
     fe_ratio_mismatch_count: int,
 ) -> pd.DataFrame:
     return pd.DataFrame(
@@ -640,6 +644,9 @@ def _join_summary(
                 "join_coverage": float(join_coverage),
                 "utility_key_duplicate_rows": int(utility_duplicates),
                 "behavior_key_duplicate_rows": int(behavior_duplicates),
+                "utility_only_key_rows": int(utility_only),
+                "behavior_only_key_rows": int(behavior_only),
+                "behavior_only_key_rows_role": "non_primary_prefix_behavior_rows_not_materialized",
                 "fe_ratio_mismatch_count": int(fe_ratio_mismatch_count),
             }
         ]
