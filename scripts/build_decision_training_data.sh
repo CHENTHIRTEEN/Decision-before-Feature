@@ -72,13 +72,20 @@ if [[ ! -f "$TRAIN_FEATURE_PATH" || ! -f "$VALIDATION_FEATURE_PATH" ]]; then
   exit 1
 fi
 
-echo "[3/8] Extract behavior shards for train and validation"
+echo "[3/8] Collect trajectory shards for train and validation"
+run_py experiments.phase1_collect_batch \
+  --config "$CONFIG_TRAIN" \
+  --config "$CONFIG_VALIDATION" \
+  --workers "$WORKERS" \
+  ${OVERWRITE_FLAG}
+
+echo "[4/8] Extract behavior shards for train and validation"
 run_py behavior.batch_extraction \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
   ${OVERWRITE_FLAG}
 
-echo "[4/8] Generate selection-reference action losses for train and validation"
+echo "[5/8] Generate selection-reference action losses for train and validation"
 run_py selection_reference.action_losses \
   --config "$CONFIG_TRAIN" \
   --train-config "$CONFIG_TRAIN" \
@@ -101,7 +108,7 @@ if [[ ! -f "$ACTION_LOSS_TRAIN" || ! -f "$ACTION_LOSS_VALIDATION" ]]; then
   exit 1
 fi
 
-echo "[5/8] Build the selection reference and selector model"
+echo "[6/8] Build the selection reference and selector model"
 run_py selection_reference.build \
   --query-id "$QUERY_ID" \
   --train-action-losses "$ACTION_LOSS_TRAIN" \
@@ -111,7 +118,7 @@ run_py selection_reference.build \
   --output "$SELECTION_ROOT/selection_reference.parquet" \
   --model-output "$SELECTION_ROOT/statewise_selector.joblib"
 
-echo "[6/8] Generate utility labels for train and validation"
+echo "[7/8] Generate utility labels for train and validation"
 run_py utility_labels.batch_generation \
   --query-id "$QUERY_ID" \
   --config "$CONFIG_TRAIN" \
@@ -122,7 +129,7 @@ run_py utility_labels.batch_generation \
   --workers "$WORKERS" \
   ${OVERWRITE_FLAG}
 
-echo "[7/8] Materialize Decision training data"
+echo "[8/8] Materialize Decision training data"
 run_py decision.materialize_training_data \
   --query-id "$QUERY_ID" \
   --utility-root "$UTILITY_ROOT" \
@@ -132,7 +139,7 @@ run_py decision.materialize_training_data \
   --expected-behavior-shards 72 \
   ${OVERWRITE_FLAG}
 
-echo "[8/8] Check the Decision model protocol"
+echo "[9/9] Check the Decision model protocol"
 run_py decision.check_model_protocol \
   --training-dir "$MATERIALIZED_DIR"
 
