@@ -6,6 +6,7 @@ from benchmarks.core import Problem
 from optimizers.state import advance_optimizer_state, initialize_optimizer_state
 from optimizers.settings import OptimizerSettings
 from trajectory.final_performance import FinalPerformanceRecord
+from trajectory.query import TrajectoryQueryReservoir
 from trajectory.recorder import TrajectoryRecorder
 from trajectory.records import TrajectoryRecord
 
@@ -17,6 +18,7 @@ SUPPORTED_ALGORITHMS = ("de", "pso", "cmaes", "shade")
 class OptimizerRunResult:
     trajectory_records: list[TrajectoryRecord]
     final_performance: FinalPerformanceRecord
+    trajectory_query_records: list[dict]
 
 
 def run_optimizer(
@@ -35,12 +37,20 @@ def run_optimizer(
         raise ValueError("run_optimizer requires an explicit trajectory sampling protocol")
     recorder = TrajectoryRecorder(
         sampling_protocol=settings.sampling_protocol,
+        trajectory_query_enabled=True,
     )
     state = initialize_optimizer_state(
         algorithm=key,
         problem=problem,
         seed=seed,
         settings=settings,
+        on_evaluation=lambda point, value: recorder.observe_evaluation(
+            problem=problem,
+            algorithm=key,
+            seed=seed,
+            point=point,
+            value=value,
+        ),
     )
     recorder.observe(
         problem=problem,
@@ -69,6 +79,13 @@ def run_optimizer(
                 fitness=updated.fitness,
                 best_fitness=updated.best_fitness,
             ),
+            on_evaluation=lambda point, value: recorder.observe_evaluation(
+                problem=problem,
+                algorithm=key,
+                seed=seed,
+                point=point,
+                value=value,
+            ),
         )
     final_performance = FinalPerformanceRecord.from_optimizer_state(
         problem_id=problem.problem_id,
@@ -81,7 +98,16 @@ def run_optimizer(
         native_updates=state.generation,
         best_fitness=state.best_fitness,
     )
+    recorder.build_trajectory_query_snapshot(
+        split="phase1",
+        problem=problem,
+        algorithm=key,
+        seed=seed,
+        fe=state.evaluations,
+        fe_total=fe_total,
+    )
     return OptimizerRunResult(
         trajectory_records=recorder.records,
         final_performance=final_performance,
+        trajectory_query_records=recorder.trajectory_query_records,
     )

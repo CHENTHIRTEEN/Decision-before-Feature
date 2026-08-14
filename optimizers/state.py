@@ -181,6 +181,7 @@ def initialize_optimizer_state(
     problem: Problem,
     seed: int,
     settings: OptimizerSettings,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> OptimizerState:
     """Initialize an optimizer and evaluate its first native population."""
     population_size = int(settings.population_size)
@@ -191,6 +192,9 @@ def initialize_optimizer_state(
     if key == "cmaes":
         state = _empty_cmaes_state(problem, population_size, rng)
         _advance_cmaes(state, problem, population_size, None)
+        if on_evaluation is not None:
+            for point, value in zip(state.population, state.fitness, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
         return state
 
     population = rng.uniform(
@@ -199,6 +203,9 @@ def initialize_optimizer_state(
         size=(population_size, problem.dimension),
     )
     fitness = np.asarray(problem.evaluate(population), dtype=float)
+    if on_evaluation is not None:
+        for point, value in zip(population, fitness, strict=True):
+            on_evaluation(np.asarray(point, dtype=float), float(value))
     best_index = int(np.argmin(fitness))
     common = {
         "fitness": fitness.copy(),
@@ -346,6 +353,7 @@ def advance_optimizer_state(
     problem: Problem,
     fe_budget: int,
     on_native_update: Callable[[OptimizerState], None] | None = None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> StateAdvanceResult:
     """Advance an existing native optimizer state by exactly ``fe_budget`` evaluations."""
     if fe_budget < 0:
@@ -353,13 +361,13 @@ def advance_optimizer_state(
     _validate_population(problem, state.population, state.fitness)
     started = perf_counter()
     if isinstance(state, DEState):
-        evaluations = _advance_de(state, problem, fe_budget, on_native_update)
+        evaluations = _advance_de(state, problem, fe_budget, on_native_update, on_evaluation)
     elif isinstance(state, PSOState):
-        evaluations = _advance_pso(state, problem, fe_budget, on_native_update)
+        evaluations = _advance_pso(state, problem, fe_budget, on_native_update, on_evaluation)
     elif isinstance(state, CMAESState):
-        evaluations = _advance_cmaes(state, problem, fe_budget, on_native_update)
+        evaluations = _advance_cmaes(state, problem, fe_budget, on_native_update, on_evaluation)
     elif isinstance(state, SHADEState):
-        evaluations = _advance_shade(state, problem, fe_budget, on_native_update)
+        evaluations = _advance_shade(state, problem, fe_budget, on_native_update, on_evaluation)
     else:
         raise TypeError(f"unsupported optimizer state: {type(state).__name__}")
     if evaluations != fe_budget:
@@ -372,6 +380,7 @@ def _advance_de(
     problem: Problem,
     fe_budget: int,
     on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> int:
     completed = 0
     while completed < fe_budget:
@@ -388,6 +397,9 @@ def _advance_de(
         state.pending_index = stop
         state.evaluations += batch
         completed += batch
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_population[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
         if state.pending_index == len(state.population):
             improved = state.pending_fitness < state.fitness
             state.population[improved] = state.pending_population[improved]
@@ -426,6 +438,7 @@ def _advance_pso(
     problem: Problem,
     fe_budget: int,
     on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> int:
     completed = 0
     while completed < fe_budget:
@@ -439,6 +452,9 @@ def _advance_pso(
         state.pending_fitness[start:stop] = values
         for offset, value in enumerate(values):
             _update_best(state, float(value), state.pending_positions[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_positions[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
         state.pending_index = stop
         state.evaluations += batch
         completed += batch
@@ -487,6 +503,7 @@ def _advance_cmaes(
     problem: Problem,
     fe_budget: int,
     on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> int:
     completed = 0
     strategy = state.strategy_state
@@ -501,6 +518,9 @@ def _advance_cmaes(
         strategy.pending_fitness[start:stop] = values
         for offset, value in enumerate(values):
             _update_best(state, float(value), strategy.pending_population[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(strategy.pending_population[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
         strategy.pending_index = stop
         state.evaluations += batch
         completed += batch
@@ -584,6 +604,7 @@ def _advance_shade(
     problem: Problem,
     fe_budget: int,
     on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
 ) -> int:
     completed = 0
     while completed < fe_budget:

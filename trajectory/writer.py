@@ -5,8 +5,9 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from trajectory.records import TrajectoryRecord
 from trajectory.final_performance import FINAL_PERFORMANCE_SCHEMA, FinalPerformanceRecord
+from trajectory.query import TRAJECTORY_QUERY_SCHEMA
+from trajectory.records import TrajectoryRecord
 from trajectory.sampling import SAMPLING_METADATA_SCHEMA_FIELDS
 
 
@@ -81,6 +82,16 @@ def write_parquet(records: list[TrajectoryRecord], output_path: str | Path) -> P
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pylist([record.__dict__ for record in records], schema=TRAJECTORY_SCHEMA)
+    pq.write_table(table, path)
+    return path
+
+
+def write_query_parquet(records: list[dict], output_path: str | Path) -> Path:
+    if not records:
+        raise ValueError("no trajectory query records to write")
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table = pa.Table.from_pylist(records, schema=TRAJECTORY_QUERY_SCHEMA)
     pq.write_table(table, path)
     return path
 

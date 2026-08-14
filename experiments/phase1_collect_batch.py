@@ -59,8 +59,8 @@ def _collect_records(
     dimensions: list[int],
     algorithms_: list[str],
 ) -> tuple[list, list]:
-    trajectory_records = []
-    final_performance_records = []
+    trajectory_records: list = []
+    final_performance_records: list = []
     for function, instance, dimension, seed, algorithm in product(
         functions, as_int_list(config, "instances"), dimensions, as_int_list(config, "seeds"), algorithms_
     ):
@@ -83,16 +83,12 @@ def _write_output_pair(
 
     output_dir = trajectory_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    if trajectory_path.resolve() == final_path.resolve():
+    if len({trajectory_path.resolve(), final_path.resolve()}) != 2:
         raise ValueError("trajectory and final-performance outputs must use different paths")
     with TemporaryDirectory(prefix=".phase1-output-pair-", dir=output_dir) as temp_dir:
         temp_root = Path(temp_dir)
         temporary_trajectory = temp_root / trajectory_path.name
         temporary_final = temp_root / final_path.name
-        if temporary_trajectory == temporary_final:
-            raise ValueError(
-                "trajectory and final-performance outputs must use different file names"
-            )
         write_parquet(trajectory_records, temporary_trajectory)
         write_final_performance_parquet(
             final_performance_records,
@@ -104,9 +100,6 @@ def _write_output_pair(
         if non_files:
             raise IsADirectoryError(f"output target is not a file: {non_files[0]}")
 
-        # Both temporary files are complete before either published output is
-        # changed. Removing both old targets first prevents an interrupted
-        # overwrite from appearing as a complete new/old mixed pair.
         for target in targets:
             target.unlink(missing_ok=True)
         temporary_trajectory.replace(trajectory_path)

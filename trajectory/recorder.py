@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from benchmarks.core import Problem
+from trajectory.query import TrajectoryQueryReservoir, parse_problem_id
 from trajectory.records import TrajectoryRecord
 from trajectory.sampling import (
     DynamicSamplingPolicy,
@@ -17,11 +18,17 @@ class TrajectoryRecorder:
         self,
         *,
         sampling_protocol: str,
+        trajectory_query_enabled: bool = False,
+        trajectory_query_reservoir_size: int | None = None,
     ) -> None:
         self._sampling_policy = DynamicSamplingPolicy(sampling_protocol)
         self.records: list[TrajectoryRecord] = []
+        self.trajectory_query_records: list[dict] = []
         self._last_recorded_fe: int | None = None
         self._window_recorder = NativeUpdateWindowRecorder()
+        self._query_reservoir: TrajectoryQueryReservoir | None = None
+        self._trajectory_query_enabled = bool(trajectory_query_enabled)
+        self._trajectory_query_reservoir_size = trajectory_query_reservoir_size
 
     def observe(
         self,
@@ -56,6 +63,47 @@ class TrajectoryRecorder:
             fitness=fitness,
             best_fitness=best_fitness,
         )
+
+    def observe_evaluation(self, *, problem: Problem, algorithm: str, seed: int, point: np.ndarray, value: float) -> None:
+        if not self._trajectory_query_enabled:
+            return
+        if self._query_reservoir is None:
+            self._query_reservoir = TrajectoryQueryReservoir(
+                problem_id=problem.problem_id,
+                family=problem.family,
+                dimension=problem.dimension,
+                algorithm=algorithm,
+                seed=seed,
+                reservoir_size=self._trajectory_query_reservoir_size,
+            )
+        self._query_reservoir.observe(point, value)
+
+    def build_trajectory_query_snapshot(
+        self,
+        *,
+        split: str,
+        problem: Problem,
+        algorithm: str,
+        seed: int,
+        fe: int,
+        fe_total: int,
+    ) -> dict | None:
+        if self._query_reservoir is None:
+            return None
+        function, instance = parse_problem_id(problem.problem_id)
+        snapshot = self._query_reservoir.snapshot(
+            split=split,
+            problem_id=problem.problem_id,
+            family=problem.family,
+            function=function,
+            instance=instance,
+            algorithm=algorithm,
+            seed=seed,
+            fe=fe,
+            fe_total=fe_total,
+        )
+        self.trajectory_query_records.append(snapshot)
+        return snapshot
 
     def _observe_dynamic(self, **state) -> None:
         policy = self._sampling_policy
