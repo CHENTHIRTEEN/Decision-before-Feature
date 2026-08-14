@@ -86,7 +86,7 @@ Optimization Trajectory。
 
 不允许：
 
--   query feature
+-   query feature（只允许来自已冻结 query contract 的特征表）
 -   Function ID
 -   Algorithm parameter
 

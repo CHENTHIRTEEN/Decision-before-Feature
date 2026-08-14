@@ -7,7 +7,7 @@ import numpy as np
 
 from benchmarks.bbob import make_bbob_problem
 from benchmarks.cec import make_cec_problem
-from benchmarks.core import Problem
+from benchmarks.core import Problem, coerce_reference_value
 
 
 _PROBLEM_ID_PATTERNS = {

@@ -17,6 +17,7 @@ class Problem:
     dimension: int
     bounds: np.ndarray
     objective: Objective
+    reference_value: float | None = None
     close_callback: CloseCallback | None = None
 
     def __post_init__(self) -> None:
@@ -25,6 +26,11 @@ class Problem:
             raise ValueError("bounds must have shape (dimension, 2)")
         if np.any(bounds[:, 0] >= bounds[:, 1]):
             raise ValueError("each lower bound must be smaller than the upper bound")
+        if self.reference_value is not None:
+            reference_value = float(self.reference_value)
+            if not np.isfinite(reference_value):
+                raise ValueError("reference_value must be finite when provided")
+            object.__setattr__(self, "reference_value", reference_value)
         object.__setattr__(self, "bounds", bounds)
 
     @property
@@ -49,3 +55,19 @@ class Problem:
     def close(self) -> None:
         if self.close_callback is not None:
             self.close_callback()
+
+
+def coerce_reference_value(source: object, attr_names: tuple[str, ...]) -> float | None:
+    for attr_name in attr_names:
+        if not hasattr(source, attr_name):
+            continue
+        value = getattr(source, attr_name)
+        if value is None:
+            continue
+        try:
+            reference_value = float(np.asarray(value).reshape(()))
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(reference_value):
+            return reference_value
+    return None

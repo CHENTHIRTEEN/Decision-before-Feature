@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from landscape_queries.specs import get_query_spec
+from landscape_queries.specs import QUERY_PREPROCESSING_VERSION, get_query_spec
 from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
 from trajectory.sampling import (
     EVENT_NAMES,
@@ -37,6 +37,8 @@ def _validate_row(row: dict) -> None:
     spec = get_query_spec(str(row["query_id"]))
     if str(row["query_protocol"]) != spec.protocol:
         raise ValueError("query_protocol does not match query_id")
+    if str(row["query_preprocessing_id"]) != QUERY_PREPROCESSING_VERSION:
+        raise ValueError("query_preprocessing_id does not match the frozen preprocessing contract")
     if str(row["sample_design_id"]) != spec.sample_design_id:
         raise ValueError("sample_design_id does not match query_id")
     if str(row["selection_reference_protocol"]) != SELECTION_REFERENCE_PROTOCOL:
@@ -89,8 +91,16 @@ def _validate_row(row: dict) -> None:
         raise ValueError("handoff_type must equal query_transition_mode")
     if bool(row["handoff_required"]) != (str(row["handoff_type"]) == "population_transfer_initialization"):
         raise ValueError("handoff_required must match handoff_type")
+    if str(row["performance_value_mode"]) != "raw_objective":
+        raise ValueError("performance_value_mode must be raw_objective")
+    if str(row["performance_loss_mode"]) != "known_optimum_gap":
+        raise ValueError("performance_loss_mode must be known_optimum_gap")
     if not isclose(float(row["p_query"]), float(row["selected_action_loss"]), rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("p_query must equal selected_action_loss")
+    if not isclose(float(row["loss_query"]), float(row["p_query"]), rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("loss_query must equal p_query")
+    if not isclose(float(row["loss_skip"]), float(row["p_skip"]), rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("loss_skip must equal p_skip")
     p_skip = float(row["p_skip"])
     p_query = float(row["p_query"])
     best = float(row["best_observed_loss"])
@@ -115,15 +125,25 @@ def _validate_row(row: dict) -> None:
     ):
         raise ValueError("raw utility decomposition is inconsistent")
     scale = max(abs(p_skip), abs(p_query), 1e-12)
-    normalized = {
+    expected_normalized = {
         "performance_norm_scale": scale,
         "performance_gain_norm": performance_gain / scale,
         "potential_gain_norm": potential_gain / scale,
         "selector_regret_decomposition_norm": selector_regret / scale,
     }
-    for column, expected in normalized.items():
+    for column, expected in expected_normalized.items():
         if not isclose(float(row[column]), expected, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError(f"{column} is inconsistent")
+    if not isclose(
+        float(row["performance_gain_gap_raw"]),
+        float(p_skip) - float(p_query),
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("performance_gain_gap_raw must equal p_skip - p_query")
+    expected_gap_norm = (float(p_skip) - float(p_query)) / max(max(float(p_skip), float(p_query)), 1e-12)
+    if not isclose(float(row["performance_gain_norm_gap"]), expected_gap_norm, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("performance_gain_norm_gap is inconsistent with the gap-based normalization")
     runtime_columns = (
         "runtime_query_sampling",
         "runtime_query_evaluation",

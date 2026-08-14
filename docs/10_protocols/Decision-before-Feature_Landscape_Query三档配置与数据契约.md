@@ -12,11 +12,13 @@
 
 | `query_id` | 角色 | 样本 | 总 FE 占比 | 特征 | 后端 |
 | --- | --- | ---: | ---: | ---: | --- |
-| `descriptor_cheap` | 主 query | `lhs_50d` | 5% | 16 | 仓库内固定描述符 |
-| `pflacco_standard` | 配置稳健性 | `lhs_50d` | 5% | 37 | pflacco 1.2.2 |
-| `pflacco_broad` | 配置稳健性 | `lhs_100d` | 10% | 52 | pflacco 1.2.2 |
+| `descriptor_cheap_invariant` | 主 query | `lhs_50d` | 5% | 16 | 仓库内固定描述符 |
+| `pflacco_standard_invariant` | 配置稳健性 | `lhs_50d` | 5% | 37 | pflacco 1.2.2 |
+| `pflacco_broad_invariant` | 配置稳健性 | `lhs_100d` | 10% | 52 | pflacco 1.2.2 |
 
-`descriptor_cheap` 与 `pflacco_standard` 必须读取同一份 `lhs_50d` 的 (X,y)，不得分别采样。`pflacco_broad` 使用独立 `lhs_100d`。主 query 在查看 validation 结果前已经固定，不能依据结果改选。
+`descriptor_cheap_invariant` 与 `pflacco_standard_invariant` 必须读取同一份 `lhs_50d` 的 (X,y)，不得分别采样。`pflacco_broad_invariant` 使用独立 `lhs_100d`。主 query 在查看 validation 结果前已经固定，不能依据结果改选。
+
+这三个 query 的统一前处理版本固定为 `query_preprocessing_id = unit_cube_x__median_iqr_y_v1`：所有坐标先映射到 unit cube，再对目标值做样本内 robust 标准化。该 preprocessing 只改变 query 特征，不改变原始样本文件中的 `X, y, lower_bounds, upper_bounds`。
 
 standard 包含 PCA、NBC、dispersion、information content 和 ELA distribution。broad 在 standard 基础上加入 ELA level-set 与 sample-derived fitness-distance correlation。不包含完整 quadratic `ela_meta`、cell mapping，也不包含需要额外函数评价的 local、curvature、convexity、Sobol 和 length-scale groups。
 
@@ -36,7 +38,7 @@ results/landscape_queries/samples/{sample_design_id}/{split}/samples.parquet
 results/landscape_queries/features/{query_id}/{split}/features.parquet
 ```
 
-每行必须包含 `query_id`、`query_protocol`、`sample_design_id`、固定 `query_feature_columns`、`runtime_query_feature_computation`、兼容别名 `runtime_feature_computation`、`feature_status`、逐 group 状态、非有限值记录与失败信息，并满足：
+每行必须包含 `query_id`、`query_protocol`、`query_preprocessing_id`、`sample_design_id`、固定 `query_feature_columns`、`runtime_query_feature_computation`、兼容别名 `runtime_feature_computation`、`feature_status`、逐 group 状态、非有限值记录与失败信息，并满足：
 
 ```text
 runtime_sampling_evaluation = runtime_query_sampling + runtime_query_evaluation
@@ -64,9 +66,9 @@ results/utility_labels/{query_id}/
 results/decision/{query_id}/
 ```
 
-Selector artifact 保存 `query_id`、`query_protocol`、`sample_design_id` 和实际 `query_feature_columns`。Decision Model 输入仍严格限定为算法无关 `bf_*` behavior；query id、query features、function、dimension、algorithm 和优化器内部状态都只作 metadata 或分层报告。项目不训练动态 query-type selector。
+Selector artifact 保存 `query_id`、`query_protocol`、`query_preprocessing_id`、`sample_design_id` 和实际 `query_feature_columns`。Decision Model 输入仍严格限定为算法无关 `bf_*` behavior；query id、query features、function、dimension、algorithm 和优化器内部状态都只作 metadata 或分层报告。项目不训练动态 query-type selector。
 
-模型比较、特征组消融、阈值分析、baseline、成本—性能与外部评价命令均要求显式 `--query-id`。命令据此推导 query-specific 默认目录，并核对 artifact 中的 `query_id`、`query_protocol` 与 `sample_design_id`；不同 query 的 dataset、summary 或 prediction 表不能交叉读取。
+模型比较、特征组消融、阈值分析、baseline、成本—性能与外部评价命令均要求显式 `--query-id`。命令据此推导 query-specific 默认目录，并核对 artifact 中的 `query_id`、`query_protocol`、`query_preprocessing_id` 与 `sample_design_id`；不同 query 的 dataset、summary 或 prediction 表不能交叉读取。
 
 活动标签字段为 `FE_query`、`runtime_query`、`p_query`、`u_query_lamT_*` 与 `need_query_lamT_*`。旧 `results/ela/`、`FE_analysis`、`p_ela`、`u_ela_*`、`need_ela_*` 和缺少新协议字段的 artifact 均为撤回结果，活动读取器必须明确拒绝。
 
@@ -97,11 +99,11 @@ need_query_lamT_* = (u_query_lamT_* > 0)
 trajectory 重生成
 → behavior
 → lhs_50d / lhs_100d samples
-→ descriptor_cheap / pflacco_standard / pflacco_broad features
+→ descriptor_cheap_invariant / pflacco_standard_invariant / pflacco_broad_invariant features
 → lhs_50d 与 lhs_100d 两档 action losses
 → 三个 Selectors
 → 三套 Utility labels
-→ 三套 Decision Models 与 baselines
+→ 三个 Decision Models 与 baselines
 ```
 
 在 query 配置、采样边界、隔离 pflacco 提取与一致性命令通过前，不启动 72 个 trajectory shard 的全量重生成。截至 2026-08-11，这些前置检查已在真实 BBOB 10D 关键路径通过；本轮仍未启动正式 shards。

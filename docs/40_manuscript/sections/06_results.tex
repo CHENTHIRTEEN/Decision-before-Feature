@@ -1,0 +1,447 @@
+\section{Results}
+\label{sec:results}
+
+Results are structured around RQ1--RQ5.  For each question, the corresponding
+estimand, family-level uncertainty, and policy or representation contrast are
+presented together; held-out BBOB and external-suite estimates are kept
+separate.
+
+\subsection{RQ1: How often does the primary query have non-positive net utility?}
+\label{sec:results-rq1}
+
+RQ1 concerns the primary low-cost descriptor query under the main cost
+weighting, $\lambda_T=1$ and $\lambda_M=0$. Query utility is decomposed into
+the observed performance difference, downstream-selector regret, and measured
+non-FE query cost. Evaluations consumed by query sampling are already absent
+from the continuation budget of the query branch and are therefore not
+subtracted again.
+
+\begin{table*}[t]
+\caption{State-level utility summary for the primary low-cost descriptor
+query. Utility is larger-is-better, whereas final action loss is
+smaller-is-better. Function families, rather than individual decision states,
+form the independent units for uncertainty quantification.}
+\label{tab:rq1-utility}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}l Y c c c c c Y@{}}
+\toprule
+Analysis stratum & Coverage & States & $\Pr(U_q\leq 0)$ & Mean $U_q$
+& Median $U_q$ & Performance difference & Selector regret and query cost \\
+\midrule
+Overall & All prespecified BBOB-train families, dimensions, and decision
+opportunities & -- & -- & -- & -- & -- & -- \\
+By split & Separate BBOB-train family-OOF and frozen BBOB-validation estimates
+& -- & -- & -- & -- & -- & -- \\
+By dimension & 10D, 20D, and 40D & -- & -- & -- & -- & -- & -- \\
+By decision stage & Each prespecified dynamic decision opportunity & -- & --
+& -- & -- & -- & -- \\
+\addlinespace
+\multicolumn{8}{l}{\TBD{TBD-RQ1-TAB-01}: numerical estimates and
+family-level intervals for all rows.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\fbox{\begin{minipage}{0.90\textwidth}
+\centering
+\TBD{TBD-RQ1-FIG-01}\\[0.8ex]
+Distribution of $U_q$ relative to zero, with function-family-aware uncertainty
+and separate views by dimension and actual FE ratio.
+\end{minipage}}
+\caption{Distributional analysis of utility for the primary query. The zero
+reference distinguishes states in which the measured cost-adjusted utility is
+non-positive.}
+\label{fig:rq1-utility}
+\end{figure*}
+
+\paragraph{Statistical analysis.}
+\TBD{TBD-RQ1-STAT-01} The family-balanced proportion of states with
+$U_q\leq0$ is estimated with function-family-aware uncertainty; paired effects
+decompose performance and cost contributions.  State counts are descriptive
+and do not serve as independent inferential units.  Equivalence is evaluated
+only under the prespecified clustering hierarchy, resample count, smallest
+effect of interest, and primary interval or TOST rule.
+
+\paragraph{Answer to RQ1.}
+\TBD{TBD-RQ1-CLAIM-01} Whether the primary query has net benefit across the
+evaluated decision states is undetermined.  The answer is conditional on the
+estimated direction, effect size, interval, and observed state coverage, and is
+restricted to the primary query rather than landscape analysis in general.
+
+\FloatBarrier
+\subsection{RQ2: Does algorithm-agnostic behavior predict query utility?}
+\label{sec:results-rq2}
+
+The active Decision Model candidates are LDA, Logistic Regression, and Ridge.
+Their only model-family comparison uses the fixed B3 representation and nested
+BBOB-train function-family out-of-fold (OOF) mean decision utility. AUROC,
+Average Precision, and Spearman correlation are auxiliary measures, and
+continuous-utility RMSE is defined only for Ridge. After this comparison, the
+selected estimator family is fitted separately to B3 and T0, with a threshold
+derived from the corresponding complete BBOB-train family-OOF scores.
+BBOB-validation is evaluation-only and cannot influence preprocessing,
+model-family choice, input-group comparison, or threshold estimation.
+
+\begin{table*}[t]
+\caption{Decision Model selection and evaluation structure for RQ2. Candidate
+models are selected using B3 and nested BBOB-train family-OOF utility only.
+The selected estimator family is subsequently fitted separately to B3 and T0;
+BBOB-validation is reserved for evaluating these fixed choices without
+refitting or reselection.}
+\label{tab:rq2-prediction}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l Y c c c Y@{}}
+\toprule
+Analysis & Evaluation population & Estimator and representation
+& Mean utility & AUROC / AP & Spearman / RMSE & Inferential role \\
+\midrule
+Model-family selection & BBOB-train nested family OOF & LDA with B3
+& -- & -- & -- & Candidate comparison \\
+Model-family selection & BBOB-train nested family OOF & Logistic Regression
+with B3 & -- & -- & -- & Candidate comparison \\
+Model-family selection & BBOB-train nested family OOF & Ridge with B3
+& -- & -- & -- & Candidate comparison \\
+\addlinespace
+Representation comparison & BBOB-train family OOF & Selected estimator,
+B3 versus T0 & -- & -- & -- & Paired B3--T0 effect \\
+Frozen evaluation & BBOB-validation & Selected estimator with B3
+& -- & -- & -- & Evaluation only \\
+Frozen evaluation & BBOB-validation & Selected estimator with T0
+& -- & -- & -- & Evaluation only \\
+\addlinespace
+\multicolumn{7}{l}{\TBD{TBD-RQ2-TAB-01}: model-selection, paired
+representation, and frozen-evaluation estimates with family-level intervals.} \\
+\multicolumn{7}{l}{RMSE is reported only when the estimator is Ridge; otherwise
+it is not applicable. Frozen evaluation includes the paired B3--T0 effect.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\fbox{\begin{minipage}{0.90\textwidth}
+\centering
+\TBD{TBD-RQ2-FIG-01}\\[0.8ex]
+(a) Outer-family OOF decision utility for LDA, Logistic Regression, and Ridge
+with B3; (b) paired B3--T0 effects for the selected estimator family on
+BBOB-train family-OOF predictions and on the separate frozen
+BBOB-validation evaluation. Held-out families are the replication units.
+\end{minipage}}
+\caption{B3 model-family comparison and fixed B3--T0 evaluation. The
+BBOB-validation panel has an evaluation-only role and cannot revise the model
+choice made from BBOB-train utility.}
+\label{fig:rq2-oof}
+\end{figure*}
+
+\paragraph{Statistical analysis.}
+\TBD{TBD-RQ2-STAT-01} The paired outer-family BBOB-train OOF comparison for B3,
+uses family-level effect sizes, confidence intervals, and Holm-corrected
+candidate contrasts.  Conditional on that single model-family selection, the
+same estimator family defines the B3--T0 comparison and the separate frozen
+BBOB-validation evaluation.  Dependence-aware intervals use the prespecified
+resampling unit and replication count; auxiliary score measures and
+BBOB-validation cannot supersede the utility-based BBOB-train selection rule.
+
+\paragraph{Answer to RQ2.}
+\TBD{TBD-RQ2-CLAIM-01} Whether algorithm-agnostic behavior adds decision value
+beyond FE ratio is undetermined and depends on the paired B3--T0 effects and
+intervals.  BBOB validation is reserved for evaluating only the frozen models;
+an interval that
+does not support a stable difference yields an inconclusive answer.
+
+\FloatBarrier
+\subsection{RQ3: Does Decision-before-Feature reduce unhelpful query calls?}
+\label{sec:results-rq3}
+
+RQ3 retains all eight prespecified comparison roles but reports six distinct
+outcome rows in the primary population.  The native path simultaneously
+represents Never Query and the training-derived SBS, and the fixed
+first-opportunity query path simultaneously represents Always Query and
+Traditional AAS.  Random Analysis, the Time-only Controller, and
+Decision-before-Feature provide the remaining online trajectories; VBS is a
+per-problem hindsight reference.  Slash-labelled pairs are counted once in
+summaries and inferential comparisons.  VBS is neither deployable nor the
+statewise best observed action.
+
+\begin{table*}[t]
+\caption{Equal-budget RQ3 comparison.  Six distinct outcome rows represent all
+eight prespecified comparison roles; slash-labelled rows combine definitions
+that are analytically identical in the primary population and are counted once.
+Panel A combines optimization performance with resource use. Panel B characterizes query-call quality,
+including the frequency, within-call rate, and accumulated utility loss of
+calls whose observed utility is non-positive.}
+\label{tab:rq3-baselines}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.21\textwidth} Y Y Y Y Y Y@{}}
+\toprule
+\multicolumn{7}{l}{\textit{Panel A: optimization performance and resource use}} \\
+\addlinespace
+Outcome row (comparison roles) & Mean decision utility & Final error & Runtime & Total FE & Query FE
+& Query-call rate \\
+\midrule
+Never Query / SBS & 0 / N/A & -- & -- & -- & 0 / N/A & 0 / N/A \\
+Always Query / Traditional AAS & -- & -- & -- & -- & -- & -- \\
+Random Analysis & -- & -- & -- & -- & -- & -- \\
+VBS & N/A & -- & N/A & -- & N/A & N/A \\
+Time-only Controller & -- & -- & -- & -- & -- & -- \\
+Decision-before-Feature & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabularx}
+
+\vspace{0.8ex}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.21\textwidth} Y Y Y Y Y Y@{}}
+\toprule
+\multicolumn{7}{l}{\textit{Panel B: query-call quality}} \\
+\addlinespace
+Policy & $U_q\leq0$ calls & Within-call rate & Accumulated utility loss
+& Beneficial-state capture & Utility capture & Precision \\
+\midrule
+Always Query / Traditional AAS & -- & -- & -- & -- & -- & -- \\
+Random Analysis & -- & -- & -- & -- & -- & -- \\
+Time-only Controller & -- & -- & -- & -- & -- & -- \\
+Decision-before-Feature & -- & -- & -- & -- & -- & -- \\
+\addlinespace
+\multicolumn{7}{@{}>{\raggedright\arraybackslash}p{\textwidth}@{}}{%
+\TBD{TBD-RQ3-TAB-01}: numerical estimates and matched family-level intervals
+for Panels A and B.} \\
+\multicolumn{7}{@{}>{\raggedright\arraybackslash}p{\textwidth}@{}}{%
+Never Query / SBS and VBS are omitted from Panel B because call-conditional
+quantities are undefined for static references and Never Query makes no calls.} \\
+\multicolumn{7}{@{}>{\raggedright\arraybackslash}p{\textwidth}@{}}{%
+A slash-labelled row denotes one shared outcome, not an average of two
+estimates; it enters each applicable analysis once.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\fbox{\begin{minipage}{0.90\textwidth}
+\centering
+\TBD{TBD-RQ3-FIG-01}\\[0.8ex]
+Final optimization loss, measured runtime, and query-call rate for each
+distinct primary-population outcome under equal FE budgets, with function-family-level
+uncertainty rather than a frontier based only on point estimates.
+\end{minipage}}
+\caption{Cost--performance comparison among the equal-budget outcomes.
+Coincident comparison roles are shown once.}
+\label{fig:rq3-cost-performance}
+\end{figure*}
+
+\paragraph{Statistical analysis.}
+\TBD{TBD-RQ3-STAT-01} The matched function-family Friedman comparison,
+Holm-adjusted paired Wilcoxon contrasts, effect sizes, and confidence intervals
+jointly cover mean decision utility as defined in
+Eq.~\eqref{eq:policy-decision-utility},
+final error, runtime, and both the rate and accumulated cost of calls with
+$U_q\leq0$.  The dependence-aware interval construction and equivalence rule
+are specified independently of the observed policy differences.
+Omnibus and follow-up tests use each distinct applicable outcome once; N/A
+roles are omitted endpoint by endpoint, and neither coincident pair is
+duplicated.
+
+\paragraph{Answer to RQ3.}
+\TBD{TBD-RQ3-CLAIM-01} Whether Decision-before-Feature reduces calls with
+non-positive observed utility is undetermined.  A supported answer requires an
+interval-supported reduction together with the equal-budget effects on final
+optimization performance and runtime; call rate alone is insufficient.
+
+\FloatBarrier
+\subsection{RQ4: Does the frozen controller generalize beyond BBOB training families?}
+\label{sec:results-rq4}
+
+RQ4 reserves the fully frozen procedure for held-out BBOB-validation families,
+CEC2017, CEC2022, and an engineering-problem evaluation to be specified
+prospectively. None
+of these evaluation sets can refit the Selection Reference, Decision Model,
+preprocessing, representation, or OOF utility threshold. Coverage and query
+extraction failures are part of the suite-specific evaluation rather than
+grounds for silently excluding problems.
+
+\begin{table*}[t]
+\caption{Suite-specific evaluation of the frozen controller for RQ4. Coverage
+and query-extraction failure rates accompany utility and final optimization
+performance so that estimates remain conditional on observed evaluation
+coverage. Paired effects compare Decision-before-Feature with Never Query,
+Always Query, and the Time-only Controller, in that order.}
+\label{tab:rq4-generalization}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}l Y c c c c Y@{}}
+\toprule
+Evaluation set & Scope & Problem--dimension--seed coverage & Mean utility & Final error
+& Query failures & Paired effect and interval \\
+\midrule
+BBOB-validation & Held-out BBOB function families & -- & -- & -- & -- & -- \\
+CEC2017 & Cross-benchmark evaluation & -- & -- & -- & -- & -- \\
+CEC2022 & Cross-benchmark evaluation & -- & -- & -- & -- & -- \\
+Engineering problems & Problem set to be specified prospectively & -- & -- & -- & -- & -- \\
+\addlinespace
+\multicolumn{7}{l}{\TBD{TBD-RQ4-TAB-01}: suite-specific coverage,
+performance, failure, and matched-effect estimates.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\fbox{\begin{minipage}{0.90\textwidth}
+\centering
+\TBD{TBD-RQ4-FIG-01}\\[0.8ex]
+Suite-specific paired effects and confidence intervals for the frozen
+Decision-before-Feature controller relative to Never Query, Always Query, and
+the Time-only Controller. Held-out BBOB families are shown separately from
+CEC and engineering evaluations.
+\end{minipage}}
+\caption{Held-out-family and cross-benchmark evaluation of the frozen
+controller. Separate panels preserve differences in benchmark scope and data
+coverage.}
+\label{fig:rq4-generalization}
+\end{figure*}
+
+\paragraph{Statistical analysis.}
+\TBD{TBD-RQ4-STAT-01} Suite-specific problem- or function-family-level paired
+effects, confidence intervals, and multiplicity-adjusted benchmark contrasts
+evaluate the frozen policy.  Query-extraction failure sensitivity is separate
+from the primary comparison, and heterogeneous effect directions or coverage
+preclude a pooled generalization claim.
+
+\paragraph{Answer to RQ4.}
+\TBD{TBD-RQ4-CLAIM-01} Held-out BBOB performance and cross-benchmark
+generalization are undetermined.  Any eventual answer is suite-specific,
+distinguishes BBOB validation from CEC2017, CEC2022, and engineering
+evaluations, and remains conditional on query-extraction coverage.
+
+\FloatBarrier
+\subsection{RQ5: Which behavior groups are associated with query utility, and when?}
+\label{sec:results-rq5}
+
+RQ5 reuses the estimator family selected with B3 in RQ2. That estimator family
+is fitted separately to T0, B1, B2, and B3 using identical samples,
+function-family splits, train-only preprocessing, and an input-specific
+BBOB-train family-OOF threshold. The ablation neither repeats model-family
+selection nor changes the primary B3 representation. T0 contains only FE
+ratio; B1, B2, and B3 contain the prespecified 19-, 25-, and 31-input
+permutation-invariant behavior representations. Coefficients, discriminant
+directions, and associations characterize the fitted rule and are not causal
+effects.
+
+\begin{table*}[t]
+\caption{Prespecified input-group ablation for RQ5. The estimator family is
+the one selected with B3 in RQ2 and is fitted separately to each representation.
+All groups retain their own BBOB-train family-OOF threshold; the comparison
+does not select a replacement for B3.}
+\label{tab:rq5-ablation}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}l Y c c c c Y@{}}
+\toprule
+Group & Added information & Inputs & Mean utility & AUROC / AP
+& Spearman / Ridge RMSE & Paired difference from T0 \\
+\midrule
+T0 & Optimization stage (FE ratio) only & 1 & -- & -- & -- & -- \\
+B1 & Progress, diversity, set and fitness-distribution change, stagnation,
+convergence, and elite concentration & 19 & -- & -- & -- & -- \\
+B2 & B1 plus longitudinal centroid, covariance, fitness-spread, and diversity
+recovery summaries & 25 & -- & -- & -- & -- \\
+B3 & B2 plus set-motion proxies and the three operational maturity variables
+& 31 & -- & -- & -- & -- \\
+\addlinespace
+\multicolumn{7}{l}{\TBD{TBD-RQ5-TAB-01}: paired family-level ablation
+estimates, auxiliary scores, and intervals for all four representations.} \\
+\multicolumn{7}{l}{The paired difference from T0 concerns decision utility.
+RMSE is not applicable unless the RQ2-selected estimator is Ridge.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\fbox{\begin{minipage}{0.90\textwidth}
+\centering
+\TBD{TBD-RQ5-FIG-01}\\[0.8ex]
+Fold-stable standardized coefficients for Logistic Regression or Ridge, or
+standardized discriminant directions for LDA, together with the prespecified
+association between behavior-derived search maturity and observed query
+utility. Uncertainty and direction changes are separated by family, dimension,
+and query configuration.
+\end{minipage}}
+\caption{Behavior interpretation and search-maturity--utility analysis.
+Displayed coefficients or discriminant directions describe the fitted
+decision score and do not imply causal effects.}
+\label{fig:rq5-interpretation}
+\end{figure*}
+
+\paragraph{Statistical analysis.}
+\TBD{TBD-RQ5-STAT-01} The paired outer-family effects and
+multiplicity-adjusted contrasts compare T0/B1/B2/B3 for the single estimator
+family selected in RQ2.  Interpretation also depends on the sign and magnitude
+stability of standardized coefficients
+or discriminant directions across outer folds and families, Spearman
+associations with observed utility, uncertainty around the fitted
+maturity--utility curve, and the prespecified dimension and query-configuration
+analyses.  Visual shape alone is insufficient evidence of non-monotonicity,
+and the ablation cannot repeat model or representation selection.
+
+\paragraph{Answer to RQ5.}
+\TBD{TBD-RQ5-CLAIM-01} Whether any behavior increment is informative beyond
+optimization stage is undetermined.  Such an interpretation requires agreement
+among the paired ablation, parameter or discriminant stability, and held-out
+analyses.  Representation- or family-dependent effects instead imply a
+correspondingly restricted answer; none can replace B3 through post hoc
+selection.
+
+\FloatBarrier
+\subsection{Prespecified sensitivity analyses and diagnostics}
+\label{sec:results-sensitivity}
+
+These analyses qualify the RQ1--RQ5 conclusions without defining an additional
+research question or changing the primary target. Each alternative query
+configuration traverses the same complete query-specific sequence of action
+selection, utility estimation, decision modelling, and frozen evaluation as
+the primary query. The non-primary $\lambda_T$ values do not replace
+$\lambda_T=1$. Action-relation indicators define descriptive strata only, and
+downstream-selector variants neither enter the Decision Model nor replace the
+policy baselines.
+
+\begin{table*}[t]
+\caption{Prespecified sensitivity analyses and downstream-selector
+diagnostics. Interpretation is restricted to the listed levels and cannot
+revise the primary cost weighting, input representation, or policy comparison.}
+\label{tab:sensitivity-diagnostics}
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}l Y Y Y@{}}
+\toprule
+Analysis & Prespecified levels & Quantities & Interpretation boundary \\
+\midrule
+Query configuration & Primary low-cost descriptor query, standard
+\textit{pflacco} query, and broad \textit{pflacco} query & Query-specific
+action selection, utility, decision-model, policy, and frozen-evaluation
+estimates & Agreement indicates robustness only across these three
+configurations; disagreement indicates representation or cost dependence \\
+$\lambda_T$ sensitivity & $0$, $0.25$, $0.5$, $1$, and $2$, with
+$\lambda_M=0$ & Utility distributions, policy summaries, effect sizes, and
+intervals & $\lambda_T=1$ remains the primary conclusion basis \\
+Action-relation strata & Selected action equals the default action; selected
+action equals the prefix algorithm; population handoff is required & Counts,
+utility components, selector regret, and policy effects & Descriptive
+stratification only; no action-relation indicator enters the Decision Model \\
+Downstream-selector inputs & State information only, query descriptors only,
+and their combination; remaining budget is included in every variant &
+Cross-fitted action-loss regression performance, selected-action loss, and
+selector regret & Downstream-selector diagnosis only; these variants are not
+Decision Model candidates or substitutes for policy baselines \\
+\addlinespace
+\multicolumn{4}{l}{\TBD{TBD-SENS-DIAG-01}: estimates and intervals for all
+prespecified sensitivity and diagnostic comparisons.} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\FloatBarrier

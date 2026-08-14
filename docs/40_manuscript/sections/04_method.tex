@@ -1,0 +1,235 @@
+\section{Decision-before-Feature method}
+\label{sec:method}
+
+\subsection{Overview}
+
+Decision-before-Feature is trained offline.  Native optimizer trajectories are first collected under a fixed sampling protocol.  Each accepted state is converted into a permutation-invariant behavior vector available before landscape descriptors are computed.  From the same complete state, the no-query continuation and all four query-adjusted actions are then run to generate observed losses.  A fixed, query-specific action-loss regressor produces the downstream selected action, after which Eq.~\eqref{eq:query-utility} yields a supervised utility label.  Finally, a lightweight decision model maps behavior alone to a query score.  The deployed controller performs no online parameter update.
+
+Figure~\ref{fig:framework} summarizes the separation between offline data
+construction, query-specific downstream selection, decision-model freezing,
+and online execution.  The use of trajectory-derived summaries follows the
+general observation that optimizer histories carry information about search
+dynamics and problem--algorithm interaction
+\cite{ochoaSearchTrajectoryNetworks2021,korosecOpt2VecContinuousOptimization2024,cenikjSurveyFeaturesUsed2026};
+their value for the present query decision remains an empirical question.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{decision-before-feature-architecture-elsevier.png}
+  \caption{Decision-before-Feature protocol.  The upper panel constructs
+  state-aligned utility labels and freezes the downstream Selection Reference,
+  Decision Model, preprocessing, and threshold using BBOB training families.
+  The lower panel applies those frozen components at an online decision
+  opportunity.  Query descriptors enter only the downstream Selection
+  Reference; the pre-query Decision Model receives algorithm-agnostic behavior.}
+  \label{fig:framework}
+\end{figure*}
+
+This separation gives the two supervised components different roles.  The \emph{selection reference} operates after query acquisition and may use the query descriptors.  The \emph{decision model} operates before query acquisition and is prohibited from using query descriptors, function identity, dimension, algorithm identity, optimizer-specific parameters, action losses, or best-observed-action diagnostics.
+
+\subsection{Native-state trajectory and window alignment}
+
+For every portfolio optimizer, a complete state contains its population, objective values, best-so-far solution, generation or native-update count, internal dynamic variables, and random-number-generator state.  Restoring this state continues the same optimizer rather than constructing a new run from population values.  This distinction is essential for PSO velocities, CMA-ES distribution parameters, and the adaptation histories of DE and SHADE.
+
+Let $e_t$ be the actual FE count at an accepted state and let $w\in\{0.02,0.05,0.10\}$ be a nominal behavior window.  Among the complete native updates preceding $t$, the anchor is
+\begin{equation}
+  a(t,w)=\mathop{\arg\max}_{u}
+  \left\{e_u:e_u\le e_t-\operatorname{round}(wB)\right\}.
+  \label{eq:native-window-anchor}
+\end{equation}
+For population size $N=40$, the realized span satisfies
+\begin{equation}
+  \operatorname{round}(wB)
+  \le e_t-e_{a(t,w)}
+  <\operatorname{round}(wB)+N.
+  \label{eq:native-window-bound}
+\end{equation}
+Rates and slopes use the realized FE-ratio span, not the nominal value.  The realized ratio, FE count, and number of native updates are retained as measurement metadata and are excluded from the decision input.
+
+Behavior vectors are evaluated only at accepted complete-update states.  The
+budget milestones, behavior-triggered opportunities, rearming rules, and
+per-phase quotas are specified in Section~\ref{sec:experimental-setup};
+opportunity labels determine state sampling but are excluded from the Decision
+Model.
+
+\subsection{Permutation-invariant behavior representation}
+
+For distance-based population summaries, coordinates are mapped to the unit hypercube using the problem bounds,
+\begin{equation}
+  \widetilde x_{ij}
+  =\frac{x_{ij}-\ell_{pj}}{u_{pj}-\ell_{pj}}.
+  \label{eq:unit-cube-scaling}
+\end{equation}
+This unit-cube convention defines distance normalization.  No correspondence between row $i$ at two checkpoints is assumed.  The current population diversity is the average pairwise distance
+\begin{equation}
+  D_t=\frac{2}{N(N-1)}
+  \sum_{1\le i<j\le N}
+  \lVert\widetilde x_i^{(t)}-\widetilde x_j^{(t)}\rVert_2.
+  \label{eq:population-diversity}
+\end{equation}
+For an anchor population and the current population, the empirical assignment distance is
+\begin{equation}
+  W_t^{(w)}=
+  \frac{1}{N}
+  \min_{\pi\in S_N}
+  \sum_{i=1}^{N}
+  \left\lVert
+  \widetilde x_i^{(a)}-
+  \widetilde x_{\pi(i)}^{(t)}
+  \right\rVert_2,
+  \label{eq:population-wasserstein}
+\end{equation}
+and its rate divides Eq.~\eqref{eq:population-wasserstein} by $(e_t-e_a)/B$.  Centroid shift and its rate are computed analogously.  Centroid-shift coherence is the ratio of centroid displacement to $W_t^{(w)}$, clipped to $[0,1]$ and set to zero when the population does not change.  Covariance trace and effective-rank changes use the unit-cube populations.  Current covariance spectral concentration is computed from the raw-coordinate covariance.  For its nonzero eigenvalues $\lambda_j$ and $r=\min(d,N-1)$,
+\begin{equation}
+  C_t=
+  \frac{r\,\sum_j\lambda_j^2/(\sum_j\lambda_j)^2-1}{r-1},
+  \label{eq:covariance-concentration}
+\end{equation}
+with $C_t=0$ for a degenerate covariance or $r\le1$.
+
+Fitness changes use a shift-invariant scale.  Let
+\begin{equation}
+  I_0=\max\!\left(\operatorname{IQR}(y_{\mathrm{init}}),10^{-12}\right),
+  \label{eq:initial-fitness-scale}
+\end{equation}
+where $y_{\mathrm{init}}$ is the evaluated population immediately after optimizer initialization and before any native update.  Improvement rate over a short window is
+\begin{equation}
+  IR_t^{(w)}=
+  \frac{f_{\mathrm{best}}(a)-f_{\mathrm{best}}(t)}
+       {I_0\,(e_t-e_a)/B}.
+  \label{eq:improvement-rate}
+\end{equation}
+Improvement frequency is the proportion of native-update intervals in which best-so-far fitness decreases strictly.  To compare fitness distributions without individual identities, the two endpoint vectors are sorted.  If $y_{(i)}^{(a)}$ and $y_{(i)}^{(t)}$ denote their empirical quantiles, the method records the fraction for which $y_{(i)}^{(a)}-y_{(i)}^{(t)}$ exceeds the numerical strict-improvement tolerance, their mean signed improvement divided by $I_0$ and the realized ratio span, and their mean absolute difference on the same scale.
+
+Stagnation is based on the last strict best-so-far improvement.  With $e_{\mathrm{last}}$ denoting its FE count,
+\begin{equation}
+  S_t^{(0.10)}=
+  \frac{\min\{\max[(e_t-e_{\mathrm{last}})/B,0],0.10\}}{0.10}.
+  \label{eq:stagnation}
+\end{equation}
+Distance decay compares the population's mean unit-cube distance to its current population-best at the long-window endpoints.  Convergence rate is the relative decrease in $D_t$ divided by the realized FE-ratio span.  The reference point in these calculations is the current population-best, not a known global optimum.
+
+The representation borrows the general idea that longitudinal population
+summaries can characterize problem--algorithm interaction
+\cite{cenikjDynamoRepTrajectoryBasedPopulation2023}, but uses one fixed-dimensional
+definition across all four optimizers and predicts query utility rather than a
+problem class.  Distance-decay and stagnation semantics are also informed by
+behavior-characterization studies
+\cite{haywardDeterminingMetaheuristicSimilarity2025,mbassoHowMetaheuristicsExploit2026}.
+Measures requiring a known optimum, persistent particle identities, or an
+optimizer-specific interaction graph are excluded; in particular, particle-wise
+directional entropy is not an input.
+
+The behavior representation has 34 unique outputs: 31 model-eligible variables and three diagnostic-only variables.  The nested groups are summarized in Table~\ref{tab:behavior-groups}.
+
+\begin{table*}[t]
+  \caption{Frozen behavior groups used in the feature-group comparison.}
+  \label{tab:behavior-groups}
+  \centering
+  \small
+  \begin{tabularx}{\textwidth}{@{}l c X X@{}}
+    \toprule
+    Group & Count & Added information & Role \\
+    \midrule
+    T0 & 1 & Actual FE ratio only & Time-only controller \\
+    B1 & 19 & Progress, diversity, set and fitness-distribution change, stagnation, convergence, and elite concentration & Core permutation-invariant behavior \\
+    B2 & 25 & B1 plus fitness-spread slope, population and elite centroid shifts, covariance trace ratio, covariance effective rank, and diversity recovery & Longitudinal set dynamics \\
+    B3 & 31 & B2 plus set-motion proxies and three maturity variables & Primary full input \\
+    \bottomrule
+  \end{tabularx}
+\end{table*}
+
+The raw fitness standard deviation, population-overlap statistic, and best-distance--fitness correlation are diagnostic only.  In particular, the last quantity is close to a local landscape proxy and is excluded from the pre-query model.
+
+\subsection{Operational search-maturity variables}
+
+Search Maturity is an operational, study-specific summary rather than an established convergence measure.  Define
+\begin{equation}
+\begin{gathered}
+  h_+(z)=\frac{\max(z,0)}{1+\max(z,0)},\quad
+  h_-(z)=\frac{1}{1+\max(z,0)},\\
+  c(z)=\min\{\max(z,0),1\}.
+\end{gathered}
+\end{equation}
+Using the defined behavior variables, exploration stabilization is the mean of
+\begin{equation}
+  h_+(-\dot D_t),\quad
+  h_-(\dot W_t),\quad
+  c(C_t),\quad
+  c(K_t),
+  \label{eq:exploration-stabilization}
+\end{equation}
+where $\dot D_t$ is the medium-window diversity slope, $\dot W_t$ is the population assignment-distance rate, and $K_t$ is centroid-shift coherence.  Exploitation saturation is the mean of
+\begin{equation}
+  c(S_t),\quad
+  h_-(IR_t),\quad
+  h_+(DD_t),\quad
+  h_+(CR_t),\quad
+  h_-(E_t),
+  \label{eq:exploitation-saturation}
+\end{equation}
+where $DD_t$, $CR_t$, and $E_t$ denote distance decay, convergence rate, and elite-to-population diversity ratio.  The primary maturity variable is
+\begin{equation}
+  M_t=ES_t(1-XS_t).
+  \label{eq:search-maturity}
+\end{equation}
+The B3 group also contains the bounded linear alternative $c[(ES_t+1-XS_t)/2]$ and an exploration-to-exploitation ratio.  Undefined components remain missing and are handled by training-only median imputation.  Equation~\eqref{eq:search-maturity} is a hypothesis-bearing representation whose utility must be established by the T0--B3 comparison and external evaluation; it is not treated as an independently validated causal mechanism.
+
+\subsection{Query-specific downstream selection reference}
+
+For every eligible shared state, all actions in Eq.~\eqref{eq:state-action-set} are run under the query-adjusted budget.  Because raw objective values vary across problems, each action target is normalized within its state:
+\begin{equation}
+  \widetilde L(s_t,a)=
+  \frac{L(s_t,a)-\min_b L(s_t,b)}
+       {\max\!\left(\max_b L(s_t,b)-\min_b L(s_t,b),10^{-12}\right)}.
+  \label{eq:selector-target}
+\end{equation}
+The selection reference predicts the four targets jointly from the 31 B3 behavior variables, the fixed descriptors of the current query, and the continuous remaining-budget ratio $(B-e_t-FE_q)/B$:
+\begin{align}
+  \widehat{\boldsymbol L}(s_t)
+  &=g\!\left(b_t,\phi_q(p),\frac{B-e_t-FE_q}{B}\right),\\
+  \widehat a_t&=\arg\min_a\widehat L(s_t,a).
+  \label{eq:statewise-selector}
+\end{align}
+The fixed estimator is a multi-output random-forest regressor with 200 trees, minimum leaf size two, median imputation, and random seed 1701.  BBOB-training rows receive five-fold function-family cross-fitted predictions so that a training utility label never uses a selector fitted on the same family.  The final selector is refitted on all BBOB-training families for BBOB validation and external evaluation.  This selection reference is a downstream experimental component, not the proposed contribution.
+
+For each selected action, three relations distinguish whether it equals the
+default, whether it equals the prefix, and whether a handoff is required.
+Writing $h_t$ for the handoff indicator, $i_t$ for equality with the prefix,
+and $r_t$ for the transition type, these relations satisfy
+\begin{equation}
+  h_t=\neg \iota_t^{\mathrm{prefix}}
+  =\mathbf{1}[r_t=\mathrm{population\ transfer\ initialization}],
+  \label{eq:handoff-fields}
+\end{equation}
+Here $h_t$, $\iota_t^{\mathrm{prefix}}$, and $r_t$ correspond, respectively, to
+the reported handoff indicator, equality with the prefix action, and transition
+type.  Equality with the default action is reported independently.  These
+relations hold by definition for every state, support stratified reporting,
+and are not Decision Model inputs.
+
+\subsection{Decision-model selection and threshold fitting}
+
+The active candidates are fixed to (i) linear discriminant analysis with default estimator settings, (ii) logistic regression with $C=1$, balanced class weights, and the L-BFGS solver, and (iii) Ridge regression with $\alpha=1$.  Each candidate is a pipeline containing training-fold median imputation and standard scaling.  LDA and logistic regression fit Eq.~\eqref{eq:query-label}; Ridge fits the continuous primary utility.  These three candidates are compared only with the frozen B3 input group.
+
+Model selection is performed once and is nested entirely within BBOB training.  The outer loop is a five-fold GroupKFold over function families.  Within each outer fit partition, a four-fold family out-of-fold procedure supplies scores used to fit an outer-fold decision threshold.  Candidate quality is the mean decision utility obtained after concatenating all outer holdouts.  Ties are resolved by the prespecified order LDA, logistic regression, then Ridge.  Neither T0, B1, B2 nor BBOB validation contributes to this model-family choice.
+
+After the B3 comparison freezes the model family, that same named estimator
+family is used for T0, B1, B2, and B3 with identical samples, family folds,
+training-fold preprocessing, and threshold-fitting procedure.  Each input group
+fits its threshold only from its own BBOB-training family-OOF scores.  The RQ5
+feature-group analysis reports all four prespecified groups; it neither repeats
+model-family selection nor selects a feature group from their observed results.
+B3 remains the primary deployable representation.
+
+After a model family is selected, a separate five-fold function-family out-of-fold pass over all BBOB-training rows produces one score per row from a model that did not see that row's family.  The deployable threshold is
+\begin{equation}
+  \tau_{\mathrm{OOF}}
+  \in\arg\max_{\tau}
+  \sum_i
+  \mathbf{1}[z_i^{\mathrm{OOF}}>\tau]U_{q,i}.
+  \label{eq:oof-threshold}
+\end{equation}
+If thresholds yield the same utility sum, the threshold calling fewer rows is preferred.  The selected estimator is then fitted on all BBOB-training families and deployed with the fixed threshold.  BBOB validation is evaluation-only.  The optional score-neighborhood review uses the tenth percentile of $|z_i^{\mathrm{OOF}}-\tau_{\mathrm{OOF}}|$ from BBOB training; it is performed only after model and threshold freezing and gives all comparison policies the same additional opportunities.
+
+At deployment, the default SBS advances natively while the streaming behavior extractor observes complete updates.  At each accepted decision opportunity, the controller evaluates Eq.~\eqref{eq:deployment-decision}.  If the score does not cross the threshold, native optimization continues.  If it crosses, the fixed query is executed once, the downstream selector chooses an action, and the selected continuation consumes the remaining query-adjusted budget.  No subsequent online training or repeated query-type selection is performed.

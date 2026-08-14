@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-LANDSCAPE_QUERY_PROTOCOL_VERSION = "landscape_query_v2"
+LANDSCAPE_QUERY_PROTOCOL_VERSION = "landscape_query_v3"
+QUERY_PREPROCESSING_VERSION = "unit_cube_x__median_iqr_y_v1"
 SAMPLE_PROTOCOL_VERSION = "lhs_problem_sample_v2"
-MAIN_QUERY_ID = "descriptor_cheap"
+MAIN_QUERY_ID = "descriptor_cheap_invariant"
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class LandscapeQuerySpec:
     feature_columns: tuple[str, ...]
     primary: bool
     protocol: str
+    preprocessing_id: str
 
     @property
     def sample_design(self) -> SampleDesignSpec:
@@ -165,27 +167,30 @@ LANDSCAPE_QUERY_SPECS = {
         feature_groups=("descriptor_cheap",),
         feature_columns=DESCRIPTOR_CHEAP_COLUMNS,
         primary=True,
-        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:descriptor_cheap_16_lhs_50d",
+        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:descriptor_cheap_invariant_16_lhs_50d",
+        preprocessing_id=QUERY_PREPROCESSING_VERSION,
     ),
-    "pflacco_standard": LandscapeQuerySpec(
-        query_id="pflacco_standard",
+    "pflacco_standard_invariant": LandscapeQuerySpec(
+        query_id="pflacco_standard_invariant",
         query_code=5037,
         sample_design_id="lhs_50d",
         backend="pflacco_1.2.2",
         feature_groups=PFLACCO_STANDARD_GROUPS,
         feature_columns=PFLACCO_STANDARD_COLUMNS,
         primary=False,
-        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:pflacco_1.2.2_standard_37_lhs_50d",
+        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:pflacco_1.2.2_standard_invariant_37_lhs_50d",
+        preprocessing_id=QUERY_PREPROCESSING_VERSION,
     ),
-    "pflacco_broad": LandscapeQuerySpec(
-        query_id="pflacco_broad",
+    "pflacco_broad_invariant": LandscapeQuerySpec(
+        query_id="pflacco_broad_invariant",
         query_code=10052,
         sample_design_id="lhs_100d",
         backend="pflacco_1.2.2",
         feature_groups=PFLACCO_BROAD_GROUPS,
         feature_columns=PFLACCO_BROAD_COLUMNS,
         primary=False,
-        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:pflacco_1.2.2_broad_52_lhs_100d",
+        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:pflacco_1.2.2_broad_invariant_52_lhs_100d",
+        preprocessing_id=QUERY_PREPROCESSING_VERSION,
     ),
 }
 
@@ -205,21 +210,23 @@ def get_sample_design_spec(sample_design_id: str) -> SampleDesignSpec:
 
 
 def validate_frozen_query_specs() -> None:
-    cheap = get_query_spec("descriptor_cheap")
-    standard = get_query_spec("pflacco_standard")
-    broad = get_query_spec("pflacco_broad")
+    cheap = get_query_spec("descriptor_cheap_invariant")
+    standard = get_query_spec("pflacco_standard_invariant")
+    broad = get_query_spec("pflacco_broad_invariant")
     if cheap.sample_design_id != standard.sample_design_id:
-        raise ValueError("descriptor_cheap and pflacco_standard must share lhs_50d")
+        raise ValueError("descriptor_cheap_invariant and pflacco_standard_invariant must share lhs_50d")
     if cheap.sample_design.sample_size_per_dimension != 50 or cheap.sample_design.fe_ratio != 0.05:
-        raise ValueError("descriptor_cheap must use 50d = 5% FE")
+        raise ValueError("descriptor_cheap_invariant must use 50d = 5% FE")
     if broad.sample_design.sample_size_per_dimension != 100 or broad.sample_design.fe_ratio != 0.10:
-        raise ValueError("pflacco_broad must use 100d = 10% FE")
+        raise ValueError("pflacco_broad_invariant must use 100d = 10% FE")
     expected_counts = {
-        "descriptor_cheap": 16,
-        "pflacco_standard": 37,
-        "pflacco_broad": 52,
+        "descriptor_cheap_invariant": 16,
+        "pflacco_standard_invariant": 37,
+        "pflacco_broad_invariant": 52,
     }
     for query_id, expected in expected_counts.items():
         spec = get_query_spec(query_id)
         if len(spec.feature_columns) != expected or len(set(spec.feature_columns)) != expected:
             raise ValueError(f"{query_id} must define exactly {expected} unique feature columns")
+        if spec.preprocessing_id != QUERY_PREPROCESSING_VERSION:
+            raise ValueError(f"{query_id} must use {QUERY_PREPROCESSING_VERSION}")

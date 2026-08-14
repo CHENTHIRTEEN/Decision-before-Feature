@@ -1,0 +1,242 @@
+\section{Experimental setup}
+\label{sec:experimental-setup}
+
+\subsection{Research questions and evaluation design}
+
+The empirical study addresses the five prespecified questions in
+Table~\ref{tab:research-questions}.  Each question is linked to an estimand, a
+comparison set, and uncertainty summaries that respect dependence among states
+from the same optimization trajectory and function family.
+
+\begin{table*}[t]
+  \caption{Research questions and corresponding evaluation criteria.}
+  \label{tab:research-questions}
+  \centering
+  \small
+  \begin{tabularx}{\textwidth}{@{}c Y Y@{}}
+    \toprule
+    RQ & Question & Evaluation criteria \\
+    \midrule
+    RQ1 & Statewise value of the primary query & Utility distribution and decomposition; proportion with $U_q\le0$; family-balanced effects and intervals. \\
+    RQ2 & Information beyond elapsed budget & Nested training-family OOF selection; paired B3--T0 effects; frozen BBOB-validation evaluation. \\
+    RQ3 & End-to-end policy trade-off & Call quality, final performance, FE use, runtime, and paired comparisons with all required policies. \\
+    RQ4 & Transport of the frozen procedure & Separate held-out BBOB, CEC2017, CEC2022, and engineering estimates, with coverage and query failures. \\
+    RQ5 & Behavioral associations with query value & T0--B3 increments, model-parameter stability, maturity--utility association, and prespecified strata. \\
+    \bottomrule
+  \end{tabularx}
+\end{table*}
+
+\subsection{Internal benchmark and function-family partition}
+
+The internal benchmark is the noiseless BBOB suite.  The training set comprises
+functions 1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, and 23;
+functions 5, 9, 13, 14, 19, and 24 form the held-out validation set.  Functions,
+rather than randomly selected transformed instances, define the grouping
+variable.  This partition addresses evidence that instance-level splits can
+overstate algorithm-selection generalization
+\cite{cenikjLandscapeFeaturesSingleobjective2025}.  Both sets use dimensions
+$d\in\{10,20,40\}$, instances $1,2,3$, optimizer seeds $1,\ldots,30$, population
+size 40, and total budget $B=1000d$.  The portfolio contains DE, PSO, CMA-ES,
+and SHADE, giving 54 training and 18 validation function--dimension
+combinations.
+
+The single best solver (SBS) is estimated exclusively from terminal outcomes at
+$FE=B$.  For each problem--algorithm pair, final best fitness is first averaged
+over seeds.  The four algorithms are then ranked within each problem, with
+smaller mean fitness preferred and average ranks assigned to ties.  These ranks
+are averaged over the training problems; any remaining tie is resolved in the
+prespecified order DE, PSO, CMA-ES, SHADE.  Intermediate decision states,
+including the last state at or before approximately $0.60B$, do not contribute
+to the SBS estimate.
+
+BBOB validation is a held-out internal evaluation set.  It remains untouched
+during query selection, preprocessing, model-family selection, input-group
+comparison, threshold fitting, and score-neighborhood definition.
+
+\subsection{External benchmarks}
+
+External evaluation is organized as non-pooled, suite-specific analyses.  The
+CEC2017 analysis comprises functions 1--29, dimensions 10, 30, and 50, seeds
+$1,\ldots,30$, population size 40, and budget $B=1000d$.  The four-algorithm
+portfolio and dynamic decision-opportunity protocol are unchanged, and the
+controller, downstream selector, imputation values, and threshold are held
+fixed at their BBOB-training estimates.
+
+CEC2022 and engineering problems form separate components of RQ4.  Their
+problem sets, dimensions, bounds, budgets, success targets, and failure rules
+are specified independently of policy-outcome inspection.  For every external
+suite, query-extraction failures remain in the coverage denominator rather than
+being removed from the analysis.  Missing descriptors may be imputed only with
+BBOB-training medians.  Held-out BBOB, CEC2017, CEC2022, and engineering
+estimates are reported separately; neither partial coverage nor agreement on a
+subset of suites is interpreted as unconditional cross-benchmark transfer.
+
+\subsection{Landscape-query configurations}
+
+Table~\ref{tab:query-configurations} defines the three prespecified queries.
+Primary inference concerns \texttt{descriptor\_cheap}; the two \texttt{pflacco}
+configurations evaluate dependence on representation and acquisition cost.
+
+\begin{table*}[t]
+  \caption{Prespecified landscape-descriptor queries.}
+  \label{tab:query-configurations}
+  \centering
+  \small
+  \begin{tabularx}{\textwidth}{@{}l l c c X@{}}
+    \toprule
+    Query & Sample & FE share & Features & Role \\
+    \midrule
+    \texttt{descriptor\_cheap} & LHS $50d$ & 5\% & 16 & Primary \\
+    \texttt{pflacco\_standard} & Same LHS $50d$ & 5\% & 37 & Configuration robustness \\
+    \texttt{pflacco\_broad} & Independent LHS $100d$ & 10\% & 52 & Configuration robustness \\
+    \bottomrule
+  \end{tabularx}
+\end{table*}
+
+The cheap and standard queries use the same evaluated $(X,y)$ sample, yielding
+a paired comparison of descriptor representations at a common FE cost.  The
+broad query uses an independent $100d$ design.  The standard configuration
+comprises PCA, nearest-better clustering, dispersion, information-content, and
+ELA-distribution groups.  The broad configuration adds ELA level-set and
+sample-derived fitness--distance-correlation groups, while excluding the full
+quadratic meta-model group, cell mapping, and feature groups that require
+additional objective evaluations.  Query sample points are not inserted into
+the optimizer population.  Each query defines a separate downstream selector,
+utility target, decision model, threshold, baseline comparison, and external
+evaluation; observations from different query identities or FE designs are not
+pooled.
+
+\subsection{Dynamic decision opportunities}
+
+Offline label construction and policy evaluation use the same dynamic
+budget--event sampling scheme.  Complete native updates are monitored when they
+cross a grid from $0.20B$ to $0.60B$ in increments of $0.01B$.  The mandatory
+budget milestones are 0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42,
+0.46, 0.50, and 0.60.  Five event types may add decision states: resumed strict
+improvement; a stagnation span reaching $0.05B$; an absolute medium-window
+covariance-effective-rank change reaching $0.20$; unit-cube elite-centroid
+displacement divided by $\sqrt{d}$ reaching $0.05$; and relative diversity
+recovery reaching $0.10$.  Covariance-effective-rank-change, elite-migration,
+and diversity-recovery events rearm when their respective quantities fall below
+$0.10$, $0.025$, and $0.05$.  Stagnation rearms after a new strict best-so-far
+improvement, whereas resumed improvement rearms when short-window improvement
+frequency returns to zero.
+
+Each complete update that crosses one or more monitor points is evaluated once.
+If a crossing includes a milestone, the event is associated with that milestone
+and does not consume an event-only quota or spacing anchor.  Otherwise, the most
+recent crossed monitor point supplies the nominal location.  Each of the early,
+middle, and late phases admits at most two event-only states, with at least
+$0.02B$ separation in realized FE ratio.  Suppressed crossings still update
+event rearming.  This scheme admits 12--18 states per run, each with unit sample
+weight.  The realized $FE/B$ represents elapsed budget and is the sole T0
+covariate; exact integer FE aligns shared-state outcomes.  Nominal milestones
+and native-update counts describe the sampling process but do not add Decision
+Model inputs.
+
+\subsection{Matched states and analysis population}
+
+The analysis pairs all alternatives at an identical complete native state.
+For each eligible state, it combines permutation-invariant behavior, the shared
+$50d$ and independent $100d$ LHS samples, the three descriptor representations,
+and the query-budget-specific outcome of every eligible action.  A trajectory
+enters an estimand only when both its complete native history and terminal
+outcome satisfy the same state definition.  Query-specific selection
+references, utilities, decision models, and policies are estimated from these
+matched observations under the family partitions described above.
+
+The primary Decision Model population contains states for which both the prefix
+and default algorithm equal the training SBS and the no-query path continues
+that optimizer.  States generated from the other prefix algorithms are reserved
+for cross-prefix robustness, leave-one-prefix-algorithm-out analysis, and tests
+of portability across the four search processes.  They are excluded from
+primary model fitting, threshold fitting, and primary result aggregation.
+
+\subsection{Comparison policies}
+
+Eight prespecified comparison roles are retained because they answer different
+benchmarking questions.
+\begin{itemize}
+  \item \textbf{Never Query}: continue the complete SBS state natively and incur no query acquisition cost.
+  \item \textbf{Always Query}: execute the fixed query at the first accepted decision opportunity and invoke the same downstream selector used by the proposed policy.
+  \item \textbf{Random Analysis}: at each shared opportunity before a call, trigger with probability 0.5.  Thirty independent repetitions use explicit integer random streams.
+  \item \textbf{Traditional AAS}: execute the fixed query and apply the same statewise downstream selector, without a preceding Decision-before-Feature controller, consistent with the sample--feature--selector structure of landscape-based selection \cite{guoAutomatedAlgorithmSelection2025}.  Under this definition, it induces the same first-opportunity decision as Always Query.
+  \item \textbf{SBS}: use the training-derived static default defined above.  In the primary population, the prefix and default are this same SBS, so its native complete-budget path coincides with Never Query; the separate name preserves its role as the standard algorithm-selection reference rather than introducing another online trajectory.
+  \item \textbf{VBS}: use the static, per-problem hindsight choice among complete-budget portfolio outcomes.  It is an upper reference rather than a deployable method and is distinct from the statewise best observed action.
+  \item \textbf{Time-only Controller}: use the selected Decision Model family and the same training and threshold procedure as the full controller, with input restricted to $\{FE/B\}$.
+  \item \textbf{Decision-before-Feature}: use B3 behavior with the selected model and the threshold estimated from full-training OOF predictions.
+\end{itemize}
+In the primary population, Never Query and SBS yield the same native terminal
+outcome, whereas Always Query and Traditional AAS yield the same
+first-opportunity query outcome.  RQ3 therefore reports these roles as
+\emph{Never Query / SBS} and \emph{Always Query / Traditional AAS}; each shared
+outcome enters summaries and inferential comparisons once.
+All online policies share the same accepted decision opportunities, total FE
+budget, portfolio, query definition, downstream selector, and
+population-transfer rule.  State-only, query-only, and combined statewise
+selectors are additionally compared as diagnostics of the downstream selector;
+they do not replace the required policy baselines.
+
+\subsection{Evaluation measures}
+
+Decision-model family selection uses nested function-family OOF mean decision
+utility.  AUROC, average precision, and Spearman correlation are secondary
+score-level measures.  Continuous-utility RMSE is reported only for Ridge;
+classification probabilities and discriminant scores are not compared with
+continuous utility using RMSE.
+
+Policy-level reporting includes query-call rate, mean decision utility, the
+proportion of called states for which $U_q>0$, the fraction of positive-utility
+states called, and
+\begin{equation}
+  \overline U_{\mathrm{decision}}(\pi)
+  =\frac{1}{n}\sum_{i=1}^{n}d_{\pi,i}U_q(s_i),
+  \label{eq:policy-decision-utility}
+\end{equation}
+where $d_{\pi,i}$ is the call indicator of query-decision policy $\pi$.  A
+skipped state contributes zero, so the Never Query role has zero decision
+utility by definition.  The coincident SBS reference role and VBS are not
+query-decision policies and therefore remain not applicable for this quantity;
+mean observed utility conditional on calling is reported separately.
+Positive-utility capture is summarized by
+\begin{equation}
+  \mathrm{utility\ capture}=
+  \frac{\sum_i U_{q,i}\,\mathbf{1}[U_{q,i}>0]\,\mathbf{1}[\widehat d_i=1]}
+       {\sum_i U_{q,i}\,\mathbf{1}[U_{q,i}>0]}.
+  \label{eq:utility-capture}
+\end{equation}
+The positive-state capture rate and utility capture in
+Eq.~\eqref{eq:utility-capture} are reported separately.  Calls with $U_q\le0$
+are summarized by their count, their proportion among calls, and their
+accumulated utility loss.
+
+End-to-end endpoints comprise final best objective value or error,
+target-based success rate and expected running time (ERT), total and query FEs,
+wall-clock time, behavior-extraction time, controller-inference time, query
+sampling and descriptor-computation time, downstream-selection latency, and
+peak memory.  Success targets are suite specific and are fixed independently
+of the observed policy contrasts.  Cost--performance reporting retains all
+eight prespecified comparison roles but uses six distinct primary-population
+outcomes: five online trajectories, including the two slash-labelled
+identities, and the VBS hindsight reference.
+
+\subsection{Statistical analysis}
+
+Repeated states from one trajectory are not treated as independent replicates.
+Descriptive summaries include state-level micro-averages and macro-averages
+balanced across function families.  Results are also stratified by family,
+dimension, phase, and transition type.  Support for the RQ1 statement that a
+majority of evaluated states do not benefit from the primary query requires the
+95\% lower confidence bound for the relevant proportion to exceed 0.5.  Paired
+policy comparisons use nonparametric procedures, including Wilcoxon signed-rank
+comparisons and Friedman comparisons with Holm-adjusted follow-ups, at a
+prospectively declared aggregation level.
+For every endpoint, analytically identical roles enter once; duplicated role
+labels add no ranks, paired contrasts, or multiplicity counts.
+
+Equivalence is assessed only against a smallest effect of interest, margin, and
+primary procedure fixed before policy outcomes are examined.  Confidence
+intervals use a prespecified hierarchical resampling unit and replication
+count, and ERT uses suite-specific targets fixed independently of policy
+outcomes.  Absence of statistical significance is not interpreted as
+equivalence or preservation of optimization performance.

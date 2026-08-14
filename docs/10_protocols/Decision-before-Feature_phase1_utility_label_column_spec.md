@@ -102,6 +102,8 @@ handoff_required = (handoff_type == population_transfer_initialization)
 
 ## 4. FE 与运行时间账本
 
+`benchmark_reference_value` 与所有 gap 字段只用于离线标签与最终评价，不得进入 Behavior、Selection Reference 输入或 Decision X。使用已知最优值作为裁判口径，不意味着在线优化器知道最优值。
+
 必需字段：
 
 ```text

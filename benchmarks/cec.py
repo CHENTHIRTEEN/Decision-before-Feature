@@ -5,7 +5,7 @@ import warnings
 
 import numpy as np
 
-from benchmarks.core import Problem
+from benchmarks.core import Problem, coerce_reference_value
 
 
 SUPPORTED_CEC_YEARS = {2017, 2022}
@@ -53,4 +53,5 @@ def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
         dimension=dimension,
         bounds=bounds,
         objective=objective,
+        reference_value=coerce_reference_value(function_object, ("bias", "fopt", "best_value", "optimum")),
     )

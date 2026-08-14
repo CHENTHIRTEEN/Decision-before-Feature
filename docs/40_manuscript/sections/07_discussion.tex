@@ -1,0 +1,63 @@
+\section{Discussion}
+\label{sec:discussion}
+
+The present study separates two decisions that are usually collapsed in
+feature-based algorithm selection: whether to execute an evaluated fixed
+landscape query and, conditional on execution, which portfolio action to use.
+This formulation is methodological and does not by itself establish that the
+query should be skipped or executed in any empirical regime.
+
+\subsection{When is the evaluated query worth executing?}
+
+\TBD{TBD-DISC-01} The statewise utility distribution has not yet been
+estimated.  Its eventual interpretation is conditional on the evaluated query,
+utility definition, effect direction, interval, and state coverage, and cannot
+be extended from the fixed low-cost query to landscape analysis in general.
+
+\subsection{Information in algorithm-agnostic search behavior}
+
+\TBD{TBD-DISC-02} The RQ2 comparison between T0 and the behavior groups remains
+undetermined pending nested BBOB-train family-OOF estimates and frozen
+evaluation.  Decision utility, AUROC, Average Precision, Spearman correlation,
+and Ridge RMSE support different aspects of the comparison; disagreement among
+them precludes a single undifferentiated predictive claim.
+
+\subsection{End-to-end resource and performance trade-offs}
+
+\TBD{TBD-DISC-03} The practical resource--performance trade-off is
+undetermined.  Its interpretation requires joint evidence from equal-total-FE
+final performance, measured query and inference time, query-call rate, and the
+cost of calls with non-positive observed utility.  Fewer calls alone would not
+establish better resource-aware optimization.
+
+\subsection{Held-out families and cross-benchmark scope}
+
+\TBD{TBD-DISC-04} Effects on held-out BBOB, CEC2017, CEC2022, and engineering
+problems remain unestimated and provide no current evidence of generalization.
+Any eventual interpretation is suite-specific; query-extraction failures,
+divergent effect directions, or incomplete coverage narrow its scope.
+
+\subsection{Search maturity and behavior interpretation}
+
+\TBD{TBD-DISC-05} The RQ5 ablation, coefficient or discriminant-direction
+stability, and maturity--utility association remain unestimated.  Coefficients, discriminant
+directions, and correlations have a predictive rather than causal
+interpretation; a non-monotonic relationship would require support from its
+prespecified fit, interval, and stability analysis.
+
+\subsection{Limitations and validity boundaries}
+
+The primary estimand is query-specific: it concerns
+\texttt{descriptor\_cheap}, a 16-dimensional custom low-cost descriptor query.
+The prespecified standard and broad \texttt{pflacco} queries can assess
+configuration robustness but cannot justify claims
+about untested landscape representations. The Selection Reference is a fixed
+downstream component rather than a claimed algorithm-selection contribution,
+and its selector regret must remain visible when interpreting query utility.
+The main Decision Model is trained offline on a BBOB function-family split; the
+study does not evaluate online controller training as a primary design.
+
+\TBD{TBD-DISC-06} The empirical limitations remain to be quantified through
+trajectory and action-loss coverage, query-extraction failures, family-level
+dependence, population-transfer frequency, and sensitivity to the three
+prespecified query configurations and utility-cost settings.

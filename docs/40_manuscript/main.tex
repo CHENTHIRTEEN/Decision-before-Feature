@@ -1,0 +1,98 @@
+\documentclass[a4paper,fleqn]{cas-dc}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{placeins}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{hyperref}
+
+\graphicspath{{../assets/figures/}}
+\setlength{\emergencystretch}{2em}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+% The source argument preserves one-to-one evidence mapping; the typeset
+% draft uses a compact marker.
+\newcommand{\TBD}[1]{\textcolor{red!70!black}{\textbf{TBD}}}
+\newcommand{\query}{\texttt{descriptor\_}\allowbreak\texttt{cheap}}
+\newcommand{\DBF}{Decision-before-Feature}
+
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+
+\shorttitle{Decision before Feature in Black-box Optimization}
+\shortauthors{Anonymous Author(s)}
+
+\title[mode=title]{Decision before Feature: Deciding Whether to Execute a
+Landscape Descriptor Query in Black-box Optimization}
+
+\author[1]{Anonymous Author(s)}
+\affiliation[1]{organization={Affiliation withheld for anonymous review},
+                country={}}
+
+\begin{abstract}
+Landscape descriptors are widely used to support algorithm selection in
+black-box optimization, but acquiring them consumes function evaluations,
+runtime, and memory, while their value may vary across search states.  This
+paper formulates acquisition of a fixed landscape-descriptor query as a
+decision that precedes feature computation.  The proposed \DBF{} protocol
+reuses algorithm-agnostic,
+permutation-invariant behavior from complete native optimizer-update histories,
+constructs state-aligned query-utility labels through paired offline
+continuations, and freezes a supervised decision rule under nested
+function-family out-of-fold evaluation.  The primary query is a predefined
+16-dimensional low-cost descriptor configuration; two larger configurations
+are reserved for representation-and-cost sensitivity analyses.
+\TBD{TBD-ABS-RQ1}
+The prevalence and interval for non-beneficial primary-query states remain
+undetermined.
+\TBD{TBD-ABS-RQ2}
+The nested-OOF model comparison, frozen held-out BBOB-family evaluation, and
+B3-versus-T0 increment remain undetermined.
+\TBD{TBD-ABS-RQ3}
+The end-to-end comparison with the prespecified baselines, including query
+use, final performance, and resource measures, remains undetermined.
+\TBD{TBD-ABS-RQ4}
+Performance on BBOB validation, CEC2017, CEC2022, and engineering problems
+remains undetermined; no transfer claim is made.
+\TBD{TBD-ABS-RQ5}
+The association between search behavior, search maturity, and query utility
+remains undetermined and has a descriptive, non-causal interpretation.
+\end{abstract}
+
+\begin{highlights}
+\item Formulates landscape-descriptor acquisition as a decision made before
+      descriptor computation.
+\item Uses offline, state-aligned utility labels and algorithm-agnostic search
+      behavior from native optimizer histories.
+\item Specifies train-only model selection and threshold freezing before any
+      held-out benchmark evaluation.
+\end{highlights}
+
+\begin{keywords}
+black-box optimization \sep algorithm selection \sep landscape analysis \sep
+trajectory features \sep resource-aware decision making \sep function-family
+generalization
+\end{keywords}
+
+\maketitle
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_problem_formulation}
+\input{sections/04_method}
+\input{sections/05_experimental_setup}
+\input{sections/06_results}
+\input{sections/07_discussion}
+\input{sections/08_reproducibility}
+\input{sections/09_conclusion}
+
+\bibliographystyle{cas-model2-names}
+\bibliography{references}
+
+\end{document}

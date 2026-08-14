@@ -48,7 +48,7 @@ Offline Utility Label。
 
 Trajectory Parquet 按 `phase1_dynamic_budget_event_v1` 保存输出状态的 population、fitness、best-so-far、`FE_total`、已完成的 `native_updates`、三个名义窗口的轻量集合/fitness 统计、最近10%预算内的逐 update 标量历史、`optimizer_state_mode` 与全部 sampling metadata，不把逐 update 的 RNG、velocity、evolution path、archive 等完整内部状态重复写入每一行。Utility 生成按 `(problem_id, prefix_algorithm, seed)` 原生重放一次前缀，在每个整数 `FE` 状态上对 population、fitness、best-so-far、`native_updates` 与 sampling metadata 做逐值一致性检查；随后复制内存中的完整状态生成两条分支。任一状态不一致时必须停止并重新生成 trajectory，不得退回 population-only 重建。
 
-正式状态键为 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`。eligible behavior、action-loss、Selection Reference 与 Utility label 必须在该键上双向完全覆盖；不使用浮点 `FE_ratio` 作 join key。
+正式状态键为 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`。eligible behavior、action-loss、Selection Reference 与 Utility label 必须在该键上双向完全覆盖；不使用浮点 `FE_ratio` 作 join key。所有 query 相关产物必须额外记录 `query_id`、`query_protocol` 与 `query_preprocessing_id`，以防新旧 query contract 混用。
 
 首轮离线状态采样不使用 decision score，每行 `sample_weight=1`。完整 BBOB-train family-OOF 上的 Q10 threshold-neighborhood 仅在模型与 threshold 冻结后用于 online 附加复查，BBOB-validation 与外部测试不参与带宽拟合，所有策略共享相同决策机会。
 
@@ -135,6 +135,8 @@ G>0
 $$
 
 表示固定 query 路径取得更低的最终 performance。
+
+`benchmark_reference_value` 与所有 gap 字段只用于离线标签与最终评价，不得进入 Behavior、Selection Reference 输入或 Decision X。使用已知最优值作为裁判口径，不意味着在线优化器知道最优值。
 
 ---
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from cocoex import Suite
 
-from benchmarks.core import Problem
+from benchmarks.core import Problem, coerce_reference_value
 
 
 def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
@@ -35,5 +35,6 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
         dimension=dimension,
         bounds=bounds,
         objective=objective,
+        reference_value=coerce_reference_value(coco_problem, ("fopt", "reference_value", "best_value")),
         close_callback=close_problem,
     )

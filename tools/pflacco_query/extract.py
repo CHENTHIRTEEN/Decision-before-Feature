@@ -148,6 +148,7 @@ def extract_pflacco_features(
                 },
                 "query_id": spec.query_id,
                 "query_protocol": spec.protocol,
+                "query_preprocessing_id": spec.preprocessing_id,
                 "runtime_feature_computation": float(runtime_feature),
                 "runtime_query_feature_computation": float(runtime_feature),
                 "runtime_query": float(row["runtime_sampling_evaluation"] + runtime_feature),
@@ -210,7 +211,7 @@ def _validate_group_output(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract a frozen pflacco 1.2.2 landscape query from saved samples.")
-    parser.add_argument("--query-id", choices=("pflacco_standard", "pflacco_broad"), required=True)
+    parser.add_argument("--query-id", choices=("pflacco_standard_invariant", "pflacco_broad_invariant"), required=True)
     parser.add_argument("--samples", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--overwrite", action="store_true")

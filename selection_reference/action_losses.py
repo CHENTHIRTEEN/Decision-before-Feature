@@ -138,6 +138,9 @@ def evaluate_candidate_actions(
         raise ValueError("action portfolio must contain exactly four unique algorithms")
     if prefix_algorithm not in portfolio:
         raise ValueError("prefix algorithm must belong to the action portfolio")
+    reference_value = float(problem.reference_value) if problem.reference_value is not None else None
+    if reference_value is None:
+        raise ValueError("benchmark reference value is required for gap-based loss evaluation")
     outcomes = []
     for target_algorithm in portfolio:
         if target_algorithm == prefix_algorithm:
@@ -160,12 +163,20 @@ def evaluate_candidate_actions(
             runtime_handoff = perf_counter() - handoff_started
             transition_mode = "population_transfer_initialization"
         result = advance_optimizer_state(state=state, problem=problem, fe_budget=fe_budget)
+        raw_loss = float(result.best_fitness)
+        gap_loss = max(raw_loss - reference_value, 0.0)
         outcomes.append(
             {
                 "action": action,
                 "target_algorithm": target_algorithm,
                 "transition_mode": transition_mode,
-                "action_loss": float(result.best_fitness),
+                "action_loss": float(gap_loss),
+                "action_loss_raw": raw_loss,
+                "p_query_raw": raw_loss,
+                "loss_query": float(gap_loss),
+                "p_query": float(gap_loss),
+                "loss_gap_raw": float(gap_loss),
+                "loss_gap_norm": float(gap_loss),
                 "runtime_handoff": float(runtime_handoff),
                 "runtime_action_optimization": float(result.runtime_seconds),
             }
@@ -212,6 +223,9 @@ def _evaluate_shard(
                 {"suite": suite, "function": function, "instance": instance, "dimension": dimension}
             )
         problem = problem_cache[problem_key]
+        reference_value = problem.reference_value
+        if reference_value is None:
+            raise ValueError(f"benchmark reference value is unavailable for {problem.problem_id}")
         state = initialize_optimizer_state(algorithm=prefix_algorithm, problem=problem, seed=seed, settings=settings)
         for trajectory_row in sorted(trajectory_group, key=lambda row: int(row["FE"])):
             checkpoint_fe = int(trajectory_row["FE"])
@@ -264,6 +278,7 @@ def _evaluate_shard(
                 function=function,
                 instance=instance,
             )
+            loss_skip = max(float(skip_result.best_fitness) - reference_value, 0.0)
             common = {
                 "split": split,
                 "problem_id": problem_id,
@@ -286,7 +301,12 @@ def _evaluate_shard(
                 "FE_no_query_optimization": skip_budget,
                 "FE_query_optimization": remaining_budget,
                 "remaining_budget_ratio": float(remaining_budget / fe_total),
-                "p_skip": float(skip_result.best_fitness),
+                "performance_value_mode": "raw_objective",
+                "performance_loss_mode": "known_optimum_gap",
+                "benchmark_reference_value": float(reference_value),
+                "p_skip_raw": float(skip_result.best_fitness),
+                "loss_skip": float(loss_skip),
+                "p_skip": float(loss_skip),
                 "runtime_no_query_handoff": float(runtime_no_query_handoff),
                 "runtime_no_query_optimization": float(skip_result.runtime_seconds),
                 "no_query_transition_mode": no_query_transition_mode,
@@ -320,6 +340,7 @@ def _complete_action_diagnostics(
         row["best_observed_algorithm"] = best_algorithm
         row["best_observed_loss"] = best_loss
         row["action_loss_norm"] = float((float(row["action_loss"]) - best_loss) / scale)
+        row["loss_gap_norm"] = float(row["action_loss_norm"])
 
 
 def _eligible_for_action_loss(row: dict, config: dict, sample_design_id: str) -> bool:
@@ -377,7 +398,9 @@ def _schema() -> pa.Schema:
         ("FE_no_query_optimization", pa.int64()),
         ("FE_query_optimization", pa.int64()),
         ("remaining_budget_ratio", pa.float64()),
+        ("benchmark_reference_value", pa.float64()),
         ("p_skip", pa.float64()),
+        ("p_skip_raw", pa.float64()),
         ("runtime_no_query_handoff", pa.float64()),
         ("runtime_no_query_optimization", pa.float64()),
         ("no_query_transition_mode", pa.string()),
@@ -385,7 +408,10 @@ def _schema() -> pa.Schema:
         ("target_algorithm", pa.string()),
         ("transition_mode", pa.string()),
         ("action_loss", pa.float64()),
+        ("action_loss_raw", pa.float64()),
         ("action_loss_norm", pa.float64()),
+        ("loss_gap_raw", pa.float64()),
+        ("loss_gap_norm", pa.float64()),
         ("runtime_handoff", pa.float64()),
         ("runtime_action_optimization", pa.float64()),
         ("best_observed_algorithm", pa.string()),

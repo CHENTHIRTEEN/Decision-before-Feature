@@ -218,6 +218,8 @@ Decision输入：
 - stagnation
 - distance decay
 
+benchmark_reference_value、已知最优值 gap 以及所有 gap 字段只可用于离线标签和最终评价，不得进入 Behavior、Selection Reference 输入或 Decision X。
+
 禁止：
 
 - PSO参数；

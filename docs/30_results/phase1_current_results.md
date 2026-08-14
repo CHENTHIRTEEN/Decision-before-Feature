@@ -6,6 +6,8 @@
 
 旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和旧模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
 
+当前有效的离线标签与最终评价可使用 `benchmark_reference_value` 与 known-optimum gap 口径，但这些字段只允许留在离线标签和评价层，不能进入 Behavior、Selection Reference 输入或 Decision X。
+
 ## 1. 文档定位
 
 本文仅保留截至 2026-08-11 已生成结果的撤回记录，用于定位受影响范围，不表示当前有效性能评价。

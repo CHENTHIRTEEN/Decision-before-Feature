@@ -1,0 +1,123 @@
+\section{Reproducibility}
+\label{sec:reproducibility}
+
+\subsection{Software and experimental configuration}
+
+The study uses offline trajectory collection followed by supervised learning.
+The experimental specification fixes benchmark membership, dimensions,
+instances, optimizer seeds, portfolio composition, population size, FE budgets,
+and the dynamic decision-opportunity schedule.
+Reporting these elements, together with repetitions, variability, and feature
+cost, is particularly important for optimization representations
+\cite{cenikjSurveyFeaturesUsed2026}.
+
+The main implementation targets Python 3.12.  The \texttt{pflacco} queries run
+in an isolated Python 3.11 environment with \texttt{pflacco==1.2.2},
+\texttt{numpy==1.24.3}, \texttt{pandas==2.0.3}, \texttt{scipy==1.10.1}, and
+\texttt{scikit-learn==1.2.2}.  The descriptor extractor receives only the
+previously evaluated LHS sample.  It neither imports a benchmark nor calls the
+objective function, and a failed \texttt{pflacco} feature group is not replaced
+by a study-specific substitute.
+
+\subsection{Random streams}
+
+All scientific random streams are constructed from explicit integers through
+\texttt{numpy.random.SeedSequence}.  Optimizer streams combine the configured
+optimizer seed with integer identifiers for the run and stochastic event.
+Query sampling additionally uses integer stream, function, instance, dimension,
+and sample-design codes.  Population-transfer initialization receives explicit
+function, instance, and event codes.  The Random Analysis repetitions combine a
+base seed with problem, dimension, optimizer seed, decision FE, and repetition
+indices.  Experimental randomness therefore does not depend on strings or
+process-specific hash values.
+
+\subsection{Observation indexing and state alignment}
+
+An observation is uniquely indexed by
+\begin{equation}
+  k_t=(\mathrm{split},p,\mathcal{F}(p),d,a_t,r,e_t),
+  \label{eq:state-key}
+\end{equation}
+where $p$ uniquely identifies the problem instance, $\mathcal{F}(p)$ is its
+function family, $a_t$ is the prefix algorithm,
+$r$ is the optimizer seed, and $e_t$ is the exact integer FE count.  This index
+aligns trajectories, behavior summaries, action outcomes, selection-reference
+predictions, utility labels, and Decision Model observations.  Exact FE, rather
+than a rounded budget ratio, identifies a shared state; the corresponding
+elapsed-budget covariate is calculated as $e_t/B$.  Nominal milestone ratios and
+realized native-window spans describe how the state was sampled but do not
+replace exact-FE alignment.
+
+\subsection{Data construction and evaluation dependencies}
+
+Complete native-state trajectories and complete-budget terminal outcomes
+define the common analysis population.  Permutation-invariant behavior and the
+three fixed descriptor representations are evaluated at matched states, after
+which the four query-adjusted actions provide the statewise losses.  Each query
+configuration has its own cross-fitted selection reference, utility labels,
+Decision Model, threshold, baseline comparison, and held-out evaluation.  Only
+trajectories with both a complete native history and a terminal outcome enter
+the corresponding estimand.  Query identity, sample design, FE charge, and
+descriptor definition jointly identify an analysis condition; in particular,
+the 5\% and 10\% acquisition conditions are analyzed separately and are never
+pooled.
+
+\subsection{Validity checks}
+
+The validity checks address state continuity, representation invariance, FE
+accounting, and information leakage.  For each portfolio optimizer, a restored
+complete state is compared with uninterrupted native continuation at matched
+checkpoints, including optimizer-specific internal dynamics rather than only
+population values.  Independent reordering of population members at every
+evaluated BBOB state tests that the 31 Decision Model inputs, three diagnostic
+variables, and native-window summaries are permutation invariant.
+
+Query-level checks enforce the three descriptor definitions, the shared sample
+for the cheap and standard configurations, four non-duplicated actions,
+continuous remaining budget, query-specific FE accounting, the statewise
+action-loss transformation, and the utility and selector decompositions.
+Feature-group failures remain explicit; undefined individual descriptors are
+imputed only from BBOB-training observations.  Model-level checks fit all
+preprocessing within the applicable training-family fold, restrict the active
+candidates to LDA, Logistic Regression, and Ridge, and exclude BBOB validation
+and external suites from model fitting and threshold estimation.  The three
+action relations in Eq.~\eqref{eq:handoff-fields} are checked throughout
+selection, utility calculation, and policy evaluation.  These procedures assess
+implementation validity; they add no observations to RQ1--RQ5.
+
+\subsection{Resource measurement}
+
+FE accounting is exact at the state level:
+\begin{align}
+  FE_{\mathrm{skip,opt}} &= B-e_t,\\
+  FE_{q,\mathrm{opt}} &= B-e_t-FE_q.
+\end{align}
+Behavior extraction reuses evaluated optimizer states and makes no additional
+objective-function calls.  Query time is the sum of sample-evaluation and
+feature-computation time.  Selection latency includes state preparation, model
+inference, and action choice.  Prediction time is measured separately for the
+T0 and B3 controllers.
+
+All resource measurements use one fixed hardware and software environment.
+Processor, operating system, Python environments, thread count, batch size,
+cache state, and the peak-memory procedure accompany the estimates.  Timings
+are decomposed into behavior extraction, T0 and B3 inference, query sampling,
+descriptor computation, downstream selection, and total wall time.
+\TBD{TBD-REPRO-RESOURCE-01}
+
+\subsection{Recomputation of estimands}
+
+The state-level release retains the quantities needed to recompute every term
+in Eq.~\eqref{eq:query-utility} and Eq.~\eqref{eq:selector-decomposition},
+including the observed losses, normalization and cost terms, selected action,
+and three action relations.  Model summaries are reconstructed from
+training-family fold assignments, nested and full-training OOF scores,
+thresholds, and held-out predictions.  Policy summaries are reconstructed from
+the trigger state, query decision, selected action, transition mode, FE use,
+timing components, and terminal loss.
+
+Equivalence is interpreted only relative to margins and procedures fixed
+before policy-outcome inspection.  Held-out BBOB and each external suite are
+analyzed separately with every train-derived component frozen.  These
+provisions define reproducibility and do not themselves constitute evidence of
+held-out or cross-benchmark transfer.

@@ -1,0 +1,258 @@
+\section{Related work}
+\label{sec:related-work}
+
+\subsection{Landscape representations and automated algorithm selection}
+
+Fitness-landscape analysis describes properties of an optimization problem that
+may be relevant to search, including ruggedness, modality, neutrality, fitness
+distributions, and variable interactions.  The corresponding measures differ
+in their assumptions, sampling procedures, dependence on a search process, and
+computational demands \cite{malanSurveyTechniquesCharacterising2013}.  ELA
+operationalizes this idea through numerical descriptors computed from sampled
+objective values.  Its original formulation proposed relatively inexpensive,
+computer-generated features as a route from problem characterization to
+automatic algorithm selection \cite{mersmannExploratoryLandscapeAnalysis2011}.
+Software such as \texttt{pflacco} now exposes multiple feature families with
+different sample requirements and domains of applicability
+\cite{pragerPflaccoFeaturebasedLandscape2024}.  Estimated ELA values can also
+depend materially on the sampling strategy, and a mismatch between the designs
+used for training and deployment can degrade the resulting predictor
+\cite{renauExploratoryLandscapeAnalysis2020}.  The sample design is therefore
+part of the representation, not a neutral implementation detail.
+
+In automated algorithm selection (AAS), a conventional pipeline computes an
+instance representation and predicts which portfolio member should be used.
+ELA combined with supervised learning has been evaluated against the single
+best solver (SBS) and virtual best solver (VBS), often under leave-one-function-
+out or related problem-oriented splits
+\cite{kerschkeAutomatedAlgorithmSelection2019}.  More recent systems retain the
+sample--feature--selector structure while changing the portfolio, feature set,
+or learning model \cite{guoAutomatedAlgorithmSelection2025}.  These studies
+establish the downstream use of landscape information.  They do not determine
+whether an independently sampled descriptor query should be acquired at a
+particular state before its features exist.
+
+\subsection{Feature acquisition as a resource cost}
+
+Landscape information is acquired rather than supplied.  Objective evaluations
+used for feature sampling reduce the budget left for optimization, while
+feature computation adds computational demand.  Reusing the sample
+as an optimizer population can reduce the effective FE charge in a particular
+pipeline \cite{kerschkeAutomatedAlgorithmSelection2019}, but this does not make
+the representation cost-free in general.  Runtime and peak memory are therefore
+measured separately in the present study.  A recent preprint study of feature
+budgets found
+that the preferred sampling fraction varied with the portfolio, problem set,
+dimension, target budget, and selection scenario
+\cite{blomInfluenceFeatureComputation2026}.  Similarly, ELA-based selection
+experiments may restrict feature groups when the acquisition budget is limited
+\cite{guoAutomatedAlgorithmSelection2025}.
+
+These findings motivate cost-aware evaluation, but their decision variable is
+usually the portfolio action after features have been obtained.  In contrast,
+Decision-before-Feature compares executing and skipping the same prespecified
+query from a shared search state.  Query FEs enter through the reduced
+continuation budget rather than a second penalty; normalized time is penalized
+explicitly, while memory is reported and examined only in sensitivity analysis.
+The target is therefore not a classifier for whether a feature family is
+``cheap.''
+
+\subsection{Trajectory-based and per-run algorithm selection}
+
+The closest antecedents replace an independent landscape sample with
+information collected during an initial optimizer run.  Jankovic et al. begin
+with CMA-ES, compute trajectory-based landscape features, predict the
+performance of candidate second-stage optimizers, and warm-start the selected
+one \cite{jankovicTrajectorybasedAlgorithmSelection2022}.  In that formulation,
+the trajectory representation is constructed for every run at a fixed switch
+point; the decision is which second-stage optimizer to use, not whether to
+construct the representation.  Kostovska et al.
+extend this per-run setting to compare trajectory ELA, time series of CMA-ES
+internal state variables, and their combination
+\cite{kostovskaPerrunAlgorithmSelection2022}.  The latter study also reports
+that its BBOB findings did not transfer directly to YABBOB, showing that such
+transfer cannot be assumed; trajectory-coverage mismatch is discussed there as
+a possible explanation.  Both internal evaluations retain the same BBOB
+functions across training and test partitions: the CEC study groups
+five-dimensional observations by instance identifier, while the PPSN study uses
+run- and instance-level partitions in five and ten dimensions.  These protocols
+answer different questions from the present function-family OOF design; they are
+antecedents for representation and warm-starting, not precedents for the present
+evaluation design.
+
+Probing trajectories provide another algorithm-centric representation.  A
+short run records an objective-value sequence, and the resulting time series
+supports a later portfolio choice
+\cite{renauUtilityProbingTrajectories2024}.
+A subsequent benchmark compared multiple time-series classifiers under both
+leave-one-instance-out and the harder leave-one-problem-out evaluation
+\cite{renauAlgorithmSelectionProbing2025b}.  This result is relevant here
+because it shows that the predictive model and problem partition remain part
+of a trajectory selector's empirical specification.  Nevertheless, probing is
+performed before every selection, the target is the best portfolio algorithm,
+and the output is an optimizer choice.  The probe itself still consumes
+evaluations even though it is not a separate landscape sample.  It does not construct paired
+skip/query utility for a separate landscape query or decide whether that query
+should be acquired.
+
+\subsection{Trajectory representations and behavior characterization}
+
+Other work studies what optimizer histories represent rather than which action
+to take.  Search trajectory networks summarize visited regions and transitions
+for comparative analysis and visualization \cite{ochoaSearchTrajectoryNetworks2021}.
+DynamoRep concatenates generation-wise coordinate and fitness summaries, thereby
+preserving longitudinal population dynamics without a separate objective sample;
+Opt2Vec instead learns a representation from populations observed during a run
+\cite{cenikjDynamoRepTrajectoryBasedPopulation2023,korosecOpt2VecContinuousOptimization2024}.
+DynamoRep fits separate classifiers for each optimizer and evaluates
+three-dimensional BBOB class identification, while Opt2Vec likewise reports
+problem classification.  These tasks neither establish a fixed-dimensional,
+algorithm-agnostic state representation nor predict the utility of acquiring a
+separate landscape query.
+
+Behavioral analysis provides a complementary vocabulary.  Hayward and
+Engelbrecht characterize exploration, exploitation, locality, communication,
+and evaluation effort with a suite of whole-run measures, explicitly treating
+behavior as problem dependent \cite{haywardDeterminingMetaheuristicSimilarity2025}.
+Some of those measures rely on a known optimum, persistent individual identity,
+or algorithm interaction structure and hence are unsuitable as pre-query inputs
+here.  Mbasso et al. use distance-to-reference decay, directional entropy, and
+stagnation to diagnose late-stage behavior and trigger optimizer-specific
+interventions \cite{mbassoHowMetaheuristicsExploit2026}.  Only the distance-decay
+and stagnation semantics motivate the present state representation: distance is
+redefined relative to the current population best, while particle-wise
+directional entropy is excluded because it requires persistent cross-generation
+identities.  The reported interventions do not validate the study-specific
+Search Maturity construction or establish that behavior predicts landscape-query
+utility.  More generally, computability alone does not
+make a behavior indicator informative or complementary: sensitivity,
+redundancy, single-run computability, and the information available at
+deployment all constrain its use
+\cite{haywardSurveyAnalysisMetaheuristic2026}.
+
+\subsection{Adaptive search and dynamic algorithm selection}
+
+Landscape-aware adaptive methods change the search mechanism after observing
+landscape or performance information.  Examples include mutation-operator
+selection in differential evolution and adaptation of subpopulation number and
+partitioning in artificial bee colony optimization
+\cite{sallamLandscapebasedAdaptiveOperator2017,zhouAdaptiveMultipopulationArtificial2024}.
+Adaptive landscape analysis instead studies how locally sampled landscape
+descriptors evolve during an optimizer run, with the longer-term aim of online
+selection or configuration \cite{jankovicAdaptiveLandscapeAnalysis2019a}.  It
+therefore computes descriptors on 2,000 additional points sampled from the
+current CMA-ES distribution at prescribed target levels.  ``Cheap'' denotes
+that the chosen descriptor families need no further evaluations beyond that
+sample, not that acquisition is free.  The preliminary study neither makes a
+pre-descriptor acquisition decision nor couples the descriptors to a paired
+skip/query utility.
+Dynamic algorithm selection can make repeated choices during a run; RL-DAS, for
+example, represents the process as a reinforcement-learning problem over
+differential-evolution variants using landscape and algorithm-history
+information \cite{guoDeepReinforcementLearning2024b}.  Dynamic algorithm
+configuration makes the control problem explicit through a state space, an
+action space over hyperparameter settings or components, a reward, and a
+decision frequency; DACBench includes both CMA-ES step-size control and repeated
+selection among modular evolutionary-algorithm components
+\cite{eimerDACBenchBenchmarkLibrary2021}.  Parameter control and MetaBBO cover
+still broader choices over parameters, components, structures, and learned
+update rules
+\cite{gomespereiradelacerdaSystematicLiteratureReview2021,yangMetablackboxOptimizationEvolutionary2025}.
+The broader adaptive-operator-selection literature likewise separates
+stateless credit-based rules from state-based policies that map solution,
+problem, or optimization-process features to an operator
+\cite{peiAdaptiveOperatorSelection2025}.  In both cases, the selected action is
+a search operator; the acquisition of an independent descriptor query is not
+the action being evaluated.
+
+Those approaches optimize a search action or solver mechanism.  The present
+method uses offline supervised learning and leaves the portfolio algorithms
+unchanged.  Its gate decides whether to acquire information; only after a call
+does a separate, fixed action-loss selector choose between native continuation
+and population-transfer initialization.  Thus, its action is neither an
+optimizer hyperparameter nor a repeated component choice.  Table~\ref{tab:related-comparison}
+summarizes this distinction for the closest task formulations.
+
+\begin{table*}[t]
+\caption{Closest task formulations compared by decision object, information
+time, acquisition cost, and state transition. ``Extra FEs'' denotes an
+independent landscape sample beyond an existing prefix or probe.}
+\label{tab:related-comparison}
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}l Y Y c Y@{}}
+\toprule
+Approach & Decision target & Information at decision & Extra FEs
+& Frequency and transition \\
+\midrule
+Static ELA-based AAS
+\cite{kerschkeAutomatedAlgorithmSelection2019,guoAutomatedAlgorithmSelection2025}
+& Portfolio algorithm
+& Acquired landscape descriptors
+& Usually yes
+& Once, before the chosen optimizer starts \\
+Jankovic et al. \cite{jankovicTrajectorybasedAlgorithmSelection2022}
+& Second-stage algorithm
+& ELA computed from a fixed CMA-ES prefix
+& No separate sample
+& Once, with algorithm-specific warm-starting \\
+Kostovska et al. \cite{kostovskaPerrunAlgorithmSelection2022}
+& Second-stage algorithm
+& Trajectory ELA and/or CMA-ES state series
+& No separate sample
+& Once, with algorithm-specific warm-starting \\
+Probing trajectories \cite{renauUtilityProbingTrajectories2024,renauAlgorithmSelectionProbing2025b}
+& Portfolio algorithm
+& Objective-value sequence from a short probe
+& No separate landscape sample
+& Once, after probing \\
+RL-DAS \cite{guoDeepReinforcementLearning2024b}
+& Differential-evolution variant
+& Landscape, search history, and context
+& Not isolated as a fixed query
+& Repeated online scheduling \\
+DACBench \cite{eimerDACBenchBenchmarkLibrary2021}
+& Hyperparameter or algorithm component
+& Target-algorithm state and instance context
+& Not a landscape-query decision
+& Repeated dynamic configuration \\
+Decision-before-Feature
+& Execute or skip one fixed query
+& Pre-query algorithm-agnostic behavior
+& Only when called
+& Opportunities until one call; native continuation or population transfer \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Evaluation splits and the remaining gap}
+
+Representation quality and selector performance depend strongly on how
+problems are divided between training and evaluation.  In an affine-BBOB study,
+several landscape representations that performed well under easier splits did
+not outperform SBS under the most demanding problem-oriented splits
+\cite{cenikjLandscapeFeaturesSingleobjective2025}.  A recent representation
+survey likewise highlights inconsistent sampling and split protocols, heavy
+dependence on BBOB, and limited cross-benchmark evidence
+\cite{cenikjSurveyFeaturesUsed2026}.  These observations motivate function-
+family out-of-fold selection and a held-out evaluation; they do not guarantee
+that the resulting gate transfers.
+Benchmarking work further shows that leave-one-instance-out evaluation can
+reward representations that recover a problem class shared by related training
+and test instances without learning to rank algorithms on unseen problems, and
+that scale-sensitive prediction errors need not measure selection quality
+\cite{petelinPitfallsBenchmarkingAlgorithm2025}.  The present study therefore
+uses function-family partitions and selects the Decision Model by policy utility
+rather than raw action-loss regression error.  This design addresses those two
+failure modes without establishing generalization in advance.
+
+Among the literature reviewed here, we did not identify a method that makes the
+same decision at the same information time: before descriptors from a
+prespecified independent query exist, use only algorithm-agnostic behavior to
+predict whether the query's downstream performance difference justifies its FE
+and computational cost.  Decision-before-Feature addresses this corpus-scoped
+gap with matched-state offline labels, an explicit separation between the query
+gate and the downstream selector, a time-only comparator, and nested
+function-family evaluation.  The literature supports this formulation and its
+design constraints; it does not supply evidence for the pending RQ1--RQ5
+outcomes or for held-out and cross-benchmark generalization.

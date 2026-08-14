@@ -16,7 +16,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 
 from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
-from landscape_queries.specs import LandscapeQuerySpec, get_query_spec
+from landscape_queries.specs import QUERY_PREPROCESSING_VERSION, LandscapeQuerySpec, get_query_spec
 from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, STATE_KEY_COLUMNS
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
@@ -34,6 +34,7 @@ class StatewiseSelectorModel:
     default_algorithm: str
     query_id: str
     query_protocol: str
+    query_preprocessing_id: str
     sample_design_id: str
     query_feature_columns: tuple[str, ...]
     selector_target_transform: str = SELECTOR_TARGET_TRANSFORM
@@ -148,7 +149,10 @@ def prepare_state_matrix(
         "FE_no_query_optimization",
         "FE_query_optimization",
         "remaining_budget_ratio",
+        "benchmark_reference_value",
         "p_skip",
+        "p_skip_raw",
+        "loss_skip",
         "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "no_query_transition_mode",
@@ -158,12 +162,17 @@ def prepare_state_matrix(
         "target_algorithm",
         "transition_mode",
         "action_loss",
+        "action_loss_raw",
         "action_loss_norm",
+        "loss_gap_raw",
+        "loss_gap_norm",
         "runtime_handoff",
         "runtime_action_optimization",
         "best_observed_algorithm",
         "best_observed_loss",
         "action_loss_protocol",
+        "performance_value_mode",
+        "performance_loss_mode",
     }
     missing = required.difference(action_losses.columns)
     if missing:
@@ -240,7 +249,9 @@ def prepare_state_matrix(
         "FE_no_query_optimization",
         "FE_query_optimization",
         "remaining_budget_ratio",
+        "benchmark_reference_value",
         "p_skip",
+        "p_skip_raw",
         "runtime_no_query_handoff",
         "runtime_no_query_optimization",
         "no_query_transition_mode",
@@ -285,8 +296,30 @@ def prepare_state_matrix(
         atol=EPS,
     ):
         raise ValueError("action_loss_norm is inconsistent with the statewise observed loss range")
+    if not np.allclose(
+        action_losses["action_loss_raw"].to_numpy(dtype=float),
+        action_losses["action_loss"].to_numpy(dtype=float),
+        rtol=0.0,
+        atol=EPS,
+    ):
+        raise ValueError("action_loss_raw must equal action_loss")
+    if not np.allclose(
+        action_losses["loss_gap_raw"].to_numpy(dtype=float),
+        action_losses["action_loss"].to_numpy(dtype=float),
+        rtol=0.0,
+        atol=EPS,
+    ):
+        raise ValueError("loss_gap_raw must equal action_loss")
+    if not np.allclose(
+        action_losses["loss_skip"].to_numpy(dtype=float),
+        action_losses["p_skip"].to_numpy(dtype=float),
+        rtol=0.0,
+        atol=EPS,
+    ):
+        raise ValueError("loss_skip must equal p_skip")
     states = states.drop(columns=["computed_best_observed_algorithm", "computed_best_observed_loss"])
     raw = action_losses.pivot(index=key, columns="target_algorithm", values="action_loss").reset_index()
+    raw_loss = action_losses.pivot(index=key, columns="target_algorithm", values="action_loss_raw").reset_index()
     normalized = action_losses.pivot(index=key, columns="target_algorithm", values="action_loss_norm").reset_index()
     runtimes = action_losses.pivot(
         index=key,
@@ -299,12 +332,14 @@ def prepare_state_matrix(
         values="runtime_handoff",
     ).reset_index()
     raw = raw.rename(columns={algorithm: f"observed_loss_{algorithm}" for algorithm in portfolio})
+    raw_loss = raw_loss.rename(columns={algorithm: f"observed_loss_raw_{algorithm}" for algorithm in portfolio})
     normalized = normalized.rename(columns={algorithm: f"target_loss_norm_{algorithm}" for algorithm in portfolio})
     runtimes = runtimes.rename(columns={algorithm: f"runtime_action_optimization_{algorithm}" for algorithm in portfolio})
     handoff_runtimes = handoff_runtimes.rename(
         columns={algorithm: f"runtime_handoff_{algorithm}" for algorithm in portfolio}
     )
     states = states.merge(raw, on=key, how="inner", validate="one_to_one")
+    states = states.merge(raw_loss, on=key, how="inner", validate="one_to_one")
     states = states.merge(normalized, on=key, how="inner", validate="one_to_one")
     states = states.merge(runtimes, on=key, how="inner", validate="one_to_one")
     states = states.merge(handoff_runtimes, on=key, how="inner", validate="one_to_one")
@@ -361,6 +396,7 @@ def fit_selector_with_cross_family_predictions(
         default_algorithm=defaults[0],
         query_id=query_spec.query_id,
         query_protocol=query_spec.protocol,
+        query_preprocessing_id=query_spec.preprocessing_id,
         sample_design_id=query_spec.sample_design_id,
         query_feature_columns=query_spec.feature_columns,
         selector_target_transform=SELECTOR_TARGET_TRANSFORM,
@@ -389,7 +425,9 @@ def selection_rows(
             "FE_no_query_optimization",
             "FE_query_optimization",
             "remaining_budget_ratio",
+            "benchmark_reference_value",
             "p_skip",
+            "p_skip_raw",
             "runtime_no_query_handoff",
             "runtime_no_query_optimization",
             "no_query_transition_mode",
@@ -411,6 +449,7 @@ def selection_rows(
         output[f"observed_loss_{algorithm}"] = states[f"observed_loss_{algorithm}"].to_numpy(dtype=float)
     selected_algorithms = []
     selected_losses = []
+    selected_raw_losses: list[float] = []
     selected_scores = []
     selected_runtimes = []
     selected_handoff_runtimes = []
@@ -424,6 +463,7 @@ def selection_rows(
         selected_algorithms.append(selected)
         selected_scores.append(float(output.at[row_index, f"predicted_loss_norm_{selected}"]))
         selected_losses.append(float(output.at[row_index, f"observed_loss_{selected}"]))
+        selected_raw_losses.append(float(states.at[row_index, f"observed_loss_raw_{selected}"]))
         selected_runtimes.append(float(states.at[row_index, f"runtime_action_optimization_{selected}"]))
         selected_handoff_runtimes.append(float(states.at[row_index, f"runtime_handoff_{selected}"]))
     output["selected_algorithm"] = selected_algorithms
@@ -446,6 +486,7 @@ def selection_rows(
     output["handoff_required"] = ~output["selected_equals_prefix"].astype(bool)
     output["handoff_type"] = output["selected_transition_mode"].astype(str)
     output["selected_action_loss"] = selected_losses
+    output["selected_action_loss_raw"] = np.asarray(selected_raw_losses, dtype=float)
     output["runtime_selected_action_optimization"] = selected_runtimes
     output["runtime_handoff"] = selected_handoff_runtimes
     output["selected_predicted_loss_norm"] = selected_scores
@@ -463,12 +504,26 @@ def selection_rows(
     output["selector_status"] = "random_forest_action_loss_regression"
     output["selector_target_transform"] = SELECTOR_TARGET_TRANSFORM
     output["selection_reference_protocol"] = SELECTION_REFERENCE_PROTOCOL
+    output["query_preprocessing_id"] = states["query_preprocessing_id"].astype(str).to_numpy()
+    output["performance_value_mode"] = "raw_objective"
+    output["performance_loss_mode"] = "known_optimum_gap"
+    output["p_query_raw"] = output["selected_action_loss_raw"].to_numpy(dtype=float)
+    output["loss_skip"] = output["p_skip"].astype(float).to_numpy()
+    output["loss_query"] = output["selected_action_loss"].astype(float).to_numpy()
+    output["p_query"] = output["loss_query"].astype(float)
+    output["performance_gain_gap_raw"] = output["loss_skip"] - output["loss_query"]
+    output["performance_gain_norm_gap"] = output["performance_gain_gap_raw"] / np.maximum(
+        np.maximum(output["loss_skip"], output["loss_query"]),
+        1e-12,
+    )
     query_ids = tuple(sorted(states["query_id"].astype(str).unique()))
     query_protocols = tuple(sorted(states["query_protocol"].astype(str).unique()))
-    if len(query_ids) != 1 or len(query_protocols) != 1:
+    preprocessing_ids = tuple(sorted(states["query_preprocessing_id"].astype(str).unique()))
+    if len(query_ids) != 1 or len(query_protocols) != 1 or len(preprocessing_ids) != 1:
         raise ValueError("selection rows must contain one query protocol")
     output["query_id"] = query_ids[0]
     output["query_protocol"] = query_protocols[0]
+    output["query_preprocessing_id"] = preprocessing_ids[0]
     output["query_feature_columns"] = states["query_feature_columns"].astype(str).to_numpy()
     if not np.isfinite(runtime_selection) or runtime_selection < 0.0:
         raise ValueError("runtime_selection must be finite and non-negative")
@@ -554,6 +609,8 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
         raise ValueError("selector model query protocol is inconsistent with the frozen spec")
     if selector_model.sample_design_id != spec.sample_design_id:
         raise ValueError("selector model sample design is inconsistent with the frozen query spec")
+    if getattr(selector_model, "query_preprocessing_id", QUERY_PREPROCESSING_VERSION) != QUERY_PREPROCESSING_VERSION:
+        raise ValueError("selector model preprocessing contract is inconsistent with the frozen query spec")
     if tuple(selector_model.query_feature_columns) != spec.feature_columns:
         raise ValueError("selector model feature columns are inconsistent with the frozen query whitelist")
     expected_model_columns = SELECTOR_BEHAVIOR_FEATURE_COLUMNS + spec.feature_columns + ("remaining_budget_ratio",)
@@ -585,6 +642,7 @@ def _join_selector_inputs(
         *query_key,
         "query_id",
         "query_protocol",
+        "query_preprocessing_id",
         "sample_design_id",
         "runtime_query_sampling",
         "runtime_query_evaluation",
@@ -609,6 +667,8 @@ def _join_selector_inputs(
         raise ValueError("query feature input uses the wrong query_protocol")
     if set(query_features["sample_design_id"].astype(str)) != {query_spec.sample_design_id}:
         raise ValueError("query feature input uses the wrong sample design")
+    if set(query_features["query_preprocessing_id"].astype(str)) != {QUERY_PREPROCESSING_VERSION}:
+        raise ValueError("query feature input uses the wrong preprocessing contract")
     expected_feature_columns = json.dumps(list(query_spec.feature_columns), ensure_ascii=False)
     if set(query_features["query_feature_columns"].astype(str)) != {expected_feature_columns}:
         raise ValueError("query feature input does not use the frozen feature-column list")

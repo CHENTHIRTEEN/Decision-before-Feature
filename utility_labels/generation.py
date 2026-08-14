@@ -39,6 +39,12 @@ def generate_utility_labels(
     reference = pq.read_table(selection_reference_path).to_pylist()
     rows = []
     for row in reference:
+        if str(row["query_id"]) != query_id:
+            raise ValueError("selection reference query_id does not match requested utility query")
+        if str(row["query_protocol"]) != spec.protocol:
+            raise ValueError("selection reference query_protocol does not match frozen query protocol")
+        if str(row["query_preprocessing_id"]) != spec.preprocessing_id:
+            raise ValueError("selection reference query_preprocessing_id does not match frozen preprocessing contract")
         if str(row["split"]) != split or int(row["dimension"]) not in dimensions:
             continue
         function = _function_from_family(str(row["family"]))
@@ -65,6 +71,8 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         raise ValueError("selection reference uses an unsupported action-loss target transform")
     if str(row.get("query_id")) != query_id or str(row.get("query_protocol")) != spec.protocol:
         raise ValueError("selection reference query identity does not match the requested utility target")
+    if str(row.get("query_preprocessing_id")) != spec.preprocessing_id:
+        raise ValueError("selection reference preprocessing contract does not match the requested utility target")
     if str(row.get("sample_design_id")) != spec.sample_design_id:
         raise ValueError("selection reference and query spec use different query-FE budgets")
     missing_sampling = set(SAMPLING_METADATA_COLUMNS).difference(row)
@@ -110,7 +118,7 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     if bool(row["handoff_required"]) != handoff_required:
         raise ValueError("selection reference handoff_required is inconsistent")
     if handoff_required != (handoff_type == "population_transfer_initialization"):
-        raise ValueError("handoff_required must match handoff_type")
+        raise ValueError("selection reference handoff_required must match handoff_type")
 
     p_skip = float(row["p_skip"])
     p_query = float(row["selected_action_loss"])
@@ -176,6 +184,7 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         **{column: row[column] for column in SAMPLING_METADATA_COLUMNS},
         "query_id": query_id,
         "query_protocol": spec.protocol,
+        "query_preprocessing_id": spec.preprocessing_id,
         "query_feature_columns": str(row["query_feature_columns"]),
         "sample_design_id": spec.sample_design_id,
         "FE_total": int(row["FE_total"]),
@@ -198,9 +207,17 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "no_query_transition_mode": no_query_transition_mode,
         "query_transition_mode": query_transition_mode,
         "handoff_type": handoff_type,
+        "performance_value_mode": str(row["performance_value_mode"]),
+        "performance_loss_mode": str(row["performance_loss_mode"]),
+        "benchmark_reference_value": float(row["benchmark_reference_value"]),
         "p_skip": p_skip,
         "p_query": p_query,
+        "p_skip_raw": float(row["p_skip_raw"]),
+        "p_query_raw": float(row["p_query_raw"]),
+        "loss_skip": p_skip,
+        "loss_query": p_query,
         "selected_action_loss": p_query,
+        "selected_action_loss_raw": float(row["selected_action_loss_raw"]),
         "best_observed_algorithm": str(row["best_observed_algorithm"]),
         "best_observed_loss": best_observed_loss,
         "selected_matches_best_observed": bool(selected_algorithm == str(row["best_observed_algorithm"])),
@@ -211,6 +228,8 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
         "selector_regret_decomposition_norm": float(selector_regret_norm),
         "performance_gain_raw": float(performance_gain_raw),
         "performance_gain_norm": float(performance_gain_norm),
+        "performance_gain_gap_raw": float(row["performance_gain_gap_raw"]),
+        "performance_gain_norm_gap": float(row["performance_gain_norm_gap"]),
         "runtime_query_sampling": runtime_query_sampling,
         "runtime_query_evaluation": runtime_query_evaluation,
         "runtime_query_feature_computation": runtime_query_feature,
@@ -231,104 +250,28 @@ def _utility_row(*, row: dict, query_id: str) -> dict:
     }
 
 
-def _function_from_family(family: str) -> int:
-    try:
-        return int(family.rsplit("f", 1)[1])
-    except (IndexError, ValueError) as exc:
-        raise ValueError(f"cannot parse function number from family: {family}") from exc
-
-
 def utility_schema() -> pa.Schema:
-    fields = [
-        ("split", pa.string()),
-        ("problem_id", pa.string()),
-        ("family", pa.string()),
-        ("dimension", pa.int32()),
-        ("prefix_algorithm", pa.string()),
-        ("seed", pa.int64()),
-        ("FE", pa.int64()),
-        ("FE_ratio", pa.float64()),
-        *SAMPLING_METADATA_SCHEMA_FIELDS,
-        ("query_id", pa.string()),
-        ("query_protocol", pa.string()),
-        ("query_feature_columns", pa.string()),
-        ("sample_design_id", pa.string()),
-        ("FE_total", pa.int64()),
-        ("FE_prefix", pa.int64()),
-        ("FE_query", pa.int64()),
-        ("FE_no_query_optimization", pa.int64()),
-        ("FE_query_optimization", pa.int64()),
-        ("default_algorithm", pa.string()),
-        ("no_query_algorithm", pa.string()),
-        ("selection_reference_default_algorithm", pa.string()),
-        ("selection_reference_protocol", pa.string()),
-        ("selector_prediction_source", pa.string()),
-        ("selector_target_transform", pa.string()),
-        ("selected_algorithm", pa.string()),
-        ("selected_action", pa.string()),
-        ("selected_equals_default", pa.bool_()),
-        ("selected_equals_prefix", pa.bool_()),
-        ("handoff_required", pa.bool_()),
-        ("skip_switches_from_prefix", pa.bool_()),
-        ("no_query_transition_mode", pa.string()),
-        ("query_transition_mode", pa.string()),
-        ("handoff_type", pa.string()),
-        ("p_skip", pa.float64()),
-        ("p_query", pa.float64()),
-        ("selected_action_loss", pa.float64()),
-        ("best_observed_algorithm", pa.string()),
-        ("best_observed_loss", pa.float64()),
-        ("selected_matches_best_observed", pa.bool_()),
-        ("potential_gain_raw", pa.float64()),
-        ("selector_regret_raw", pa.float64()),
-        ("performance_norm_scale", pa.float64()),
-        ("potential_gain_norm", pa.float64()),
-        ("selector_regret_decomposition_norm", pa.float64()),
-        ("performance_gain_raw", pa.float64()),
-        ("performance_gain_norm", pa.float64()),
-        ("runtime_query_sampling", pa.float64()),
-        ("runtime_query_evaluation", pa.float64()),
-        ("runtime_query_feature_computation", pa.float64()),
-        ("runtime_query", pa.float64()),
-        ("runtime_selection", pa.float64()),
-        ("runtime_handoff", pa.float64()),
-        ("runtime_no_query_handoff", pa.float64()),
-        ("runtime_no_query_optimization", pa.float64()),
-        ("runtime_query_optimization", pa.float64()),
-        ("runtime_query_total", pa.float64()),
-        ("runtime_no_query_total", pa.float64()),
-        ("runtime_net", pa.float64()),
-        ("time_cost_norm", pa.float64()),
-        ("analysis_compute_cost_norm", pa.float64()),
-        ("memory_cost_norm", pa.float64()),
-    ]
-    fields.extend((column, pa.float64()) for column in UTILITY_VALUE_COLUMNS)
-    fields.extend((column, pa.bool_()) for column in NEED_QUERY_COLUMNS)
+    from utility_labels.fields import UTILITY_COLUMNS
+
+    fields = []
+    for column in UTILITY_COLUMNS:
+        if column in SAMPLING_METADATA_SCHEMA_FIELDS:
+            fields.append((column, pa.int64()))
+        elif column in ("split", "problem_id", "family", "query_id", "query_protocol", "query_preprocessing_id", "query_feature_columns", "sample_design_id", "default_algorithm", "no_query_algorithm", "selection_reference_default_algorithm", "selection_reference_protocol", "selector_prediction_source", "selector_target_transform", "selected_algorithm", "selected_action", "no_query_transition_mode", "query_transition_mode", "handoff_type", "performance_value_mode", "performance_loss_mode", "best_observed_algorithm"):
+            fields.append((column, pa.string()))
+        elif column in ("selected_equals_default", "selected_equals_prefix", "handoff_required", "skip_switches_from_prefix", "selected_matches_best_observed"):
+            fields.append((column, pa.bool_()))
+        elif column in ("seed", "FE", "FE_prefix", "FE_query", "FE_no_query_optimization", "FE_query_optimization", "FE_total"):
+            fields.append((column, pa.int64()))
+        else:
+            fields.append((column, pa.float64()))
     return pa.schema(fields)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate query-specific offline utility labels.")
-    parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--selection-reference", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--only-function", type=int, action="append", default=None)
-    parser.add_argument("--only-dimension", type=int, action="append", default=None)
-    parser.add_argument("--max-labels", type=int, default=None)
-    parser.add_argument("--overwrite", action="store_true")
-    args = parser.parse_args()
-    generate_utility_labels(
-        query_id=args.query_id,
-        config_path=args.config,
-        selection_reference_path=args.selection_reference,
-        output_path=args.output,
-        only_functions=args.only_function,
-        only_dimensions=args.only_dimension,
-        max_labels=args.max_labels,
-        overwrite=args.overwrite,
-    )
+def _function_from_family(family: str) -> int:
+    import re
 
-
-if __name__ == "__main__":
-    main()
+    match = re.search(r"(\d+)$", family)
+    if not match:
+        raise ValueError(f"cannot infer function from family name: {family}")
+    return int(match.group(1))

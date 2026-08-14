@@ -1,0 +1,310 @@
+\begin{thebibliography}{28}
+\expandafter\ifx\csname natexlab\endcsname\relax\def\natexlab#1{#1}\fi
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\href}[2]{#2}
+\providecommand{\path}[1]{#1}
+\providecommand{\DOIprefix}{doi:}
+\providecommand{\ArXivprefix}{arXiv:}
+\providecommand{\URLprefix}{URL: }
+\providecommand{\Pubmedprefix}{pmid:}
+\providecommand{\doi}[1]{\href{http://dx.doi.org/#1}{\path{#1}}}
+\providecommand{\Pubmed}[1]{\href{pmid:#1}{\path{#1}}}
+\providecommand{\bibinfo}[2]{#2}
+\ifx\xfnm\relax \def\xfnm[#1]{\unskip,\space#1}\fi
+%Type = Misc
+\bibitem[{van~der Blom and
+  Vermetten(2026)}]{blomInfluenceFeatureComputation2026}
+\bibinfo{author}{van~der Blom, K.}, \bibinfo{author}{Vermetten, D.},
+  \bibinfo{year}{2026}.
+\newblock \bibinfo{title}{On the influence of the feature computation budget on
+  per-instance algorithm selection for black-box optimization}.
+\newblock \DOIprefix\doi{10.48550/arXiv.2605.04954},
+  \href{http://arxiv.org/abs/2605.04954}{\tt arXiv:2605.04954}.
+%Type = Article
+\bibitem[{Cenikj et~al.(2026)Cenikj, Nikolikj, Petelin, van Stein, Doerr and
+  Eftimov}]{cenikjSurveyFeaturesUsed2026}
+\bibinfo{author}{Cenikj, G.}, \bibinfo{author}{Nikolikj, A.},
+  \bibinfo{author}{Petelin, G.}, \bibinfo{author}{van Stein, N.},
+  \bibinfo{author}{Doerr, C.}, \bibinfo{author}{Eftimov, T.},
+  \bibinfo{year}{2026}.
+\newblock \bibinfo{title}{A survey of features used for representing black-box
+  single-objective continuous optimization}.
+\newblock \bibinfo{journal}{Swarm and Evolutionary Computation}
+  \bibinfo{volume}{101}, \bibinfo{pages}{102288}.
+\newblock \DOIprefix\doi{10.1016/j.swevo.2026.102288}.
+%Type = Inproceedings
+\bibitem[{Cenikj et~al.(2023)Cenikj, Petelin, Doerr, Koro\v{s}ec and
+  Eftimov}]{cenikjDynamoRepTrajectoryBasedPopulation2023}
+\bibinfo{author}{Cenikj, G.}, \bibinfo{author}{Petelin, G.},
+  \bibinfo{author}{Doerr, C.}, \bibinfo{author}{Koro\v{s}ec, P.},
+  \bibinfo{author}{Eftimov, T.}, \bibinfo{year}{2023}.
+\newblock \bibinfo{title}{{DynamoRep}: Trajectory-based population dynamics for
+  classification of black-box optimization problems}, in:
+  \bibinfo{booktitle}{Proceedings of the Genetic and Evolutionary Computation
+  Conference}, pp. \bibinfo{pages}{813--821}.
+\newblock \DOIprefix\doi{10.1145/3583131.3590401}.
+%Type = Article
+\bibitem[{Cenikj et~al.(2025)Cenikj, Petelin, Seiler, Cenikj and
+  Eftimov}]{cenikjLandscapeFeaturesSingleobjective2025}
+\bibinfo{author}{Cenikj, G.}, \bibinfo{author}{Petelin, G.},
+  \bibinfo{author}{Seiler, M.}, \bibinfo{author}{Cenikj, N.},
+  \bibinfo{author}{Eftimov, T.}, \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Landscape features in single-objective continuous
+  optimization: Have we hit a wall in algorithm selection generalization?}
+\newblock \bibinfo{journal}{Swarm and Evolutionary Computation}
+  \bibinfo{volume}{94}, \bibinfo{pages}{101894}.
+\newblock \DOIprefix\doi{10.1016/j.swevo.2025.101894}.
+%Type = Inproceedings
+\bibitem[{Eimer et~al.(2021)Eimer, Biedenkapp, Reimer, Adriansen, Hutter and
+  Lindauer}]{eimerDACBenchBenchmarkLibrary2021}
+\bibinfo{author}{Eimer, T.}, \bibinfo{author}{Biedenkapp, A.},
+  \bibinfo{author}{Reimer, M.}, \bibinfo{author}{Adriansen, S.},
+  \bibinfo{author}{Hutter, F.}, \bibinfo{author}{Lindauer, M.},
+  \bibinfo{year}{2021}.
+\newblock \bibinfo{title}{{DACBench}: A benchmark library for dynamic algorithm
+  configuration}, in: \bibinfo{booktitle}{Proceedings of the Thirtieth
+  International Joint Conference on Artificial Intelligence},
+  \bibinfo{publisher}{International Joint Conferences on Artificial
+  Intelligence Organization}. pp. \bibinfo{pages}{1668--1674}.
+\newblock \DOIprefix\doi{10.24963/ijcai.2021/230}.
+%Type = Article
+\bibitem[{Guo et~al.(2024)Guo, Ma, Ma, Chen, Zhang, Cao, Zhang and
+  Gong}]{guoDeepReinforcementLearning2024b}
+\bibinfo{author}{Guo, H.}, \bibinfo{author}{Ma, Y.}, \bibinfo{author}{Ma, Z.},
+  \bibinfo{author}{Chen, J.}, \bibinfo{author}{Zhang, X.},
+  \bibinfo{author}{Cao, Z.}, \bibinfo{author}{Zhang, J.},
+  \bibinfo{author}{Gong, Y.J.}, \bibinfo{year}{2024}.
+\newblock \bibinfo{title}{Deep reinforcement learning for dynamic algorithm
+  selection: A proof-of-principle study on differential evolution}.
+\newblock \bibinfo{journal}{IEEE Transactions on Systems, Man, and Cybernetics:
+  Systems} \bibinfo{volume}{54}, \bibinfo{pages}{4247--4259}.
+\newblock \DOIprefix\doi{10.1109/TSMC.2024.3374889}.
+%Type = Article
+\bibitem[{Guo et~al.(2025)Guo, Wang and
+  Tian}]{guoAutomatedAlgorithmSelection2025}
+\bibinfo{author}{Guo, Q.}, \bibinfo{author}{Wang, H.}, \bibinfo{author}{Tian,
+  Y.}, \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Automated algorithm selection for black-box
+  optimization using light gradient boosting machine}.
+\newblock \bibinfo{journal}{Swarm and Evolutionary Computation}
+  \bibinfo{volume}{98}, \bibinfo{pages}{102071}.
+\newblock \DOIprefix\doi{10.1016/j.swevo.2025.102071}.
+%Type = Article
+\bibitem[{Hayward and
+  Engelbrecht(2025)}]{haywardDeterminingMetaheuristicSimilarity2025}
+\bibinfo{author}{Hayward, L.}, \bibinfo{author}{Engelbrecht, A.},
+  \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Determining metaheuristic similarity using behavioral
+  analysis}.
+\newblock \bibinfo{journal}{IEEE Transactions on Evolutionary Computation}
+  \bibinfo{volume}{29}, \bibinfo{pages}{262--274}.
+\newblock \DOIprefix\doi{10.1109/TEVC.2023.3346672}.
+%Type = Article
+\bibitem[{Hayward and
+  Engelbrecht(2026)}]{haywardSurveyAnalysisMetaheuristic2026}
+\bibinfo{author}{Hayward, L.}, \bibinfo{author}{Engelbrecht, A.P.},
+  \bibinfo{year}{2026}.
+\newblock \bibinfo{title}{Survey and analysis of metaheuristic search behavior
+  characterization: A case study on particle swarm optimization variants}.
+\newblock \bibinfo{journal}{Swarm Intelligence} \bibinfo{volume}{20},
+  \bibinfo{pages}{1--33}.
+\newblock \DOIprefix\doi{10.1007/s11721-025-00254-1}.
+%Type = Inproceedings
+\bibitem[{Jankovi\'c and Doerr(2019)}]{jankovicAdaptiveLandscapeAnalysis2019a}
+\bibinfo{author}{Jankovi\'c, A.}, \bibinfo{author}{Doerr, C.},
+  \bibinfo{year}{2019}.
+\newblock \bibinfo{title}{Adaptive landscape analysis}, in:
+  \bibinfo{booktitle}{Proceedings of the Genetic and Evolutionary Computation
+  Conference Companion}, \bibinfo{publisher}{ACM}. pp.
+  \bibinfo{pages}{2032--2035}.
+\newblock \DOIprefix\doi{10.1145/3319619.3326905}.
+%Type = Inproceedings
+\bibitem[{Jankovic et~al.(2022)Jankovic, Vermetten, Kostovska, de~Nobel,
+  Eftimov and Doerr}]{jankovicTrajectorybasedAlgorithmSelection2022}
+\bibinfo{author}{Jankovic, A.}, \bibinfo{author}{Vermetten, D.},
+  \bibinfo{author}{Kostovska, A.}, \bibinfo{author}{de~Nobel, J.},
+  \bibinfo{author}{Eftimov, T.}, \bibinfo{author}{Doerr, C.},
+  \bibinfo{year}{2022}.
+\newblock \bibinfo{title}{Trajectory-based algorithm selection with
+  warm-starting}, in: \bibinfo{booktitle}{2022 IEEE Congress on Evolutionary
+  Computation (CEC)}, \bibinfo{publisher}{IEEE}. pp. \bibinfo{pages}{1--8}.
+\newblock \DOIprefix\doi{10.1109/CEC55065.2022.9870222}.
+%Type = Article
+\bibitem[{Kerschke and
+  Trautmann(2019)}]{kerschkeAutomatedAlgorithmSelection2019}
+\bibinfo{author}{Kerschke, P.}, \bibinfo{author}{Trautmann, H.},
+  \bibinfo{year}{2019}.
+\newblock \bibinfo{title}{Automated algorithm selection on continuous black-box
+  problems by combining exploratory landscape analysis and machine learning}.
+\newblock \bibinfo{journal}{Evolutionary Computation} \bibinfo{volume}{27},
+  \bibinfo{pages}{99--127}.
+\newblock \DOIprefix\doi{10.1162/evco_a_00236}.
+%Type = Article
+\bibitem[{Koro\v{s}ec and
+  Eftimov(2024)}]{korosecOpt2VecContinuousOptimization2024}
+\bibinfo{author}{Koro\v{s}ec, P.}, \bibinfo{author}{Eftimov, T.},
+  \bibinfo{year}{2024}.
+\newblock \bibinfo{title}{{Opt2Vec}---a continuous optimization problem
+  representation based on the algorithm's behavior: A case study on problem
+  classification}.
+\newblock \bibinfo{journal}{Information Sciences} \bibinfo{volume}{680},
+  \bibinfo{pages}{121134}.
+\newblock \DOIprefix\doi{10.1016/j.ins.2024.121134}.
+%Type = Inproceedings
+\bibitem[{Kostovska et~al.(2022)Kostovska, Jankovic, Vermetten, de~Nobel, Wang,
+  Eftimov and Doerr}]{kostovskaPerrunAlgorithmSelection2022}
+\bibinfo{author}{Kostovska, A.}, \bibinfo{author}{Jankovic, A.},
+  \bibinfo{author}{Vermetten, D.}, \bibinfo{author}{de~Nobel, J.},
+  \bibinfo{author}{Wang, H.}, \bibinfo{author}{Eftimov, T.},
+  \bibinfo{author}{Doerr, C.}, \bibinfo{year}{2022}.
+\newblock \bibinfo{title}{Per-run algorithm selection with warm-starting using
+  trajectory-based features}, in: \bibinfo{booktitle}{Parallel Problem Solving
+  from Nature -- PPSN XVII}, \bibinfo{publisher}{Springer}. pp.
+  \bibinfo{pages}{46--60}.
+\newblock \DOIprefix\doi{10.1007/978-3-031-14714-2_4}.
+%Type = Article
+\bibitem[{Gomes Pereira~de Lacerda et~al.(2021)Gomes Pereira~de Lacerda,
+  de~Araujo~Pessoa, Buarque~de Lima~Neto, Ludermir and
+  Kuchen}]{gomespereiradelacerdaSystematicLiteratureReview2021}
+\bibinfo{author}{Gomes Pereira~de Lacerda, M.},
+  \bibinfo{author}{de~Araujo~Pessoa, L.F.}, \bibinfo{author}{Buarque~de
+  Lima~Neto, F.}, \bibinfo{author}{Ludermir, T.B.}, \bibinfo{author}{Kuchen,
+  H.}, \bibinfo{year}{2021}.
+\newblock \bibinfo{title}{A systematic literature review on general parameter
+  control for evolutionary and swarm-based algorithms}.
+\newblock \bibinfo{journal}{Swarm and Evolutionary Computation}
+  \bibinfo{volume}{60}, \bibinfo{pages}{100777}.
+\newblock \DOIprefix\doi{10.1016/j.swevo.2020.100777}.
+%Type = Article
+\bibitem[{Malan and
+  Engelbrecht(2013)}]{malanSurveyTechniquesCharacterising2013}
+\bibinfo{author}{Malan, K.M.}, \bibinfo{author}{Engelbrecht, A.P.},
+  \bibinfo{year}{2013}.
+\newblock \bibinfo{title}{A survey of techniques for characterising fitness
+  landscapes and some possible ways forward}.
+\newblock \bibinfo{journal}{Information Sciences} \bibinfo{volume}{241},
+  \bibinfo{pages}{148--163}.
+\newblock \DOIprefix\doi{10.1016/j.ins.2013.04.015}.
+%Type = Article
+\bibitem[{Mbasso et~al.(2026)Mbasso, Harrison, Liu, Mamadiyarov, Al-Gahtani and
+  Elbarbary}]{mbassoHowMetaheuristicsExploit2026}
+\bibinfo{author}{Mbasso, W.F.}, \bibinfo{author}{Harrison, A.},
+  \bibinfo{author}{Liu, Z.}, \bibinfo{author}{Mamadiyarov, Z.},
+  \bibinfo{author}{Al-Gahtani, S.F.}, \bibinfo{author}{Elbarbary, Z.M.S.},
+  \bibinfo{year}{2026}.
+\newblock \bibinfo{title}{How do metaheuristics exploit? a particle-level
+  behavioral study across the {CEC} 2025 benchmark functions}.
+\newblock \bibinfo{journal}{Evolutionary Intelligence} \bibinfo{volume}{19},
+  \bibinfo{pages}{77}.
+\newblock \DOIprefix\doi{10.1007/s12065-026-01190-7}.
+%Type = Inproceedings
+\bibitem[{Mersmann et~al.(2011)Mersmann, Bischl, Trautmann, Preuss, Weihs and
+  Rudolph}]{mersmannExploratoryLandscapeAnalysis2011}
+\bibinfo{author}{Mersmann, O.}, \bibinfo{author}{Bischl, B.},
+  \bibinfo{author}{Trautmann, H.}, \bibinfo{author}{Preuss, M.},
+  \bibinfo{author}{Weihs, C.}, \bibinfo{author}{Rudolph, G.},
+  \bibinfo{year}{2011}.
+\newblock \bibinfo{title}{Exploratory landscape analysis}, in:
+  \bibinfo{booktitle}{Proceedings of the 13th Annual Conference on Genetic and
+  Evolutionary Computation}, \bibinfo{publisher}{ACM}. pp.
+  \bibinfo{pages}{829--836}.
+\newblock \DOIprefix\doi{10.1145/2001576.2001690}.
+%Type = Article
+\bibitem[{Ochoa et~al.(2021)Ochoa, Malan and
+  Blum}]{ochoaSearchTrajectoryNetworks2021}
+\bibinfo{author}{Ochoa, G.}, \bibinfo{author}{Malan, K.M.},
+  \bibinfo{author}{Blum, C.}, \bibinfo{year}{2021}.
+\newblock \bibinfo{title}{Search trajectory networks: A tool for analysing and
+  visualising the behaviour of metaheuristics}.
+\newblock \bibinfo{journal}{Applied Soft Computing} \bibinfo{volume}{109},
+  \bibinfo{pages}{107492}.
+\newblock \DOIprefix\doi{10.1016/j.asoc.2021.107492}.
+%Type = Article
+\bibitem[{Pei et~al.(2025)Pei, Mei, Liu, Zhang and
+  Yao}]{peiAdaptiveOperatorSelection2025}
+\bibinfo{author}{Pei, J.}, \bibinfo{author}{Mei, Y.}, \bibinfo{author}{Liu,
+  J.}, \bibinfo{author}{Zhang, M.}, \bibinfo{author}{Yao, X.},
+  \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Adaptive operator selection for meta-heuristics: A
+  survey}.
+\newblock \bibinfo{journal}{IEEE Transactions on Artificial Intelligence}
+  \bibinfo{volume}{6}, \bibinfo{pages}{1991--2012}.
+\newblock \DOIprefix\doi{10.1109/TAI.2025.3545792}.
+%Type = Inproceedings
+\bibitem[{Petelin and Cenikj(2025)}]{petelinPitfallsBenchmarkingAlgorithm2025}
+\bibinfo{author}{Petelin, G.}, \bibinfo{author}{Cenikj, G.},
+  \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{The pitfalls of benchmarking in algorithm selection:
+  What we are getting wrong}, in: \bibinfo{booktitle}{Proceedings of the
+  Genetic and Evolutionary Computation Conference}, \bibinfo{publisher}{ACM}.
+  pp. \bibinfo{pages}{1181--1189}.
+\newblock \DOIprefix\doi{10.1145/3712256.3726336}.
+%Type = Article
+\bibitem[{Prager and Trautmann(2024)}]{pragerPflaccoFeaturebasedLandscape2024}
+\bibinfo{author}{Prager, R.P.}, \bibinfo{author}{Trautmann, H.},
+  \bibinfo{year}{2024}.
+\newblock \bibinfo{title}{{Pflacco}: Feature-based landscape analysis of
+  continuous and constrained optimization problems in python}.
+\newblock \bibinfo{journal}{Evolutionary Computation} \bibinfo{volume}{32},
+  \bibinfo{pages}{211--216}.
+\newblock \DOIprefix\doi{10.1162/evco_a_00341}.
+%Type = Incollection
+\bibitem[{Renau et~al.(2020)Renau, Doerr, Dreo and
+  Doerr}]{renauExploratoryLandscapeAnalysis2020}
+\bibinfo{author}{Renau, Q.}, \bibinfo{author}{Doerr, C.},
+  \bibinfo{author}{Dreo, J.}, \bibinfo{author}{Doerr, B.},
+  \bibinfo{year}{2020}.
+\newblock \bibinfo{title}{Exploratory landscape analysis is strongly sensitive
+  to the sampling strategy}, in: \bibinfo{booktitle}{Parallel Problem Solving
+  from Nature -- PPSN XVI}. \bibinfo{publisher}{Springer International
+  Publishing}. volume \bibinfo{volume}{12270}, pp. \bibinfo{pages}{139--153}.
+\newblock \DOIprefix\doi{10.1007/978-3-030-58115-2_10}.
+%Type = Inproceedings
+\bibitem[{Renau and Hart(2024)}]{renauUtilityProbingTrajectories2024}
+\bibinfo{author}{Renau, Q.}, \bibinfo{author}{Hart, E.}, \bibinfo{year}{2024}.
+\newblock \bibinfo{title}{On the utility of probing trajectories for
+  algorithm-selection}, in: \bibinfo{booktitle}{Applications of Evolutionary
+  Computation}, \bibinfo{publisher}{Springer}. pp. \bibinfo{pages}{98--114}.
+\newblock \DOIprefix\doi{10.1007/978-3-031-56852-7_7}.
+%Type = Inproceedings
+\bibitem[{Renau and Hart(2025)}]{renauAlgorithmSelectionProbing2025b}
+\bibinfo{author}{Renau, Q.}, \bibinfo{author}{Hart, E.}, \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Algorithm selection with probing trajectories:
+  Benchmarking the choice of classifier model}, in:
+  \bibinfo{booktitle}{Applications of Evolutionary Computation},
+  \bibinfo{publisher}{Springer}. pp. \bibinfo{pages}{452--468}.
+\newblock \DOIprefix\doi{10.1007/978-3-031-90062-4_28}.
+%Type = Article
+\bibitem[{Sallam et~al.(2017)Sallam, Elsayed, Sarker and
+  Essam}]{sallamLandscapebasedAdaptiveOperator2017}
+\bibinfo{author}{Sallam, K.M.}, \bibinfo{author}{Elsayed, S.M.},
+  \bibinfo{author}{Sarker, R.A.}, \bibinfo{author}{Essam, D.L.},
+  \bibinfo{year}{2017}.
+\newblock \bibinfo{title}{Landscape-based adaptive operator selection mechanism
+  for differential evolution}.
+\newblock \bibinfo{journal}{Information Sciences} \bibinfo{volume}{418--419},
+  \bibinfo{pages}{383--404}.
+\newblock \DOIprefix\doi{10.1016/j.ins.2017.08.028}.
+%Type = Article
+\bibitem[{Yang et~al.(2025)Yang, Wang, Li and
+  Ishibuchi}]{yangMetablackboxOptimizationEvolutionary2025}
+\bibinfo{author}{Yang, X.}, \bibinfo{author}{Wang, R.}, \bibinfo{author}{Li,
+  K.}, \bibinfo{author}{Ishibuchi, H.}, \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Meta-black-box optimization for evolutionary
+  algorithms: Review and perspective}.
+\newblock \bibinfo{journal}{Swarm and Evolutionary Computation}
+  \bibinfo{volume}{93}, \bibinfo{pages}{101838}.
+\newblock \DOIprefix\doi{10.1016/j.swevo.2024.101838}.
+%Type = Article
+\bibitem[{Zhou et~al.(2024)Zhou, Zhang, Gao, Wang and
+  Ma}]{zhouAdaptiveMultipopulationArtificial2024}
+\bibinfo{author}{Zhou, X.}, \bibinfo{author}{Zhang, X.}, \bibinfo{author}{Gao,
+  W.}, \bibinfo{author}{Wang, H.}, \bibinfo{author}{Ma, Y.},
+  \bibinfo{year}{2024}.
+\newblock \bibinfo{title}{Adaptive multi-population artificial bee colony
+  algorithm based on fitness landscape analysis}.
+\newblock \bibinfo{journal}{Applied Soft Computing} \bibinfo{volume}{164},
+  \bibinfo{pages}{111952}.
+\newblock \DOIprefix\doi{10.1016/j.asoc.2024.111952}.
+
+\end{thebibliography}

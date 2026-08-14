@@ -1,0 +1,152 @@
+\section{Problem formulation}
+\label{sec:problem-formulation}
+
+\subsection{State-conditional analysis selection}
+
+Let $p\in\mathcal{P}$ denote a bounded continuous black-box minimization problem with objective
+\begin{equation}
+  \min_{x\in\mathcal{X}_p} f_p(x),
+  \qquad
+  \mathcal{X}_p=[\ell_p,u_p]\subset\mathbb{R}^{d}.
+  \label{eq:black-box-problem}
+\end{equation}
+The objective is available only through function evaluations (FEs).  A run has a fixed total budget $B=FE_{\mathrm{total}}$ and uses a portfolio
+\begin{equation}
+  \mathcal{A}=\{\mathrm{DE},\mathrm{PSO},\mathrm{CMA\mbox{-}ES},\mathrm{SHADE}\}.
+\end{equation}
+At a decision opportunity $t$, the native optimizer state is
+\begin{equation}
+  s_t=(X_t,y_t,H_t,\omega_t,e_t),
+  \label{eq:complete-search-state}
+\end{equation}
+where $X_t$ and $y_t$ are the current population and its objective values, $H_t$ is the native-update history required by the behavior representation, $\omega_t$ collects the optimizer's internal dynamic variables and random-number-generator state, and $e_t$ is the number of FEs already consumed.  The complete state in Eq.~\eqref{eq:complete-search-state}, rather than a reconstructed population-only approximation, is the common starting point for all continuations.
+
+The analysis-selection decision is binary, $d_t\in\{0,1\}$, with
+\begin{equation}
+  d_t=
+  \begin{cases}
+    0, & \text{skip query }q,\\
+    1, & \text{execute }q\text{ and invoke its selector}.
+  \end{cases}
+  \label{eq:analysis-decision}
+\end{equation}
+The primary analysis evaluates one query, \query{}: a fixed 16-dimensional
+low-cost landscape descriptor computed from a Latin-hypercube sample of size
+$50d$.  It consumes $FE_q=50d=0.05B$ objective evaluations.  Two additional,
+prespecified query configurations examine representation and cost dependence.
+Consequently, $d_t$ does not mean ``perform arbitrary landscape analysis'', and
+conclusions for the primary query do not automatically extend to other ELA
+methods, all \texttt{pflacco} feature groups, or learned representations.
+
+\subsection{No-query and query paths}
+
+The default optimizer $a_0\in\mathcal{A}$ is the single best solver (SBS) determined exclusively from complete-budget BBOB training outcomes.  The main protocol uses the same algorithm for the prefix and the default path.  If the query is skipped, the complete checkpoint state is continued natively for
+\begin{equation}
+  B^{\mathrm{skip}}_t=B-e_t
+  \label{eq:skip-budget}
+\end{equation}
+additional FEs.  Let $P_{\mathrm{skip}}(s_t)$ denote the resulting final loss, with smaller values preferred.
+
+If the query is executed, its sample is evaluated and its fixed descriptors are passed to a downstream, query-specific selection reference.  The unique action set at a state whose prefix algorithm is $a_t$ is
+\begin{equation}
+  \mathcal{A}(s_t)
+  =\{\texttt{continue\_current}\}
+   \cup\bigl(\mathcal{A}\setminus\{a_t\}\bigr).
+  \label{eq:state-action-set}
+\end{equation}
+Thus, the four-algorithm portfolio always yields four non-duplicated actions.  The \texttt{continue\_current} action preserves $\omega_t$ and continues the native state.  Each of the other three actions initializes the target optimizer once from the checkpoint population, objective values, and best-so-far position; the target optimizer receives newly initialized internal variables.  This transition is termed \emph{population-transfer initialization}.  Query sample points are not inserted into the continuation population.
+This explicit distinction is motivated by trajectory-based warm-starting studies,
+where the representation, switch point, and state-transfer rule jointly define
+the second-stage selection problem
+\cite{jankovicTrajectorybasedAlgorithmSelection2022,kostovskaPerrunAlgorithmSelection2022}.
+Population-transfer initialization here is a fixed study design and is not
+assumed equivalent to either paper's optimizer-specific warm start.
+
+Every query action receives the same remaining optimization budget
+\begin{equation}
+  B^{q}_t=B-e_t-FE_q.
+  \label{eq:query-budget}
+\end{equation}
+Let $L(s_t,a)$ be the observed final loss after taking action $a\in\mathcal{A}(s_t)$ under Eq.~\eqref{eq:query-budget}.  The fitted selection reference chooses $\widehat a_t$, and the observed query-path loss is
+\begin{equation}
+  p_q(s_t)=L(s_t,\widehat a_t).
+  \label{eq:query-path-loss}
+\end{equation}
+Equations~\eqref{eq:skip-budget} and \eqref{eq:query-budget} enforce an equal total FE budget.  The FEs used by the query already reduce the budget available to the query continuation and must not be charged a second time in the utility.
+
+\subsection{Observed performance difference and net utility}
+
+For a minimization problem, the raw observed performance difference is
+\begin{equation}
+  G_{\mathrm{raw}}(s_t)
+  =P_{\mathrm{skip}}(s_t)-p_q(s_t).
+  \label{eq:raw-performance-gain}
+\end{equation}
+Accordingly, $G_{\mathrm{raw}}>0$ means that the query path produced the smaller final loss, whereas $G_{\mathrm{raw}}<0$ means that the no-query path produced the smaller final loss.  To reduce the influence of objective offsets and scales across problems, the main label uses
+\begin{equation}
+\begin{gathered}
+  \kappa(s_t)=
+  \max\!\left(
+    \left|P_{\mathrm{skip}}(s_t)\right|,
+    \left|p_q(s_t)\right|,
+    10^{-12}
+  \right),\\
+  G(s_t)=\frac{G_{\mathrm{raw}}(s_t)}{\kappa(s_t)}.
+\end{gathered}
+\label{eq:normalized-performance-gain}
+\end{equation}
+The primary time cost compares complete wall-clock paths.  Let $T_{q,\mathrm{sample}}$, $T_{q,\mathrm{eval}}$, $T_{q,\mathrm{feat}}$, $T_{\mathrm{sel}}$, $T_{\mathrm{handoff}}$, and $T_{q,\mathrm{opt}}$ denote query-sample generation, objective evaluation of that sample, feature computation, online selection, any required population-transfer initialization, and the shorter query-path continuation, respectively.  Let $T_{\mathrm{skip,handoff}}$ and $T_{\mathrm{skip,opt}}$ denote the corresponding no-query transition and continuation times.  We define
+\begin{equation}
+\begin{gathered}
+  T_{q,\mathrm{total}}(s_t)=
+  T_{q,\mathrm{sample}}(s_t)+T_{q,\mathrm{eval}}(s_t)
+  +T_{q,\mathrm{feat}}(s_t)+T_{\mathrm{sel}}(s_t)
+  +T_{\mathrm{handoff}}(s_t)+T_{q,\mathrm{opt}}(s_t),\\
+  T_{\mathrm{skip,total}}(s_t)=
+  T_{\mathrm{skip,handoff}}(s_t)+T_{\mathrm{skip,opt}}(s_t),\\
+  C_T(s_t)=
+  \frac{T_{q,\mathrm{total}}(s_t)-T_{\mathrm{skip,total}}(s_t)}
+       {\max\!\left(T_{\mathrm{skip,total}}(s_t),10^{-12}\right)}.
+\end{gathered}
+  \label{eq:normalized-time-cost}
+\end{equation}
+Thus $C_T>0$ means that the query path took longer, whereas $C_T<0$ means that its complete elapsed time was shorter.  This accounting includes the objective-evaluation time of the query sample but also subtracts the continuation time avoided because the equal-FE query path has fewer optimization evaluations.  Feature computation, online selection, and transfer initialization are additionally reported as a separate computational-overhead diagnostic; that diagnostic does not replace $C_T$ in the primary utility.
+The primary study reports memory separately rather than including it in the label and therefore fixes $C_M(s_t)=0$.  The net utility of executing query $q$ is
+\begin{equation}
+  U_q(s_t)=G(s_t)-\lambda_T C_T(s_t)-\lambda_M C_M(s_t).
+  \label{eq:query-utility}
+\end{equation}
+The primary target uses $\lambda_T=1$ and $\lambda_M=0$.  Values $\lambda_T\in\{0,0.25,0.5,1,2\}$ are retained for a prespecified sensitivity analysis, but they do not replace the primary target.  Population-transfer effects are already present in $L(s_t,a)$ and likewise are not subtracted again.
+
+The continuous value in Eq.~\eqref{eq:query-utility} is retained.  Its associated binary training label is
+\begin{equation}
+  y_q(s_t)=\mathbf{1}\!\left[U_q(s_t)>0\right].
+  \label{eq:query-label}
+\end{equation}
+For deployment, a decision model produces a continuous score $z(s_t)$ from information available before the query, and the policy calls the query when
+\begin{equation}
+  \widehat d_t=\mathbf{1}\!\left[z(s_t)>\tau_{\mathrm{OOF}}\right].
+  \label{eq:deployment-decision}
+\end{equation}
+The threshold $\tau_{\mathrm{OOF}}$ is estimated only from BBOB-training function-family out-of-fold predictions; it is not tuned on BBOB validation or an external benchmark.  For Ridge, $z$ is a predicted continuous utility.  For LDA and logistic regression, it is a classification score for Eq.~\eqref{eq:query-label}; such a score is not interpreted as a calibrated utility magnitude.
+
+\subsection{Diagnostic decomposition and claim boundary}
+
+For label diagnosis only, define the best observed action among the four actions actually run from the shared state,
+\begin{equation}
+  L_{\mathrm{best}}(s_t)=\min_{a\in\mathcal{A}(s_t)}L(s_t,a).
+  \label{eq:best-observed-loss}
+\end{equation}
+The raw performance difference then has the identity
+\begin{align}
+  V_{\mathrm{potential}}(s_t)
+  &=P_{\mathrm{skip}}(s_t)-L_{\mathrm{best}}(s_t),\\
+  R_{\mathrm{selector}}(s_t)
+  &=p_q(s_t)-L_{\mathrm{best}}(s_t),\\
+  G_{\mathrm{raw}}(s_t)
+  &=V_{\mathrm{potential}}(s_t)-R_{\mathrm{selector}}(s_t).
+  \label{eq:selector-decomposition}
+\end{align}
+The minimum in Eq.~\eqref{eq:best-observed-loss} is called the \emph{best observed action}.  It is neither the static virtual best solver nor a deployable decision rule, because it uses losses revealed only after all candidate continuations have been run.  The decomposition is descriptive: shared-state action runs do not by themselves identify a causal effect of handoff or of any individual behavior variable.
+
+The resulting research estimand is state- and query-specific: the net value of invoking a fixed query and its fitted downstream selector instead of natively continuing the training-derived SBS from the same complete state.  Equations~\eqref{eq:analysis-decision}--\eqref{eq:selector-decomposition} specify the estimand and label construction.  They do not imply that the primary query is avoidable in most states, that behavior predicts its utility, or that the learned policy transfers to an external benchmark; each proposition requires its corresponding empirical evaluation.
