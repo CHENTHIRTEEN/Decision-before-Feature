@@ -18,6 +18,8 @@
 
 `descriptor_cheap_invariant` 与 `pflacco_standard_invariant` 必须读取同一份 `lhs_50d` 的 (X,y)，不得分别采样。`pflacco_broad_invariant` 使用独立 `lhs_100d`。主 query 在查看 validation 结果前已经固定，不能依据结果改选。
 
+`lhs_50d`、`lhs_100d`、`lhs_5d`、`lhs_10d`、`lhs_20d` 只定义“每维样本数”，不是固定 FE ratio。实际 `FE_query` 仍由 `FE_query = sample_size_per_dimension × dimension` 给出，`FE_query / FE_total` 由具体基准预算决定。该设计允许同一采样设计在未来预算变化时复用，而不把预算口径写死在采样设计名义中。
+
 这三个 query 的统一前处理版本固定为 `query_preprocessing_id = unit_cube_x__median_iqr_y_v1`：所有坐标先映射到 unit cube，再对目标值做样本内 robust 标准化。该 preprocessing 只改变 query 特征，不改变原始样本文件中的 `X, y, lower_bounds, upper_bounds`。
 
 standard 包含 PCA、NBC、dispersion、information content 和 ELA distribution。broad 在 standard 基础上加入 ELA level-set 与 sample-derived fitness-distance correlation。不包含完整 quadratic `ela_meta`、cell mapping，也不包含需要额外函数评价的 local、curvature、convexity、Sobol 和 length-scale groups。
@@ -30,7 +32,7 @@ standard 包含 PCA、NBC、dispersion、information content 和 ELA distributio
 results/landscape_queries/samples/{sample_design_id}/{split}/samples.parquet
 ```
 
-样本行保存 `sample_design_id`、`sampling_protocol`、`sample_seed`、`sample_size`、`FE_query`、`runtime_query_sampling`、`runtime_query_evaluation`、兼容汇总字段 `runtime_sampling_evaluation`、边界、(X) 和 (y)。随机种子由 base seed、stream code、function、instance、dimension 与整数 design code 共同进入 `numpy.random.SeedSequence`；不得使用字符串哈希。
+样本行保存 `sample_design_id`、`sampling_protocol`、`sample_seed`、`sample_size`、`FE_query`、`runtime_query_sampling`、`runtime_query_evaluation`、兼容汇总字段 `runtime_sampling_evaluation`、边界、(X) 和 (y)。其中 `sample_size = sample_size_per_dimension × dimension`，而不是固定 FE ratio。随机种子由 base seed、stream code、function、instance、dimension 与整数 design code 共同进入 `numpy.random.SeedSequence`；不得使用字符串哈希。
 
 特征结果保存到：
 
@@ -58,7 +60,7 @@ NBC 固定 `dist_tie_breaker="first"`；information content 使用显式整数 `
 
 `lhs_50d` 只生成一份逐共享状态 action-loss 表，供 cheap 与 standard 分别训练 Selector；`lhs_100d` 单独生成 action-loss 表。action-loss 输入包含 `sample_design_id` 与 `FE_query`，不包含 behavior 或 query features。构建 Selector 时才连接 behavior 与指定 query feature 表。
 
-每个 query 独立拟合 Selector、Utility target 和 Decision Model：
+每个 query 独立拟合 Selector、Utility target 和 Decision Model。若未来新增预算档，只需新增对应的 `sample_design_id` 与相应配置，不需要改动 `query_id` 的语义：
 
 ```text
 results/selection_reference/{query_id}/

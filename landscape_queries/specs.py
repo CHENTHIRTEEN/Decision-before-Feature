@@ -14,7 +14,6 @@ class SampleDesignSpec:
     sample_design_id: str
     design_code: int
     sample_size_per_dimension: int
-    fe_ratio: float
     protocol: str = SAMPLE_PROTOCOL_VERSION
 
     def sample_size(self, dimension: int) -> int:
@@ -148,13 +147,26 @@ SAMPLE_DESIGN_SPECS = {
         sample_design_id="lhs_50d",
         design_code=50,
         sample_size_per_dimension=50,
-        fe_ratio=0.05,
     ),
     "lhs_100d": SampleDesignSpec(
         sample_design_id="lhs_100d",
         design_code=100,
         sample_size_per_dimension=100,
-        fe_ratio=0.10,
+    ),
+    "lhs_5d": SampleDesignSpec(
+        sample_design_id="lhs_5d",
+        design_code=5,
+        sample_size_per_dimension=5,
+    ),
+    "lhs_10d": SampleDesignSpec(
+        sample_design_id="lhs_10d",
+        design_code=10,
+        sample_size_per_dimension=10,
+    ),
+    "lhs_20d": SampleDesignSpec(
+        sample_design_id="lhs_20d",
+        design_code=20,
+        sample_size_per_dimension=20,
     ),
 }
 
@@ -215,10 +227,10 @@ def validate_frozen_query_specs() -> None:
     broad = get_query_spec("pflacco_broad_invariant")
     if cheap.sample_design_id != standard.sample_design_id:
         raise ValueError("descriptor_cheap_invariant and pflacco_standard_invariant must share lhs_50d")
-    if cheap.sample_design.sample_size_per_dimension != 50 or cheap.sample_design.fe_ratio != 0.05:
-        raise ValueError("descriptor_cheap_invariant must use 50d = 5% FE")
-    if broad.sample_design.sample_size_per_dimension != 100 or broad.sample_design.fe_ratio != 0.10:
-        raise ValueError("pflacco_broad_invariant must use 100d = 10% FE")
+    if cheap.sample_design.sample_size_per_dimension != 50:
+        raise ValueError("descriptor_cheap_invariant must use lhs_50d")
+    if broad.sample_design.sample_size_per_dimension != 100:
+        raise ValueError("pflacco_broad_invariant must use lhs_100d")
     expected_counts = {
         "descriptor_cheap_invariant": 16,
         "pflacco_standard_invariant": 37,

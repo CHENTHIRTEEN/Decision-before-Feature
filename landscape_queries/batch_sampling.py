@@ -58,11 +58,12 @@ def generate_query_samples(
     for function in selected_functions(config, only_functions):
         for dimension in selected_dimensions(config, only_dimensions):
             fe_total = fe_total_for_dimension(config, dimension)
-            expected_fe = int(round(design.fe_ratio * fe_total))
-            if design.sample_size(dimension) != expected_fe:
+            expected_fe = design.sample_size(dimension)
+            if expected_fe <= 0:
+                raise ValueError(f"{sample_design_id} must define a positive sample size per dimension")
+            if fe_total < expected_fe:
                 raise ValueError(
-                    f"{sample_design_id} requires {design.sample_size_per_dimension}d = "
-                    f"{design.fe_ratio:.0%} FE, but d={dimension} has FE_total={fe_total}"
+                    f"{sample_design_id} requires FE_total={fe_total} to be at least FE_query={expected_fe}"
                 )
             for instance in as_int_list(config, "instances"):
                 problem = make_problem(

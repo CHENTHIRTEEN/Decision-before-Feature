@@ -112,8 +112,6 @@ def _check_samples(samples: pd.DataFrame) -> None:
         expected_size = design.sample_size(int(row["dimension"]))
         if int(row["sample_size"]) != expected_size or int(row["FE_query"]) != expected_size:
             raise ValueError("sample_size and FE_query must match the frozen dimension multiplier")
-        if int(row["FE_query"]) != int(round(design.fe_ratio * int(row["FE_total"]))):
-            raise ValueError("sample FE does not match the frozen percentage of FE_total")
         x = np.stack([np.asarray(point, dtype=float) for point in row["X"]], axis=0)
         y = np.asarray(row["y"], dtype=float)
         if x.shape != (expected_size, int(row["dimension"])) or y.shape != (expected_size,):
@@ -287,9 +285,6 @@ def _check_action_losses(action_losses: pd.DataFrame) -> None:
         expected = frame["dimension"].astype(int) * design.sample_size_per_dimension
         if not np.array_equal(frame["FE_query"].astype(int).to_numpy(), expected.to_numpy()):
             raise ValueError(f"{design_id} action losses use an inconsistent query FE budget")
-        ratios = frame["FE_query"].astype(float) / frame["FE_total"].astype(float)
-        if not np.allclose(ratios, design.fe_ratio, rtol=0.0, atol=1e-12):
-            raise ValueError(f"{design_id} action losses use an inconsistent FE ratio")
     runtime_columns = (
         "runtime_no_query_handoff",
         "runtime_no_query_optimization",
