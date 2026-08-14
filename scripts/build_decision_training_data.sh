@@ -35,12 +35,16 @@ fi
 
 mkdir -p "$SELECTION_ROOT" "$UTILITY_ROOT" "$DECISION_ROOT" "$SAMPLES_ROOT" "$FEATURE_ROOT"
 
+run_py() {
+  uv run python -m "$@"
+}
+
 echo "[0/8] Check that the frozen protocols are available"
-python3 -m decision.check_model_protocol >/dev/null
-python3 -m landscape_queries.consistency >/dev/null 2>&1 || true
+run_py decision.check_model_protocol >/dev/null
+run_py landscape_queries.consistency >/dev/null 2>&1 || true
 
 echo "[1/8] Generate query samples for train and validation"
-python3 -m landscape_queries.batch_sampling \
+run_py landscape_queries.batch_sampling \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
   --sample-design-id "$SAMPLE_DESIGN_ID" \
@@ -54,10 +58,10 @@ if [[ ! -f "$TRAIN_SAMPLE_PATH" || ! -f "$VALIDATION_SAMPLE_PATH" ]]; then
 fi
 
 echo "[2/8] Extract query features for train and validation"
-python3 -m landscape_queries.batch_features \
+run_py landscape_queries.batch_features \
   --samples "$TRAIN_SAMPLE_PATH" \
   ${OVERWRITE_FLAG}
-python3 -m landscape_queries.batch_features \
+run_py landscape_queries.batch_features \
   --samples "$VALIDATION_SAMPLE_PATH" \
   ${OVERWRITE_FLAG}
 
@@ -69,21 +73,21 @@ if [[ ! -f "$TRAIN_FEATURE_PATH" || ! -f "$VALIDATION_FEATURE_PATH" ]]; then
 fi
 
 echo "[3/8] Extract behavior shards for train and validation"
-python3 -m behavior.batch_extraction \
+run_py behavior.batch_extraction \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
   --workers "$WORKERS" \
   ${OVERWRITE_FLAG}
 
 echo "[4/8] Generate selection-reference action losses for train and validation"
-python3 -m selection_reference.action_losses \
+run_py selection_reference.action_losses \
   --config "$CONFIG_TRAIN" \
   --train-config "$CONFIG_TRAIN" \
   --sample-design-id "$SAMPLE_DESIGN_ID" \
   --output "$ACTION_LOSS_TRAIN" \
   --all-prefixes \
   ${OVERWRITE_FLAG}
-python3 -m selection_reference.action_losses \
+run_py selection_reference.action_losses \
   --config "$CONFIG_VALIDATION" \
   --train-config "$CONFIG_TRAIN" \
   --sample-design-id "$SAMPLE_DESIGN_ID" \
@@ -99,7 +103,7 @@ if [[ ! -f "$ACTION_LOSS_TRAIN" || ! -f "$ACTION_LOSS_VALIDATION" ]]; then
 fi
 
 echo "[5/8] Build the selection reference and selector model"
-python3 -m selection_reference.build \
+run_py selection_reference.build \
   --query-id "$QUERY_ID" \
   --train-action-losses "$ACTION_LOSS_TRAIN" \
   --predict-action-losses "$ACTION_LOSS_VALIDATION" \
@@ -109,7 +113,7 @@ python3 -m selection_reference.build \
   --model-output "$SELECTION_ROOT/statewise_selector.joblib"
 
 echo "[6/8] Generate utility labels for train and validation"
-python3 -m utility_labels.batch_generation \
+run_py utility_labels.batch_generation \
   --query-id "$QUERY_ID" \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
@@ -120,7 +124,7 @@ python3 -m utility_labels.batch_generation \
   ${OVERWRITE_FLAG}
 
 echo "[7/8] Materialize Decision training data"
-python3 -m decision.materialize_training_data \
+run_py decision.materialize_training_data \
   --query-id "$QUERY_ID" \
   --utility-root "$UTILITY_ROOT" \
   --behavior-root "$BEHAVIOR_ROOT" \
@@ -130,7 +134,7 @@ python3 -m decision.materialize_training_data \
   ${OVERWRITE_FLAG}
 
 echo "[8/8] Check the Decision model protocol"
-python3 -m decision.check_model_protocol \
+run_py decision.check_model_protocol \
   --training-dir "$MATERIALIZED_DIR"
 
 echo "Decision training-data generation completed successfully."
