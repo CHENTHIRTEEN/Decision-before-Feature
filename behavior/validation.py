@@ -58,6 +58,10 @@ CORRELATION_FEATURE_COLUMNS = (
     "bf_best_distance_fitness_corr",
 )
 
+SLOPE_FEATURE_COLUMNS = (
+    "bf_best_fitness_slope_rel_w05",
+)
+
 EPS = 1e-12
 
 
@@ -135,6 +139,11 @@ def validate_behavior_rows(trajectory_rows: list[dict], behavior_rows: list[dict
             value = behavior_row[column]
             if value is not None and not -1.0 <= value <= 1.0:
                 raise ValueError(f"{column} must be in [-1, 1] or null")
+
+        for column in SLOPE_FEATURE_COLUMNS:
+            value = behavior_row[column]
+            if value is not None and not isfinite(float(value)):
+                raise ValueError(f"{column} must be finite or null")
 
         for column in BEHAVIOR_FEATURE_COLUMNS:
             value = behavior_row[column]

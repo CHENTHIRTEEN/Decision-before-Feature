@@ -849,7 +849,7 @@ trajectory 的 `window_statistics` 与 `native_update_history` 都会记录底�
 | Convergence | stagnation | `bf_stagnation_w10` | 最近一次 best-fitness 严格改善后的预算比例间隔，截断到10%窗口 | B1, B2, B3 |
 | Convergence | convergence slope | `bf_convergence_rate_w10` | 10% FE-ratio窗口内 diversity 相对下降率 | B1, B2, B3 |
 | Fitness distribution | quantile improvement fraction | `bf_fitness_quantile_improvement_fraction_w02` | 2%窗口内改善的经验fitness分位数比例 | B1, B2, B3 |
-| Convergence | best fitness slope | `bf_best_fitness_slope_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率 | B1, B2, B3 |
+| Convergence | normalized best fitness slope | `bf_best_fitness_slope_rel_w05` | 5% FE-ratio窗口内 best fitness 对 FE ratio 的线性斜率，按初始化 fitness IQR 归一化 | B1, B2, B3 |
 | Fitness distribution | mean improvement rate | `bf_fitness_distribution_improvement_rate_w02` | 排序fitness的平均带符号改善量，除以初始化 population 的 fitness IQR 与实际FE-ratio跨度 | B1, B2, B3 |
 | Fitness distribution | Wasserstein rate | `bf_fitness_wasserstein_rate_w02` | 排序fitness的平均绝对分位数变化，除以初始化 population 的 fitness IQR 与实际FE-ratio跨度 | B1, B2, B3 |
 | Elite | elite concentration | `bf_elite_concentration` | top-20% elite population diversity 与总体 diversity 的比值 | B1, B2, B3 |

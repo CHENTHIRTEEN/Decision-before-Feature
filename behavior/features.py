@@ -67,7 +67,7 @@ PRIMARY_BEHAVIOR_FEATURE_COLUMNS = (
     "bf_fitness_distribution_improvement_rate_w02",
     "bf_fitness_wasserstein_rate_w02",
     "bf_elite_concentration",
-    "bf_best_fitness_slope_w05",
+    "bf_best_fitness_slope_rel_w05",
     "bf_diversity_slope_w05",
 )
 
@@ -269,7 +269,7 @@ def extract_behavior_rows(trajectory_rows: list[dict]) -> list[dict]:
                 "bf_fitness_distribution_improvement_rate_w02": fitness_change["distribution_improvement_rate"],
                 "bf_fitness_wasserstein_rate_w02": fitness_change["wasserstein_rate"],
                 "bf_elite_concentration": _elite_concentration(row, stats[index]["diversity"]),
-                "bf_best_fitness_slope_w05": _window_slope(native_history, medium_window, "best_fitness"),
+                "bf_best_fitness_slope_rel_w05": _normalized_best_fitness_slope(native_history, medium_window),
                 "bf_diversity_slope_w05": _window_slope(
                     native_history,
                     medium_window,
@@ -544,6 +544,21 @@ def _window_slope(history: list[dict], window: dict, name: str) -> float:
         raise ValueError("strict slope window has zero FE variance")
     centered_values = values - float(np.mean(values))
     return float(np.sum(centered_ratios * centered_values) / denominator)
+
+
+def _normalized_best_fitness_slope(history: list[dict], window: dict) -> float:
+    rows = [item for item in history if int(item["FE"]) >= int(window["anchor_FE"])]
+    ratios = np.asarray([float(row["FE_ratio"]) for row in rows], dtype=float)
+    if np.unique(ratios).size < 2:
+        raise ValueError("normalized best-fitness slope window must contain at least two native updates")
+    values = np.asarray([float(row["best_fitness"]) for row in rows], dtype=float)
+    centered_ratios = ratios - float(np.mean(ratios))
+    denominator = float(np.sum(centered_ratios * centered_ratios))
+    if denominator <= EPS:
+        raise ValueError("normalized best-fitness slope window has zero FE variance")
+    centered_values = values - float(np.mean(values))
+    raw_slope = float(np.sum(centered_ratios * centered_values) / denominator)
+    return float(raw_slope / max(float(window["fitness_iqr_baseline"]), EPS))
 
 
 def _stagnation(history: list[dict], current: dict) -> float:
