@@ -76,7 +76,6 @@ echo "[3/8] Extract behavior shards for train and validation"
 run_py behavior.batch_extraction \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
-  --workers "$WORKERS" \
   ${OVERWRITE_FLAG}
 
 echo "[4/8] Generate selection-reference action losses for train and validation"
