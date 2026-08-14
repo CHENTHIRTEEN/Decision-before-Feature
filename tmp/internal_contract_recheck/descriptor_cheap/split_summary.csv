@@ -1,3 +1,0 @@
-split,rows,target_null_count,target_finite,u_gt_zero_rate
-bbob_train,70033,0,True,0.0026987277426356146
-bbob_validation,24601,0,True,0.0008536238364294134

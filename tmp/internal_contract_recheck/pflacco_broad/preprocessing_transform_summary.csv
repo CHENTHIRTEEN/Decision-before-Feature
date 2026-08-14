@@ -1,5 +1,0 @@
-stage,rows,finite_values,remaining_nan_count
-imputer_transform_train,70033,True,0
-imputer_transform_validation,24601,True,0
-scaler_transform_train,70033,True,0
-scaler_transform_validation,24601,True,0
