@@ -39,11 +39,11 @@ run_py() {
   uv run python -m "$@"
 }
 
-echo "[0/8] Check that the frozen protocols are available"
+echo "[0/9] Check that the frozen protocols are available"
 run_py decision.check_model_protocol >/dev/null
 run_py landscape_queries.consistency >/dev/null 2>&1 || true
 
-echo "[1/8] Generate query samples for train and validation"
+echo "[1/9] Generate query samples for train and validation"
 run_py landscape_queries.batch_sampling \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
@@ -57,7 +57,7 @@ if [[ ! -f "$TRAIN_SAMPLE_PATH" || ! -f "$VALIDATION_SAMPLE_PATH" ]]; then
   exit 1
 fi
 
-echo "[2/8] Extract query features for train and validation"
+echo "[2/9] Extract query features for train and validation"
 run_py landscape_queries.batch_features \
   --samples "$TRAIN_SAMPLE_PATH" \
   ${OVERWRITE_FLAG}
@@ -72,20 +72,21 @@ if [[ ! -f "$TRAIN_FEATURE_PATH" || ! -f "$VALIDATION_FEATURE_PATH" ]]; then
   exit 1
 fi
 
-echo "[3/8] Collect trajectory shards for train and validation"
+echo "[3/9] Collect trajectory shards for train and validation"
 run_py experiments.phase1_collect_batch \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
+  --sharded \
   --workers "$WORKERS" \
   ${OVERWRITE_FLAG}
 
-echo "[4/8] Extract behavior shards for train and validation"
+echo "[4/9] Extract behavior shards for train and validation"
 run_py behavior.batch_extraction \
   --config "$CONFIG_TRAIN" \
   --config "$CONFIG_VALIDATION" \
   ${OVERWRITE_FLAG}
 
-echo "[5/8] Generate selection-reference action losses for train and validation"
+echo "[5/9] Generate selection-reference action losses for train and validation"
 run_py selection_reference.action_losses \
   --config "$CONFIG_TRAIN" \
   --train-config "$CONFIG_TRAIN" \
@@ -108,7 +109,7 @@ if [[ ! -f "$ACTION_LOSS_TRAIN" || ! -f "$ACTION_LOSS_VALIDATION" ]]; then
   exit 1
 fi
 
-echo "[6/8] Build the selection reference and selector model"
+echo "[6/9] Build the selection reference and selector model"
 run_py selection_reference.build \
   --query-id "$QUERY_ID" \
   --train-action-losses "$ACTION_LOSS_TRAIN" \
@@ -118,7 +119,7 @@ run_py selection_reference.build \
   --output "$SELECTION_ROOT/selection_reference.parquet" \
   --model-output "$SELECTION_ROOT/statewise_selector.joblib"
 
-echo "[7/8] Generate utility labels for train and validation"
+echo "[7/9] Generate utility labels for train and validation"
 run_py utility_labels.batch_generation \
   --query-id "$QUERY_ID" \
   --config "$CONFIG_TRAIN" \
@@ -129,7 +130,7 @@ run_py utility_labels.batch_generation \
   --workers "$WORKERS" \
   ${OVERWRITE_FLAG}
 
-echo "[8/8] Materialize Decision training data"
+echo "[8/9] Materialize Decision training data"
 run_py decision.materialize_training_data \
   --query-id "$QUERY_ID" \
   --utility-root "$UTILITY_ROOT" \
