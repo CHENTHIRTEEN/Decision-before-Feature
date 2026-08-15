@@ -23,7 +23,7 @@ from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_query_lamT_1"
+TARGET_COLUMN = "u_query_joint_lamT_1"
 ALGORITHMS = ("cmaes", "de", "pso", "shade")
 STACK_SCORE_COLUMNS = tuple(f"score_from_{algorithm}_model" for algorithm in ALGORITHMS)
 TOP_K_FRACTIONS = (0.05, 0.10, 0.20)

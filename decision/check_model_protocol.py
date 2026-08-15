@@ -125,7 +125,7 @@ def _check_training_artifacts(training_dir: Path) -> dict[str, Any]:
 
     folds = pq.read_table(training_dir / "oof_fold_summary.parquet").to_pandas()
     if (folds["family_overlap_count"].astype(int) != 0).any():
-        raise ValueError("function families overlap within at least one OOF fold")
+        raise ValueError("landscape families overlap within at least one OOF fold")
     if (folds["validation_rows_used"].astype(int) != 0).any():
         raise ValueError("BBOB-validation rows entered an OOF fold")
     expected_roles = {"nested_inner_threshold", "nested_outer_evaluation", "full_train_oof_threshold"}
@@ -162,7 +162,7 @@ def _check_training_artifacts(training_dir: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Check the frozen three-model nested function-family OOF Decision protocol."
+        description="Check the fixed three-model nested landscape-family OOF Decision protocol."
     )
     parser.add_argument("--training-dir", type=Path, default=None)
     args = parser.parse_args()

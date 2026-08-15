@@ -27,11 +27,11 @@
 
 - Analysis Selection Problem；
 - Decision-before-Feature 框架；
-- Query Utility 的具体定义；
+- $U_q^{joint}$、$U_b$、$I_q$ 与 query-feature predictive increment 的具体定义；
 - 共享前缀配对续跑离线效用标签；
-- Search Maturity；
-- $M_t=ES_t(1-XS_t)$；
-- “多数所评估状态不需要主 `descriptor_cheap` query”；
+- Search Maturity 三项确定性基函数；
+- $M_t=ES_t(1-XS_t)$、$M_t^{linear}$ 与 $R_t^{EE}$；
+- 主 `descriptor_cheap_invariant` query 在目标状态分布中的 Utility 方向与比例；
 - “Decision Model 开销可以忽略”；
 - “Behavior-only 可以预测 Query Utility”；
 - “BBOB 上训练的模型可以泛化到 CEC”。
@@ -111,12 +111,14 @@ flowchart TD
 | C7   | 固定 query 的效用应通过执行与跳过两条路径的结果差异评估            |    O / I | [R3], [R10], [R11] | 成本敏感选择和黑盒基准评估提供基础；两分支定义属于本项目                   |
 | C8   | 两条路径应共享相同前缀状态并采用配对随机流                |    M / O | [R29]              | Common Random Numbers 支持配对比较和方差降低；semantic RNG fork 是项目协议 |
 | C9   | 所有策略应共享相同总函数评价预算                          |    D / M | [R10], [R11]       | COCO 将函数评价数作为核心黑盒成本                                          |
-| C10  | $U_{query}$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 连续效用是本文建模选择                                                     |
+| C10  | $U_q^{joint}$、$U_b$ 与 $I_q$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 三个量定义不同，不能用一个 `U_query` 字段代替                              |
 | C11  | Query 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
 | C12  | Query 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
 | C12a | 当前 `selection_reference` 是固定下游组件，不是本文贡献点 |    M / O | [R3], [R5], [R5a]  | 文献支持 ELA-based selector 范式；当前实现质量和泛化风险必须由本文诊断报告 |
-| C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、cross-family predictions 和 best-observed-action 分解属于本项目协议 |
+| C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、grouped-by-function cross-fitted predictions 和 best-observed-action 分解属于本项目协议 |
 | C12c | 逐状态最小已观测 action loss 不能称为 oracle，也不能在实测 loss 外再次扣除 Population Transfer 影响 | O | 无需外部引用 | 这是术语与代数一致性要求；handoff 已进入 observed action loss，query FE 已进入等总预算路径 |
+| C12d | Query sample 虽不进入 optimizer population，但 sample best 与 first hit 必须进入 Query terminal gap、`target_hit_observed` 与 ERT；`endpoint_success` 另要求 continuation 完成 | O / M | [R10], [R11] | objective evaluation 与 endpoint 记账有 benchmarking 背景；具体 sample/continuation 分解是项目协议 |
+| C12e | `query_operational_increment_lamT_1` 与 `query_feature_predictive_increment_log10_gap` 回答不同问题 | O | 无需外部引用 | 前者是不同预算 operational paths 的净差；后者是同一 query-budget outcomes 上的 OOF continuation-only 预测诊断 |
 
 ---
 
@@ -127,9 +129,9 @@ flowchart TD
 | C13  | 元启发式搜索行为可以通过一组指标进行量化和比较           |        D | [R12], [R13]          | 支持行为分析的可行性                                   |
 | C14  | 输入应尽量采用算法无关行为，而不是算法专属参数           |    I / O | [R12], [R13]          | 文献提供跨算法行为表征动机；严格排除算法参数是本文协议 |
 | C15  | 改进率、多样性、停滞和集合分布变化可描述不同搜索状态     |    I / O | [R12], [R14]          | 行为分析提供动机；本文集合统计及其预测价值仍需验证      |
-| C16  | Search Maturity 是连接行为与 Query Utility 的中间状态      |        O | [R12]–[R15] 仅作灵感 | 尚无文献定义同一概念                                   |
-| C17  | $M_t=ES_t(1-XS_t)$ 可以刻画搜索成熟度                  |        O | 无直接支持            | 必须通过消融和 OOD 实验验证                            |
-| C18  | Query Utility 与 Search Maturity 可能呈非单调或倒 U 型关系 |        O | 无直接支持            | 属于研究假设，不是已知事实                             |
+| C16  | Search Maturity 是既有 Behavior 的三项确定性基函数组      |        O | [R12]–[R15] 仅作灵感 | 不是独立观测、latent state、收敛判据或因果中介         |
+| C17  | $M_t=ES_t(1-XS_t)$、线性组合与 explore/exploit ratio 是预设重参数化 | O | 无直接支持 | 只能通过六组消融评价其对固定线性候选的预测增量         |
+| C18  | Maturity 与 Utility 的曲线方向不在定义中预设             |        O | 无直接支持            | 任何曲线形状均须由冻结结果与不确定性描述               |
 
 ---
 
@@ -138,11 +140,11 @@ flowchart TD
 | 编号 | 当前结论或公式                                                 | 证据等级 | 推荐引用     | 引用关系与限制                                 |
 | ---- | -------------------------------------------------------------- | -------: | ------------ | ---------------------------------------------- |
 | C19  | $p>0.05$ 不能证明两种策略等价                                |        D | [R16]        | 应采用等价性检验或置信区间                     |
-| C20  | 等价边界或最小实际效应阈值应预先确定                           |    D / M | [R16]        | 具体$\delta$ 必须由本研究冻结                |
+| C20  | 各 endpoint 的最小实际效应和等价边界应预先确定                 |    D / M | [R16]        | 当前仅有项目内 operational tolerance：Utility、`log10_gap`、runtime ratio、call/target-hit rate；`endpoint_success` rate 若使用须另定边界 |
 | C21  | Bootstrap 可估计 Utility 或比例的不确定性                      |    D / M | [R17]        | 分层重采样单位由数据依赖结构决定               |
 | C22  | 多算法、多问题比较应考虑非参数检验和多重比较校正               |    D / M | [R18], [R19] | 具体检验必须匹配配对层级                       |
-| C23  | “多数状态不需要主 query”可用比例置信下界大于$0.5$ 作为证据规则 |    O / M | [R17]        | 区间估计有文献基础；判据是本文预设规则         |
-| C24  | 同一轨迹上的多个 checkpoint 不能视为完全独立样本               |        M | [R17]        | 应以轨迹、种子、函数实例或函数族作为重采样层级 |
+| C23  | 状态条件 $U_q^{joint}\le0$ 的比例应按目标分布估计而不预设多数方向 | O / M | [R17] | function 顶层、run/problem 等权及区间是当前预设；“多数”只可在区间确实支持时使用 |
+| C24  | 同一轨迹上的多个 checkpoint 不能视为独立样本                    |        M | [R17]        | BBOB-validation 条件 bootstrap 固定六个已见 functions、dimensions 与 static problems，只在每个 problem 内配对重抽 seeds，抽中 run 的完整 state sequence 保留为簇 |
 
 ---
 
@@ -165,11 +167,11 @@ flowchart TD
 | ---- | -------------------------------------------------------------------- | -------: | ---------------- | --------------------------------------------------- |
 | C31  | 应报告 SBS、VBS、现实 selector 和 proposed gate                      |    D / M | [R1], [R4], [R5] | 支持算法选择上下界比较                              |
 | C32  | Portfolio 应包含具有互补性的算法                                     |    D / I | [R1], [R5]       | 具体四算法组合仍是本文设计                          |
-| C33  | DE、PSO、CMA-ES、SHADE/L-SHADE 可作为代表性连续优化器                |        D | [R24]–[R28]     | 不能仅凭引用宣称已覆盖全部搜索范式                  |
+| C33  | DE、PSO、CMA-ES、SHADE 可作为本项目的四算法连续优化 portfolio          |        D | [R24]–[R27]     | 当前实现是 SHADE，不得写成 L-SHADE；也不能宣称覆盖全部搜索范式 |
 | C34  | BBOB/COCO 可用于规范化黑盒优化评估                                   |        D | [R10], [R11]     | 支持实例、FE 和 anytime 评价                        |
 | C35  | CEC2017 与 CEC2022 可作为跨 benchmark 测试集                         |    D / O | [R30], [R31]     | 技术报告定义 benchmark；将其视作 OOD 是本文实验设计 |
-| C36  | Function-family grouped split 比随机 instance split 更能检验结构泛化 |    I / O | [R8]–[R10]      | 尚无文献直接规定本项目的具体划分                    |
-| C37  | 应分别报告跨维度、跨函数族、跨 benchmark 与留一算法泛化              |    O / M | [R10], [R11]     | 属于本文多层 OOD 协议                               |
+| C36  | Function-ID grouped split 比随机 instance split 更直接检验未见 function ID，同时阻止同一基础函数泄漏 |    I / O | [R8]–[R10]      | 当前 `family=bbob_fNNN` 不是经典 landscape-family taxonomy，不能据此声称跨函数族泛化 |
+| C37  | 应分别报告跨维度、未见 function ID、跨 benchmark 与留一算法诊断；跨经典函数族只有在补充可复核 taxonomy 后才可命名 |    O / M | [R10], [R11]     | 属于本文分层泛化协议，不把不同层级池化为单一 OOD 结论 |
 
 ---
 
@@ -219,162 +221,95 @@ $$
 
 ---
 
-## 4.3 共享前缀下的 Query 路径性能差
+## 4.3 五条路径的 terminal endpoint
 
-若损失指标 $L$ 越小越好，则：
-
-$$
-G_i=L_{\mathrm{skip},i}-L_{\mathrm{query},i}.
-$$
-
-因此：
+对 `skip`、Query/full Selector、matched-acquisition state-only、sampling-only continue-current 与 Behavior-only full-budget 五条路径，预指定 Stage-A 单次科学运行固定 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success`、planned/effective FE 与失败状态；令其 raw terminal gap 分别为 $g_s,g_q,g_m,g_c,g_b$。同一 query sample 不并入 optimizer population，但其 sample best 和 first hit属于三条 acquisition 路径的 Stage-A endpoint：
 
 $$
-G_i>0
+g_q=\min\{g_{\mathrm{query\ sample}},g_{\mathrm{selected\ continuation}}\}.
 $$
 
-表示执行固定 query 后取得了更小损失。
+同时保存 continuation-only gap、`query_first_hit_offset` 与 sample-best contribution。对任一路径：
 
-引用关系：
+$$
+\ell_k=\log_{10}\!\left(\min\{\max(g_k,10^{-12}),10^{20}\}\right).
+$$
 
-- 差值本身：本文操作性定义；
-- 相同总 FE 和黑盒评估：[R10], [R11]；
-- 配对随机数与方差降低：[R29]；
-- ELA-based selector：[R3], [R5], [R5a]。
-
-Common Random Numbers 并不自动保证方差下降。其效果依赖两条路径输出的相关性，因此应保存共享前缀，并对不同随机流实现做稳健性检查。
+引用关系：objective-evaluation、target 与 anytime endpoint 可引用 [R10], [R11]；sample/continuation 的具体合并与分解是本文协议。
 
 ---
 
-## 4.4 Query 净效用
+## 4.4 Joint Utility、Behavior-only Utility 与query 操作性增量
 
-若两条路径共享相同总 FE，query 消耗的函数评价已经通过“剩余优化预算减少”体现，则定义：
-
-$$
-U_{query,i}
-=
-G_i
--\lambda_T C_{T,i}
--\lambda_M C_{M,i}.
-$$
-
-若另设协议允许 query 使用额外函数评价，则可写为：
+Stage-B 将每条 selected 路径从同一 decision state/RNG 到 terminal 真实执行预定三次，但只形成 timing。每次保存 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数。raw median 仅作诊断，旧 failure-worst-case 字段只作同一 censored 值的兼容别名。逐次保存 `observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、effective FE 与失败字段；路径身份、completed replays 内部 endpoint、Stage-A→completed replay endpoint 一致性分列，Stage-B status instability 与跨阶段 completion instability 也分列。任何 replay 都不得覆盖 Stage-A 科学端点或选择性补跑。共享 prefix 视为 sunk cost。FE=0→terminal policy wall-clock 另报，不进入 Utility，并遵循相同科学/计时分离。主 $\lambda_M=0$：
 
 $$
-U_{query,i}
-=
-G_i
--\lambda_{\mathrm{FE}}C_{\mathrm{FE},i}
--\lambda_T C_{T,i}
--\lambda_M C_{M,i}.
+U_q^{joint}=(\ell_s-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_s),
 $$
 
-其中：
+$$
+U_b=(\ell_s-\ell_b)-\lambda_T(\log_{10}T_b-\log_{10}T_s),
+$$
 
-- $C_{\mathrm{FE},i}$：额外函数评价成本；
-- $C_{T,i}$：Query 与 No-query 完整路径的有符号端到端 wall-clock 相对差；
-- $C_{M,i}$：额外内存或资源成本。
+$$
+I_q=(\ell_b-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_b)
+=U_q^{joint}-U_b.
+$$
 
-引用关系：
+$U_q^{joint}$ 是执行固定 query、full Selector、必要 handoff 与 continuation 相对 Skip 的联合路径净差；$I_q$ 比较 Query 与 Behavior-only full-budget 两条 operational paths，包含不同 FE budget、sample best 和 acquisition time，不能称为纯信息效应。
 
-- 成本敏感选择思想：[R3]；
-- ELA-based AAS：[R5]；
-- AAS 综述背景：[R5a]；
-- FE 与 anytime 评价：[R10], [R11]；
-- 具体公式：本文定义。
+query descriptors 的边际预测贡献另用 `query_adjusted_state_only_selector` 与 full Query Selector 在同一 query-budget action outcomes 上的 OOF selected continuation-only `log10_gap` 差；不新增 action losses、不计 sample best、不扣 acquisition cost。
 
-### 双重计费警告
-
-若 $FE_{\mathrm{query}}$ 已从后续优化预算中扣除，就不能在 Utility 中再次扣除同一笔 FE。
+引用关系：成本敏感选择思想 [R3]，ELA-based AAS [R5]，FE/anytime 评价 [R10], [R11]；全部具体公式属于本文定义。若 query FE 已从 continuation budget 扣除，不能再次扣同一 FE。
 
 ---
 
-## 4.5 决策阈值
+## 4.5 First-trigger threshold
+
+对每个 run：
 
 $$
-d_i=
-\mathbb I\left(
-\widehat U_{query,i}>\delta
-\right),
+t_r^*=\min\{t:z_\theta(s_{r,t})>\tau_{\mathrm{OOF}}\}.
 $$
 
-其中 $\delta$ 是预先冻结的最小实际收益阈值。
-
-- $\delta=0$：只要求正净收益；
-- $\delta>0$：只有超过最小实际意义的收益才执行固定 query。
-
-预设最小效应和等价边界的方法依据：[R16]。具体 $\delta$ 是本文协议，不能看完测试结果再挑。
+$\tau_{\mathrm{OOF}}$ 只从 BBOB-train 的 fold-specific 上游 OOF score 与 first-trigger Utility 冻结；BBOB-validation 与外部 suite 不参与。Utility 相同时先取调用 run 更少的 threshold，再取数值更大的 threshold。该部署 threshold 与等价性 operational tolerance 是不同对象，不能共用 $\delta$ 混写。
 
 ---
 
-## 4.6 多次配对续跑与 Bootstrap
+## 4.6 重复计时、层级 Bootstrap 与 sign flip
 
-对状态 $i$ 进行 $R$ 次配对续跑：
+三次重复用于取得每条 decision-state future path 的 censored runtime 中位数，不把三次当独立科学 runs。BBOB-validation 的条件不确定性使用 10,000 次配对层级 bootstrap：固定六个已见 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 problem 内配对重抽 optimizer runs；RQ1 对抽中 run 保留完整有序 state sequence。重抽 function 只作函数组成敏感性。
 
-$$
-\widehat U_i
-=
-\operatorname{median}_{r=1,\ldots,R}
-U_i^{(r)}.
-$$
+配对 sign-flip 以六个固定且已见的 validation function effects 为单位，并额外假设 signs 可交换。穷举 64 个符号向量时双侧 raw p 最小为 0.03125；RQ3 与 RQ5 各自六 contrast Holm family 的最小 adjusted p 均为 0.1875，因而在 0.05 下数学上不能拒绝。RQ4 按 suite 与 endpoint 分开，不把四个 suites 组成同一 Holm family。逐函数/问题效应、有限集均值和条件 CI 为主，p 值仅作假设敏感辅助；不得称为函数总体或独立确认性推断。
 
-通过以函数实例、种子或轨迹为重采样单位的 bootstrap 获得：
+ERT 的层级区间必须在每个 bootstrap replicate 内逐 `function × dimension` 重算 FE numerator、target-hit count 与 treatment/reference log-ratio，再对 dimensions/functions 等权。单方零命中保留为 $\pm\infty$，双方零命中及聚合时同时含两种无穷记为 undefined；任何这类 stratum 或 replicate 都不得删除。undefined mass 保守分配到两侧尾部，`interval_established` 由观测 contrast 与扩展实数分位点是否有定义决定；无界区间仍可建立。
 
-$$
-[LCB_i,UCB_i].
-$$
-
-Bootstrap 方法依据：[R17]。使用中位数以及具体层级结构是本文的稳健聚合方案。
+Bootstrap 与 Monte Carlo 方法可引用 [R17]；当前层级、次数和修正属于本文协议。
 
 ---
 
-## 4.7 Needed、Not-needed 与 Uncertain
+## 4.7 Endpoint 等价
 
-$$
-y_i=
-\begin{cases}
-\mathrm{needed}, & LCB_i>\delta,\\[4pt]
-\mathrm{not\text{-}needed}, & UCB_i\le\delta,\\[4pt]
-\mathrm{uncertain}, & \text{其他情况}.
-\end{cases}
-$$
+以下数值只定义项目内预设 operational tolerance：
 
-引用关系：
+- mean Utility 差：$[-0.01,0.01]$；
+- mean `log10_gap` 差：$[-0.05,0.05]$；
+- geometric-mean runtime ratio：$[0.95,1.05]$；
+- call rate 或 target-hit rate 差：$[-0.05,0.05]$；`endpoint_success` rate 不复用该名称，若分析须另行预设边界。
 
-- 三分类规则：本文设计；
-- 等价边界：[R16]；
-- 置信区间：[R17]。
-
-TOST 和置信区间判定应预先指定一个作为主分析，另一个作为稳健性验证。不能等结果出来后再挑“比较懂事”的那套检验。
+Utility $\pm0.01$ 在主 log-ratio scalarization 下约对应 $\pm2.3\%$ 复合 ratio，不是领域普适阈值。主条件 CI 为 95%，只描述相对项目内 tolerance 的位置；同一预设 family 的描述性 Bonferroni 区间在 $m$ 个 contrasts 时每项双侧 level 为 $1-0.05/m$，提供 family-wise 95% coverage，但不构成等价检验。若未来未查看评价集要作正式等价判断，须在 outcome 前另行冻结有领域含义的边界、显著性水平与 TOST/同时区间程序。Utility 中 gap/runtime 的抵消不能替代各 endpoint 自身的判断；差异不显著也不等于等价。[R16] 只支持等价性原则，不为当前数值提供领域依据。
 
 ---
 
-## 4.8 “多数状态不需要主 query”
+## 4.8 主 query 状态分布
+
+活动 RQ1 估计：
 
 $$
-\pi_{\mathrm{not}}
-=
-P\left(
-U_{cheap}\le\delta
-\right).
+\pi_{\le0}=P\!\left(U_{q,\mathrm{descriptor\_cheap\_invariant}}^{joint}\le0\right),
 $$
 
-若论文使用“多数”一词，可以预注册证据标准：
-
-$$
-LCB_{95\%}\left(
-\pi_{\mathrm{not}}
-\right)>0.5.
-$$
-
-该下界标准是本文定义；置信区间方法依据 [R17]。
-
-建议同时报告：
-
-- checkpoint-level micro-average；
-- function-family-balanced macro-average；
-- 每个函数族的比例；
-- 每个早期 checkpoint 的比例。
+目标分布限于 SBS prefix 与 `phase1_dynamic_budget_event_v1` 合格状态。聚合按 state → run → static problem → fixed dimension stratum → function，function 为顶层单位；同时报告逐 function 结果。不得预设 $\pi_{\le0}>0.5$，只有区间实际支持时才可使用“多数”。
 
 ---
 
@@ -501,30 +436,32 @@ $$
 
 ## 4.15 Search Maturity
 
-当前方案定义：
+当前方案只定义三项由既有 Behavior 确定性计算的基函数：
 
 $$
 M_t=ES_t(1-XS_t),
 $$
 
-其中：
+$$
+M_t^{linear}=\frac{ES_t+(1-XS_t)}{2},
+\qquad
+R_t^{EE}=\frac{E_t}{X_t+10^{-12}}.
+$$
 
-- $ES_t$：Exploration Stabilization；
-- $XS_t$：Exploitation Saturation。
+它们对应 `bf_search_maturity`、`bf_search_maturity_linear`、`bf_explore_exploit_ratio`，不增加原始信息。
 
-这是本文提出的启发式潜变量。行为文献 [R12]–[R15] 只能支持输入指标有行为意义，不能直接支持乘积公式。
+这是本文提出的预设重参数化，不是启发式潜变量、独立观测、真实搜索阶段、因果中介或 Utility 标签。行为文献 [R12]–[R15] 只能支持输入指标有行为意义，不能直接支持三项公式。
 
 必须验证：
 
-1. 相比只用 $ES_t$ 或 $XS_t$ 是否更好；
-2. 是否优于加权和、比值或学习型潜变量；
-3. 是否只是 FE ratio 的替代品；
-4. 是否跨算法、跨维度和跨函数族稳定；
-5. 与当前 `query_id` 的 $U_{query}$ 是否确实存在非单调关系。
+1. `B2+Maturity-B2` 与 `B3-(B2+Motion)` 两个预设 contrast；
+2. B3 相对相同 milestone rows 上 T0 的增量；
+3. 是否跨算法、维度、function 与 query 配置稳定；
+4. 描述性关系的方向和不确定性，而不预设曲线形状。
 
 推荐写法：
 
-> We introduce a heuristic search-maturity score...
+> We introduce three deterministic search-maturity basis functions...
 
 不应写成：
 
@@ -535,26 +472,23 @@ $$
 ## 4.16 Utility 预测模型
 
 $$
-\widehat U_{query,i}
+\widehat U_{q,i}^{joint}
 =
 f_\theta(s_i).
 $$
 
-加权回归可写为：
+活动主训练权重依次使 function、固定 dimension stratum、static problem 和 optimizer run 等权，再把 run 权重均分给其 eligible states，并缩放到平均 row weight 为 1；不得按 Utility 区间宽度、标签稳定性或结果事后重加权。旧 `sample_weight=1` 只作敏感性。现有 estimator wiring 尚未实现该 cluster-balanced 主权重，是 blocker。Ridge 的连续目标可写为：
 
 $$
 \min_\theta
 \sum_{i=1}^{n}
-w_i\,
 \ell\left(
 f_\theta(s_i),
-U_{query,i}
+U_{q,i}^{joint}
 \right),
 $$
 
-其中 $w_i$ 可由 Utility 置信区间宽度或标签稳定性决定。
-
-活动候选为 LDA、Logistic Regression 与 Ridge。具体目标、nested function-family OOF decision utility、阈值和最终模型选择属于本文方法。Random Forest、XGBoost、LightGBM 与 SHAP 的 [R20]–[R23] 只保留为历史方案或相关方法背景，不支持当前候选选择。
+活动候选为 LDA、Logistic Regression 与 Ridge。每个 outer/inner fold 必须重算 fold-specific SBS、Selectors、Utility、Decision preprocessing/model 和 first-trigger threshold。具体目标、nested function OOF decision utility、阈值和最终模型选择属于本文方法。Random Forest、XGBoost、LightGBM 与 SHAP 的 [R20]–[R23] 只保留为历史方案或相关方法背景，不支持当前候选选择。
 
 ---
 
@@ -632,10 +566,12 @@ $$
 
 ## 4.19 三档预定义 Landscape Query 的表示依赖性
 
-当前实验不从 validation 结果搜索紧凑特征子集。三档 query 在实验前固定，分别估计：
+当前实验从本次协议冻结起不再根据 BBOB-validation、CEC2017 或后续结果搜索紧凑特征子集或改选 query。BBOB-validation 已被旧流程查看，不能以“实验前未见”描述。三档 query 分别构造完整的 joint、Behavior-only 与 operational-increment 链：
 
 $$
-U_{cheap},\quad U_{standard},\quad U_{broad}.
+U_{q,\mathrm{descriptor\_cheap\_invariant}}^{joint},\quad
+U_{q,\mathrm{pflacco\_standard\_invariant}}^{joint},\quad
+U_{q,\mathrm{pflacco\_broad\_invariant}}^{joint}.
 $$
 
 引用关系：
@@ -644,7 +580,7 @@ $$
 - 采样与稳定性：[R8], [R9]；
 - 三档配置与解释边界：本文协议。
 
-如果三档结论一致，只能写为“在三个预定义 query 配置上具有稳健性”；如果不一致，则报告 representation dependence。不得把当前 16 维自定义描述符称为 Full ELA，也不得把结果外推到全部 pflacco、NeurELA、Deep-ELA 或任意 landscape representation。
+如果三档结论一致，只能写为“在三个预定义 query 配置上具有稳健性”；如果不一致，则报告 representation dependence。不得把当前 14 维自定义描述符称为 Full ELA，也不得把结果外推到全部 pflacco、NeurELA、Deep-ELA 或任意 landscape representation。
 
 ---
 
@@ -663,7 +599,7 @@ $$
 
 - 大多数主 query 调用无效；
 - gate 开销可以忽略；
-- Search Maturity 与 Utility 呈倒 U 型；
+- Search Maturity 是独立状态或与 Utility 呈预定曲线；
 - BBOB 训练必然能泛化到 CEC。
 
 这些应写成研究问题。
@@ -691,9 +627,9 @@ $$
 
 - Analysis Selection Problem；
 - $d_t$；
-- $G_i$；
-- $U_{query,i}$；
-- $\delta$；
+- $U_q^{joint}$、$U_b$、$I_q$；
+- query-feature predictive increment；
+- first-trigger $\tau_{\mathrm{OOF}}$；
 - shared-prefix paired continuation utility label generator。
 
 段首可引用 [R1], [R3], [R5]，FE 记账引用 [R10], [R11]。公式后可以明确写 `defined in this work`。
@@ -705,7 +641,7 @@ $$
 - 行为分析动机：[R12], [R13]；
 - 多样性变化：[R14]；
 - 熵基础：[R15]；
-- Search Maturity 标明为本文提出。
+- Search Maturity 标明为本文预设的三项确定性 Behavior 基函数，而非独立 latent state。
 
 ---
 
@@ -724,7 +660,7 @@ $$
 - COCO/BBOB：[R10], [R11]；
 - CEC2017：[R30]；
 - CEC2022：[R31]；
-- DE、PSO、CMA-ES、SHADE/L-SHADE：[R24]–[R28]；
+- DE、PSO、CMA-ES、SHADE：[R24]–[R27]；当前实现不得称为 L-SHADE；
 - ELA 实现：[R6], [R7]。
 
 ---
@@ -743,9 +679,9 @@ $$
 | 当前文档                                                                 | 主要参考文献                           | 仍属于项目原创或待验证的部分                   |
 | ------------------------------------------------------------------------ | -------------------------------------- | ---------------------------------------------- |
 | `Decision-before-Feature Master Research Specification.md`             | [R1]–[R5], [R10]–[R14]               | 总体框架、Analysis Selection、核心 RQ          |
-| `Decision-before-Feature_数学定义与方法章节.md`                        | [R1]–[R5], [R10], [R11]               | $U_{query}$、$d_t$、$M_t$         |
+| `Decision-before-Feature_数学定义与方法章节.md`                        | [R1]–[R5], [R10], [R11]               | 三个 Utility/增量、$d_t$ 与 Maturity 基函数 |
 | `docs/10_protocols/Decision-before-Feature_Offline Utility Label构建协议.md` | [R3], [R5], [R8]–[R11], [R29]         | 共享前缀配对续跑、标签聚合                    |
-| `Decision-before-Feature_Search Maturity理论设计.md`                   | [R12]–[R15]                           | Search Maturity 和倒 U 假设                    |
+| `Decision-before-Feature_Search Maturity理论设计.md`                   | [R12]–[R15]                           | Search Maturity 三项确定性基函数及六组消融     |
 | `Decision-before-Feature Behavior Feature Taxonomy与指标选择协议.md`   | [R12]–[R15]                           | 特征集合、窗口和归一化                         |
 | `docs/10_protocols/Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md` | [R1], [R3], [R4], [R5], [R5a], [R24]–[R28] | 四算法组合、固定下游 selector 实现和其泛化诊断 |
 | `Decision-before-Feature Baseline与公平比较协议.md`                    | [R4], [R5], [R10], [R11], [R16]–[R19] | Never/Always/Random gate 协议                  |
@@ -785,19 +721,19 @@ ELA 成本取决于：
 
 推荐：
 
-> Prior work demonstrates that metaheuristic behavior can be quantified using computationally inexpensive descriptors [R12]. We investigate the new hypothesis that these descriptors predict the marginal value of landscape analysis.
+> Prior work demonstrates that metaheuristic behavior can be quantified using computationally inexpensive descriptors [R12]. We investigate the new hypothesis that these descriptors predict the joint net utility of invoking the evaluated fixed query and its downstream selector.
 
 ---
 
 ## 7.3 “Search Maturity 是已有成熟概念”
 
-当前 $M_t=ES_t(1-XS_t)$ 没有直接文献来源，必须写为本文提出。
+当前三项 Maturity 基函数没有直接文献来源，必须写为本文预设的 Behavior 重参数化；不得写成既有构念、独立 latent state 或因果中介。
 
 ---
 
 ## 7.4 “不显著说明等价”
 
-错误。应引用 [R16]，预设实际等价边界并采用 TOST 或相应置信区间判断。
+错误。应引用 [R16]，在未查看评价 outcome 前预设有领域含义的等价边界，并采用 TOST 或相应 simultaneous interval 判断；当前项目内 tolerance 不能因预先写入而自动成为领域等价界。
 
 ---
 
@@ -858,11 +794,11 @@ CEC 技术报告 [R30], [R31] 只定义 benchmark。论文仍需说明：
 
 ## 8.4 行为特征
 
-> Previous work has shown that search behavior can be characterized through computationally inexpensive behavioral descriptors and compared across metaheuristics [R12, R13]. Based on this observation, we test whether progress, diversity, permutation-invariant population and fitness distribution changes, and stagnation observed from optimization trajectories contain predictive information about the marginal utility of the evaluated fixed query.
+> Previous work has shown that search behavior can be characterized through computationally inexpensive behavioral descriptors and compared across metaheuristics [R12, R13]. Based on this observation, we test whether progress, diversity, permutation-invariant population and fitness distribution changes, and stagnation observed from optimization trajectories predict the joint utility of invoking the evaluated fixed query and its downstream selector.
 
 ## 8.5 等价性分析
 
-> A nonsignificant difference does not establish practical equivalence. We therefore prespecify a smallest effect of interest and use equivalence-oriented confidence-interval and TOST analyses [R16], with bootstrap uncertainty estimates [R17].
+> A nonsignificant difference does not establish equivalence. We treat the numerical margins as study-specific operational tolerances without claiming domain-wide practical importance. Primary conditional intervals use 95% coverage. Descriptive Bonferroni intervals within a prespecified RQ--suite--endpoint contrast family use two-sided level $1-0.05/m$ for family-wise 95% coverage, but they are not equivalence tests. Any future confirmatory equivalence claim requires domain-grounded margins and a separately prespecified TOST or simultaneous-interval procedure before outcomes are observed [R16, R17].
 
 ## 8.6 Benchmark 与预算
 
@@ -987,13 +923,13 @@ glasserman1992crn
 
 以下结论没有现成文献可以直接担保，必须由本文实验建立：
 
-1. 多数所评估状态满足主配置 $U_{cheap}\le\delta$；
-2. Behavior-only 可以预测 Query Utility；
-3. Search Maturity 是稳定且可泛化的中间表征；
-4. $M_t=ES_t(1-XS_t)$ 优于直接的 Behavior $\rightarrow$ Utility；
-5. Decision gate 的开销相对被避免的固定 query 成本足够小；
-6. 结论在 `descriptor_cheap`、`pflacco_standard` 与 `pflacco_broad` 三个预定义配置间是否一致，或表现出 representation dependence；
-7. BBOB 上训练的决策模型能够泛化到 CEC2017/CEC2022；
-8. 跨算法模型学习的是行为规律，而非算法身份。
+1. `descriptor_cheap_invariant` 的 $U_q^{joint}$、$U_b$ 与 $I_q$ 在目标状态分布中的方向、效应量和区间；
+2. B3 first-trigger policy 是否稳定优于相同 milestone rows 上的 `milestone_only_T0`；
+3. 两项预设 Maturity contrasts 是否对固定模型提供超出 B2/Motion 的预测增量；
+4. query-feature predictive increment 与 full-budget operational increment 的方向是否一致或存在 trade-off；
+5. Decision gate 的实测开销、terminal `log10_gap`、runtime 和 query calls 是否分别满足声明所需的端点边界；
+6. 结论在 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant` 三个预定义配置间是否一致，或表现出 representation dependence；
+7. 完整冻结链在已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题上的效应与失败覆盖，四者分开定位；
+8. 跨 prefix/algorithm 分层下的关联是否稳定，且不依赖显式算法 identity。
 
 这些没有直接文献支持并不是缺点。它们恰恰构成论文的贡献空间，前提是不要在实验完成前把它们写成已经由宇宙认证的事实。

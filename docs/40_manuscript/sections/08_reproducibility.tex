@@ -31,6 +31,11 @@ base seed with problem, dimension, optimizer seed, decision FE, and repetition
 indices.  Experimental randomness therefore does not depend on strings or
 process-specific hash values.
 
+One problem-keyed query realization is currently fixed for each problem and
+sample design and shared across optimizer seeds and states.  Thus the primary
+release supports conditional inference for those realizations, not Monte Carlo
+averaging over query-sampling randomness.
+
 \subsection{Observation indexing and state alignment}
 
 An observation is uniquely indexed by
@@ -39,7 +44,7 @@ An observation is uniquely indexed by
   \label{eq:state-key}
 \end{equation}
 where $p$ uniquely identifies the problem instance, $\mathcal{F}(p)$ is its
-function family, $a_t$ is the prefix algorithm,
+function-ID group, $a_t$ is the prefix algorithm,
 $r$ is the optimizer seed, and $e_t$ is the exact integer FE count.  This index
 aligns trajectories, behavior summaries, action outcomes, selection-reference
 predictions, utility labels, and Decision Model observations.  Exact FE, rather
@@ -53,14 +58,34 @@ replace exact-FE alignment.
 Complete native-state trajectories and complete-budget terminal outcomes
 define the common analysis population.  Permutation-invariant behavior and the
 three fixed descriptor representations are evaluated at matched states, after
-which the four query-adjusted actions provide the statewise losses.  Each query
-configuration has its own cross-fitted selection reference, utility labels,
-Decision Model, threshold, baseline comparison, and held-out evaluation.  Only
+which the Query-adjusted and Behavior-only full-budget four-action matrices are
+each executed once; the primary query also requires separate FE-zero
+four-algorithm outcomes for pre-run AAS.  These prespecified Stage-A executions
+fix the scientific terminal gap, observed first hit, target-hit status, path
+completion, completion-conditioned endpoint success, planned FE, effective FE,
+and failure status, fit fold-specific selectors, and produce an
+outer/inner/full-training replay plan.  Only after the plan is frozen are the
+selected Skip, Query, and Behavior-only paths from their decision states to
+termination executed three prespecified times as Stage-B timing replays.  Each
+query configuration has its own cross-fitted selection reference, utility labels,
+Decision Model, threshold, baseline comparison, and suite-specific evaluation.  Only
 trajectories with both a complete native history and a terminal outcome enter
 the corresponding estimand.  Query identity, sample design, FE charge, and
 descriptor definition jointly identify an analysis condition; in particular,
 the 5\% and 10\% acquisition conditions are analyzed separately and are never
 pooled.
+
+At the present protocol stage, the replay planner can enumerate roles, but the
+offline decision-state-to-terminal runner has not been implemented and a
+fold-role-complete measured plan has not been materialized and checked.  Both
+are formal run blockers; this manuscript does not imply that future-path
+timings or final Utility artifacts already exist.  FE-zero AAS rows record the
+selected algorithm as the bookkeeping prefix, set selected-equals-prefix true,
+handoff-required false, and handoff type to fresh optimizer initialization;
+their default and no-query algorithm is the corresponding fold SBS.
+Outer-, inner-, and full-training Selector artifacts and their fold-role-to-model
+routing are also not yet persisted.  A replay plan without that routing cannot
+measure the Selector inference actually used by each nested role.
 
 \subsection{Validity checks}
 
@@ -78,12 +103,17 @@ continuous remaining budget, query-specific FE accounting, the statewise
 action-loss transformation, and the utility and selector decompositions.
 Feature-group failures remain explicit; undefined individual descriptors are
 imputed only from BBOB-training observations.  Model-level checks fit all
-preprocessing within the applicable training-family fold, restrict the active
+preprocessing within the applicable training function-group fold, restrict the active
 candidates to LDA, Logistic Regression, and Ridge, and exclude BBOB validation
 and external suites from model fitting and threshold estimation.  The three
 action relations in Eq.~\eqref{eq:handoff-fields} are checked throughout
 selection, utility calculation, and policy evaluation.  These procedures assess
 implementation validity; they add no observations to RQ1--RQ5.
+The primary fold-local weights equalize functions, fixed dimension strata,
+static problems, and optimizer runs before dividing run weight among states.
+The current Selector and Decision estimators do not yet consume these weights;
+unit state-row fitting is only the planned sensitivity, so formal fitting is
+blocked until both estimator paths are wired consistently.
 
 \subsection{Resource measurement}
 
@@ -98,11 +128,44 @@ feature-computation time.  Selection latency includes state preparation, model
 inference, and action choice.  Prediction time is measured separately for the
 T0 and B3 controllers.
 
+The Utility time $T_k$ is the censored median of three real executions from the common
+decision state to termination for
+$k\in\{\mathrm{skip},\mathrm{query},\mathrm{behavior\mbox{-}only}\}$.  It
+excludes the already executed common prefix; the Query path includes sampling,
+descriptor computation, selection, any population transfer, and continuation
+after that state.  Policy reporting separately measures wall-clock from FE zero
+to termination, including native prefix updates, streaming Behavior extraction,
+every Decision inference, and any triggered path.  The former is a
+state-conditional decision cost and the latter a complete policy-run endpoint.
+Field names and tables keep them separate.
+
+Stage B determines only these wall-clock measurements.  Every repetition records its
+order, component and complete-path time, status, effective FE, timeout,
+completion, and failure fields.  Scientific gap, observed hit, path completion,
+endpoint success, planned FE, effective FE, and failure remain fixed to the
+prespecified Stage-A run.
+When the Stage-A path completed, every completed replay must reproduce its gap,
+observed hit, and first hit.  When Stage A did not complete, completed replays are
+checked only against one another and never replace the failed scientific
+endpoint.  Planned FE must preserve path identity; replay effective FE can differ
+and remains repetition-level timing metadata.  A completed replay's censored
+time equals its raw observed time; a timed-out or failed replay's censored time
+is the larger of its raw time and role-specific timeout.  The Utility time is
+the median of all three censored values, while the raw observed median is
+diagnostic only.  Path identity, consistency among completed replays, and
+Stage-A-to-completed-replay consistency are stored separately.  Within-Stage-B
+status instability and Stage-A/Stage-B completion instability are also stored
+separately.  A legacy failure-worst-case field, if retained, is a strict alias
+of the censored value.  No repetition is selectively rerun, deleted, or replaced after
+its time or status is observed.  The same separation applies to FE-zero policy
+runs.
+
 All resource measurements use one fixed hardware and software environment.
 Processor, operating system, Python environments, thread count, batch size,
 cache state, and the peak-memory procedure accompany the estimates.  Timings
 are decomposed into behavior extraction, T0 and B3 inference, query sampling,
-descriptor computation, downstream selection, and total wall time.
+descriptor computation, downstream selection, decision-state future-path time,
+and FE-zero-to-terminal policy wall time.
 \TBD{TBD-REPRO-RESOURCE-01}
 
 \subsection{Recomputation of estimands}
@@ -111,13 +174,37 @@ The state-level release retains the quantities needed to recompute every term
 in Eq.~\eqref{eq:query-utility} and Eq.~\eqref{eq:selector-decomposition},
 including the observed losses, normalization and cost terms, selected action,
 and three action relations.  Model summaries are reconstructed from
-training-family fold assignments, nested and full-training OOF scores,
-thresholds, and held-out predictions.  Policy summaries are reconstructed from
-the trigger state, query decision, selected action, transition mode, FE use,
-timing components, and terminal loss.
+training function-group fold assignments, nested and full-training OOF scores,
+thresholds, and suite-evaluation predictions.  Policy summaries are reconstructed from
+the trigger state, query decision, selected action, transition mode, Stage-A FE
+and terminal loss, Stage-B timing components and repetition statuses, and the
+timing-instability indicator.
+The release also identifies outer, inner, and full-training replay roles so that
+selected-path multiplicity and every timing observation can be reconstructed;
+an action-matrix row alone is not treated as a completed Utility observation.
 
-Equivalence is interpreted only relative to margins and procedures fixed
-before policy-outcome inspection.  Held-out BBOB and each external suite are
-analyzed separately with every train-derived component frozen.  These
+BBOB-validation interval reconstruction keeps all six fixed functions, all
+fixed dimensions, and all static problems for instances 1--3 in every primary
+bootstrap replicate, resampling paired optimizer seeds only within each fixed
+static problem.
+Function-resampling uses a distinct sensitivity label and is never substituted
+for the primary conditional interval.
+
+ERT reconstruction uses a dedicated paired ratio bootstrap that recomputes FE
+numerators and target-hit counts within every function--dimension cell in every
+replicate.  One-policy zero-hit cells are retained as signed infinities and
+two-policy zero-hit cells as explicit undefined mass.  Extended-real quantiles
+determine whether the interval is finite, unbounded, or undefined; an isolated
+zero-hit bootstrap replicate does not automatically make it unestablished.
+Although the helper exists, it is not yet connected to the
+suite-level attempted-coverage, failure-sensitivity, and reporting consumer;
+complete-pair ERT ratios alone cannot establish a suite conclusion.
+
+The numerical margins are interpreted as study-specific operational
+tolerances.  Ordinary and family-wise simultaneous intervals are descriptive
+sensitivity summaries of their position relative to those margins; the first
+paper makes no confirmatory equivalence claim.  Previously inspected BBOB
+validation and CEC2017, prospective CEC2022, and each engineering suite are
+analyzed separately with every train-derived component fixed.  These
 provisions define reproducibility and do not themselves constitute evidence of
-held-out or cross-benchmark transfer.
+cross-function or cross-benchmark transfer.

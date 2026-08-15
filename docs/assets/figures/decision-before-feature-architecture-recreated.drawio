@@ -49,7 +49,7 @@
         <mxCell id="a5b_query" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;spacing=4;strokeWidth=1.3;fillColor=#FFFFFF;strokeColor=#001B66;fontColor=#001344;fontSize=10;" value="&lt;b&gt;5b. Run Fixed&lt;br&gt;Landscape&lt;br&gt;Descriptor Query&lt;/b&gt;" vertex="1">
           <mxGeometry height="61" width="72" x="810" y="263" as="geometry" />
         </mxCell>
-        <mxCell id="a5b_features" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;spacing=4;strokeWidth=1.3;fillColor=#FFFFFF;strokeColor=#001B66;fontColor=#001344;fontSize=10;" value="&lt;b&gt;16-D&lt;/b&gt;&lt;br&gt;descriptor&lt;sub&gt;cheap&lt;/sub&gt;&lt;br&gt;Features" vertex="1">
+        <mxCell id="a5b_features" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;spacing=4;strokeWidth=1.3;fillColor=#FFFFFF;strokeColor=#001B66;fontColor=#001344;fontSize=10;" value="&lt;b&gt;14-D&lt;/b&gt;&lt;br&gt;descriptor&lt;sub&gt;cheap&lt;/sub&gt;&lt;br&gt;Features" vertex="1">
           <mxGeometry height="65" width="71" x="900" y="261" as="geometry" />
         </mxCell>
         <mxCell id="a5b_selectref" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;spacing=4;strokeWidth=1.3;fillColor=#FFFFFF;strokeColor=#001B66;fontColor=#001344;" value="Query-specific&lt;br&gt;Selection Reference" vertex="1">

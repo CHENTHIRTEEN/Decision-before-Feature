@@ -1,568 +1,119 @@
 # Decision-before-Feature 实验数据生成与算法无关行为建模设计
 
-> 实现同步（2026-08-11）：旧 72 个 BBOB trajectory/behavior shards 由重建式 continuation 与 identity-dependent behavior 生成，已撤回。完整状态与三档 query 一致性检查通过后，仍须从 trajectory 开始全量重生成；本轮修订未启动该重生成。
+> 唯一活动数据协议（2026-08-14）。数据以 complete native optimizer state、整数 FE 状态键和逐完整 native-update Behavior 为基础。旧 population-only checkpoint 重建、跨代行号身份与稀疏 checkpoint 窗口全部退出。
 
-## 1. 文档定位
+## 1. 数据生成目标
 
-本文档补充 Decision-before-Feature 框架中的 `offline trajectory collection` 与 `behavior extraction` 部分。
+离线数据必须支持：
 
-### 1.1 术语约定
+1. 从同一可续跑 optimizer state 构造 Skip、Query 和 Behavior-only paths；
+2. 只用 query 前 Behavior 训练 Decision；
+3. 在 fit functions 内完整重拟合 SBS、Selectors、Utility 和 Decision；
+4. 重建 run-level first-trigger policy 与终端 gap/runtime/target-hit/path-completion/ERT；
+5. 分开保存 Stage-A 科学失败/端点、Stage-B 三次 decision-state future-path 计时及逐次状态/instability，以及 FE=0 policy wall-clock。
 
-为与 `Behavior Feature Taxonomy` 和 `Decision Model` 两份协议保持一致，本文统一采用以下术语：
+## 2. Complete optimizer state
 
-- `search trajectory`：单次优化运行按时间展开的状态序列；
-- `behavior state`：从 `search trajectory` 中按预算比例、阶段和事件聚合得到的低成本行为表示；
-- `query utility`：固定 query 在当前状态下的效用值，记为 $U_{query}$；
-- `offline trajectory collection`：面向监督学习的离线轨迹收集；
-- `online evaluation`：在与训练一致的流式状态接口上进行推理和切换评估；
-- `behavior extraction`：从轨迹中提取算法无关行为特征的过程。
+每个 emitted state 至少保留 population、fitness、best-so-far、FE、generation/native update、算法内部动态量和 RNG state。DE/PSO/CMA-ES/SHADE 的同算法 continuation 必须原生恢复；跨算法只转移 population、fitness、best position，并初始化新算法内部状态一次。
 
-重点解决：
+trajectory snapshot 只对应 emitted complete native update 的实际整数 FE。timeout 若发生在 update 中间，只保留最后完整 update，不把部分 state 写成 decision opportunity。完整预算 endpoint 单独保存，不能为 `FE_total` 伪造 trajectory state。
 
-1.  offline training data 如何生成？
-2.  优化过程记录哪些信息？
-3.  如何避免学习到算法特有参数？
-4.  如何保证行为表示具有跨算法泛化能力？
+## 3. 动态状态采样
 
-------------------------------------------------------------------------
+`phase1_dynamic_budget_event_v1` 在 `0.20–0.60`、步长 0.01 的监测网格上工作。必选 milestones：
 
-# 2. Offline Learning总体方案
+```text
+0.20, 0.22, 0.24, 0.26, 0.28, 0.30,
+0.34, 0.38, 0.42, 0.46, 0.50, 0.60
+```
 
-Decision-before-Feature 不采用边优化边训练控制器。
+事件为 improvement resume、stagnation onset、effective-rank change、elite migration 和 diversity recovery。每个跨过监测网格的完整 native update 只判定一次；同一 update 含 milestone 时合并为该 milestone row，不消耗 event-only 配额。每阶段最多 2 个 event-only states，实际 ratio 间隔至少 0.02，每 run 共 12–18 states。
 
-采用：
+`FE_ratio=FE/FE_total`；`budget_milestone_ratio` 仅是名义节点。样本不由模型分数选择，不作事后重加权。
 
-`offline trajectory collection` + `supervised decision learning`。
+## 4. 完整预算 endpoints
 
-## 1.2 术语对齐规则
+`final_performance.parquet` 对每个 `problem_id × algorithm × seed` 在 `FE=FE_total` 恰好一行，协议为：
 
-- 文中优先使用 `search trajectory` 指代原始运行序列；
-- 使用 `behavior state` 指代从轨迹中提取的模型输入；
-- 使用 `decision model` 指代监督学习模型；
-- 使用 `decision controller` 指代部署态推理模块；
-- 使用 `online evaluation` 指代与训练一致的流式评估过程。
-
-流程：
-
-    Benchmark Problems
-
-            |
-
-            v
-
-    Multiple Optimizers
-
-    (DE / PSO / CMA-ES / SHADE)
-
-            |
-
-            v
-
-    search trajectory database
-
-            |
-
-            v
-
-    behavior extraction
-
-            |
-
-            v
-
-    offline utility labeling
-
-            |
-
-            v
-
-    decision model training
-
-            |
-
-            v
-
-    decision model training
-
-原因：
-
-## 2.1 Label需要离线获得
-
-`decision model` 需要预测：
-
-$$ U_{query} $$
-
-该值需要比较：
-
--   no-query
--   run query
-
-并通过 `decision threshold` 映射为最终决策。
-
-因此必须事后计算。
-
-------------------------------------------------------------------------
-
-## 2.2 避免credit assignment问题
-
-如果在线训练：
-
-    Optimizer
-
-    ↓
-
-    Controller
-
-    ↓
-
-    Decision
-
-    ↓
-
-    Performance
-
-最终性能提升无法区分来自：
-
--   控制器
--   固定 query
--   算法变化
--   随机因素
-
-因此第一篇工作采用offline更容易形成清晰科学问题。
-
-------------------------------------------------------------------------
-
-# 3. 数据采集目标
-
-目标不是学习：
-
-某个算法什么时候调参数。
-
-目标：
-
-学习：
-
-> 搜索行为是否包含足够信息判断所评估固定 query 的价值。
-
-因此采集：
-
-Algorithm-agnostic Search Behavior。
-
-------------------------------------------------------------------------
-
-# 4. 为什么不能记录算法内部参数
-
-禁止作为Decision输入：
-
-## PSO
-
--   inertia weight ω
--   c1
--   c2
-
-## DE
-
--   F
--   CR
--   mutation strategy
-
-## CMA-ES
-
--   covariance matrix
--   sigma
-
-原因：
-
-这些属于：
-
-Algorithm-specific state。
-
-如果使用：
-
-模型可能学习：
-
-    PSO parameter state
-
-    ↓
-
-    Decision
-
-而不是：
-
-    Search behavior
-
-    ↓
-
-    Decision
-
-导致：
-
-跨算法泛化失败。
-
-------------------------------------------------------------------------
-
-# 5. 推荐记录信息
-
-## 5.1 通用优化状态
-
-所有population-based optimizer均可获得。
-
-### Fitness progress
-
--   best fitness
--   mean fitness
--   median fitness
-
-所有 fitness 相关尺度化均使用优化器初始化后、任何原生 update 前的已评估 population fitness IQR，避免目标函数整体平移导致的数值漂移。`bf_fitness_diversity_rel` 是唯一的相对 IQR 字段；另一旧字段在文档定义上与其重复，代码却错误地以当前 IQR 自归一化为近常数，现已删除。movement / direction / success 类逐个体统计仅在算法身份稳定时作为诊断数据，主建模采用 permutation-invariant 的集合级版本。冻结的 `DynamoRep-lite` 低成本补充组包括 fitness spread slope、population centroid shift、elite centroid shift、covariance trace ratio、covariance effective rank 与 diversity recovery；这些特征在逐次完整原生 update 历史上计算，不依赖个体跨代身份。`bf_best_distance_fitness_corr` 与 `bf_population_overlap_w05` 不进入主模型，仅保留为 `diagnostic_only`。
-### Improvement rate
-
-$$ IR_t= \frac{f_{best}(t-k)-f_{best}(t)}{k} $$
-
-------------------------------------------------------------------------
-
-## 5.2 Population Behavior
-
-### Diversity
-
-描述种群空间覆盖。
-
-例如：
-
-平均距离先按问题边界归一化到单位超立方体后计算：
-
-$$ D_t $$
-
-------------------------------------------------------------------------
-
-### Population spread
-
-包括：
-
--   variance
--   centroid shift（按搜索空间边界归一化后计算）
--   covariance spectral concentration
-
-------------------------------------------------------------------------
-
-## 5.3 Exploration / Exploitation Behavior
-
-来自算法行为分析研究。
-
-包括：
-
-### Exploration
-
--   diversity change（基于边界归一化坐标）
--   population Wasserstein change rate（先按搜索空间边界归一化）
--   centroid shift coherence（先按搜索空间边界归一化）
-
-### Fitness distribution
-
--   quantile improvement fraction
--   mean distribution improvement rate
--   fitness Wasserstein rate
-
-### Exploitation
-
--   distance decay（基于边界归一化后的 population-best 距离）
--   stagnation
--   convergence speed（基于边界归一化坐标的 diversity 下降）
-
-------------------------------------------------------------------------
-
-## 5.4 Trajectory Features
-
-包括：
-
--   fitness curve slope
--   improvement frequency
--   change point
--   trajectory stability
-
-------------------------------------------------------------------------
-
-# 6. 时间尺度设计
-
-## 6.1 不推荐固定FE窗口
-
-例如：
-
-每100 FE记录。
-
-原因：
-
-不同：
-
--   算法
--   维度
--   问题复杂度
-
-具有不同时间尺度。
-
-------------------------------------------------------------------------
-
-# 6.2 推荐FE比例采样
-
-使用：
-
-$$ r=\frac{FE}{FE_{max}} $$
-
-正式 phase1 不使用全程固定 ratio 列表，而使用 `phase1_dynamic_budget_event_v1`：
-
-    monitor grid: 0.20--0.60, step 0.01
-    budget milestones:
-      0.20, 0.22, 0.24, 0.26, 0.28,
-      0.30, 0.34, 0.38, 0.42, 0.46,
-      0.50, 0.60
-    event-only states: at most 2 per phase
-    event-only minimum actual ratio gap: 0.02
-    states per run: 12--18
-
-优势：
-
-跨维度泛化。
-
-------------------------------------------------------------------------
-
-# 6.3 多尺度行为窗口
-
-状态：
-
-$$ s_t $$
-
-包含：
-
-## Short-term
-
-最近2%预算：
-
--   improvement
-
-## Medium-term
-
-最近5%预算：
-
--   diversity change
-
-## Long-term
-
-最近10%预算：
-
--   stagnation
-
-------------------------------------------------------------------------
-
-## 6.4 与 Decision Model 的接口对齐
-
-离线数据生成与在线测评必须使用同一套状态表示接口，建议约定如下 streaming API：
-
-- `observe(snapshot)`：接收单次更新或一个预算片段的状态；
-- `update_window()`：更新多尺度窗口统计；
-- `emit_features()`：输出当前 decision 特征向量；
-- `maybe_decide()`：返回是否执行 query 以及当前 decision score。
-
-这样做的目的不是引入在线训练，而是确保离线生成的轨迹切片和 online 决策看到的是同一类信息。
-
-------------------------------------------------------------------------
-
-## 2.3 与 decision model 的接口对齐
-
-离线数据生成与 online evaluation 应复用同一套流式状态接口，建议约定如下术语：
-
-- `budget milestone`：预定义的 FE-ratio 检查点；
-- `event-triggered sample`：在状态突变点补充的观测；
-- `trajectory window`：按 FE-ratio 对齐的窗口；
-- `decision score`：用于是否执行 query 的连续分数；
-- `decision threshold`：将 `decision score` 映射为 query 决策的阈值。
-
-推荐实现接口：
-
-- `observe(snapshot)`：接收一个状态快照；
-- `update_window()`：更新窗口统计；
-- `emit_features()`：输出当前 `behavior state`；
-- `maybe_decide()`：输出是否执行 query 及其 `decision score`。
-
-这样做的目的是让离线训练和 online evaluation 对同一种状态空间建模，从而降低 train-test mismatch。
-
-------------------------------------------------------------------------
-
-# 7. 算法差异问题
-
-不同算法确实具有不同探索-开发转换速度。
-
-例如：
-
-PSO：
-
-较早聚集。
-
-DE：
-
-探索更持续。
-
-CMA-ES：
-
-分布自适应。
-
-因此：
-
-不能简单认为：
-
-    10% budget
-
-    =
-
-    same search phase
-
-------------------------------------------------------------------------
-
-# 8. 如何解决算法行为差异
-
-## 方法1：多算法训练
-
-训练数据包含：
-
--   DE
--   PSO
--   CMA-ES
--   SHADE
-
-让模型看到多种搜索模式。
-
-------------------------------------------------------------------------
-
-## 方法2：Algorithm ID不作为输入
+```text
+complete_budget_native_optimizer_run_with_first_hit_endpoints
+```
 
 保存：
 
-algorithm metadata。
-
-但是Decision输入：
-
-不包含algorithm。
-
-目的：
-
-学习：
-
-algorithm-independent behavior。
-
-------------------------------------------------------------------------
-
-## 方法3：Leave-one-algorithm-out验证
-
-例如：
-
-训练：
-
-DE + PSO + CMA-ES
-
-测试：
-
-SHADE
-
-验证：
-
-行为表示是否跨算法。
-
-------------------------------------------------------------------------
-
-# 9. 最终冻结数据格式
-
-每个输出状态：
-
-``` json
-{
-problem_id,
-
-function_family,
-
-dimension,
-
-algorithm,
-
-FE,
-
-FE_ratio,
-
-FE_total,
-
-native_updates,
-
-sampling_protocol,
-
-sampling_phase,
-
-sampling_triggers,
-
-is_budget_milestone,
-
-budget_milestone_ratio,
-
-is_event_sample,
-
-monitor_target_ratio,
-
-event_index_in_phase,
-
-event_* flags and metrics,
-
-window_statistics,
-
-native_update_history,
-
-effective_window_ratio_w02/w05/w10,
-
-effective_window_fe_w02/w05/w10,
-
-effective_native_updates_w02/w05/w10,
-
-
-behavior:
-{
-diversity,
-
-improvement_rate,
-
-population_wasserstein_rate,
-
-centroid_shift_coherence,
-
-covariance_spectral_concentration,
-
-fitness_distribution_change,
-
-distance_decay,
-
-stagnation,
-
-trajectory_features
-}
-
-}
+```text
+benchmark_reference_value
+final_gap
+log10_gap
+log10_gap_floor
+log10_gap_cap
+success_gap_target
+success
+first_hit_FE
 ```
 
-跨 trajectory、behavior、action-loss、Selection Reference、Utility 与 Decision materialization 的状态键为 `(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`。`FE` 是实际整数函数评价数；`FE_ratio=FE/FE_total` 只作 metadata 和模型阶段特征，不作 join key。名义里程碑另存 `budget_milestone_ratio`。
+first hit 在每次 objective evaluation 记录。该表用于 fold-specific SBS、静态 VBS 和最终评价。trajectory 与 Behavior 表本身不保存 reference、gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 或 Utility，防止这些 outcome 进入 Decision 输入。
 
-完整预算算法性能另写入同 shard 目录的 `final_performance.parquet`，每个 `problem_id × algorithm × seed` 在 `FE=FE_total` 恰好一行。该表不属于 `0.20–0.60` decision trajectory，不参与 behavior window 或 Decision state join；其用途是冻结训练集 SBS 及静态完整预算性能基准。SBS 先按 `problem_id × algorithm` 对全部 seeds 的终值取算术均值，再逐 problem 排名，最后按 algorithm 跨 problem 平均排名；最终平均排名并列时按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。
+## 5. Behavior windows
 
-首轮离线采样不由 decision score 决定，不做事后样本重加权（`sample_weight=1`）。Q10 threshold-neighborhood 只能在模型与 threshold 冻结后用于 online 附加复查，所有策略必须共享相同 decision opportunities。
+w02/w05/w10 使用逐次完整 native-update history。若名义 anchor 不是 update 边界，取不晚于目标的最近完整 update；实际 FE span 不小于名义 span，且偏差小于一次 population update。所有 rate/slope 使用实际 `ΔFE/FE_total`。
 
-algorithm字段：
+窗口 metadata：
 
-用于分析。
+```text
+effective_window_ratio_w02/w05/w10
+effective_window_fe_w02/w05/w10
+effective_native_updates_w02/w05/w10
+```
 
-不用于Decision输入。
+只作数据质量检查，不进入 Decision X。
 
-------------------------------------------------------------------------
+## 6. Permutation-invariant Behavior
 
-# 10. 核心研究假设
+跨窗口 population comparison 使用经验 Wasserstein、centroid/elite shifts、Chamfer-style set distance 与 covariance summaries；fitness 使用排序分位数、IQR 与分布 Wasserstein。不得把 population 行号解释为跨代个体身份。
 
-如果上述设计成立：
+正式 feature groups 为 T0/B1/B2/B2+Motion/B2+Maturity/B3，字段数 1/19/25/28/28/31。总输出 34 个唯一字段，31 个活动输入、3 个 diagnostic-only。Search Maturity 只是既有 Behavior 的三项确定性变换。
 
-说明：
+## 7. Query samples 与 operational endpoint
 
-> 不同算法虽然内部机制不同，但在相同优化问题上会产生具有共享语义的搜索行为状态，而这些状态能够用于判断是否值得执行Landscape
-> Analysis。
+三档 query IDs 为 `descriptor_cheap_invariant`、`pflacco_standard_invariant`、`pflacco_broad_invariant`。cheap/standard 共用同一 `lhs_50d` `(X,y)`；broad 使用独立 `lhs_100d`。随机流只由显式整数与 `numpy.random.SeedSequence` 构造。
 
-这正是Decision-before-Feature区别于传统adaptive optimizer的核心。
+query sample 不插入 optimizer population，但它属于真实已观察 objective evaluations。sample 表保存 `query_first_hit_offset`。主 Query path terminal best、`observed_first_hit_FE` 与 ERT 合并 prefix、query sample 和 selected continuation；`target_hit_observed`、`path_completed` 与 `endpoint_success` 分列。同时保存 continuation-only gap 与 `query_sample_best_contribution_log10_gap`。
+
+## 8. State-action outcomes
+
+每个 state 运行四个唯一动作：`continue_current` 加其余三个 algorithms。Query-adjusted matrix 使用 `B-FE_prefix-FE_query`；Behavior-only matrix 使用 `B-FE_prefix`。Selector target 使用 continuation-only raw action losses 的 statewise min-max 变换。
+
+同一 query-adjusted matrix 上的 state-only 与 full Query Selectors 用 OOF selected continuation-only `log10_gap` 定义 `query_feature_predictive_increment_log10_gap`；该诊断排除 sample best、不新增动作运行且不作因果解释。
+
+## 9. Stage-A 科学端点与 Stage-B 三次 future-path 计时
+
+Stage-A 两套 action matrices 的预指定单次 outcome 唯一固定每条科学路径的 terminal gap、observed hit、path completion、endpoint success、planned/effective FE 与失败状态。Selector 冻结后，Stage-B 将 selected Skip/Query/Behavior-only 从同一复制 state/RNG 到 terminal 真实 replay 预定三次，固定机器/线程/常驻进程，但只决定 wall-clock。canonical order 按 `cyclic_complete_path_v1` 循环移位；逐次保存 repetition、order、raw/censored 组件/完整路径时间、status、observed hit、path completion、endpoint success 与 effective FE。completed repetition 的 censored time 等于 raw，timed-out/failed repetition 为 `max(raw, role timeout)`，主时间使用三次 censored median，raw median 只作诊断。路径身份、completed replays 内部 endpoint、Stage-A→completed replay endpoint 一致性分别保存；Stage-B status instability 与跨阶段 completion instability 也分别保存。任何 replay 不得覆盖科学字段或被选择性补跑。共享 prefix 是 sunk cost；FE=0→terminal policy wall-clock 独立保存且不进入 Utility，并采用相同科学/计时分离。
+
+## 10. Fold-specific 数据范围
+
+每个 outer holdout 只读 outer-fit functions 的 SBS、Selectors、labels、Decision 和 threshold。每个 inner holdout 又只读 inner-fit functions，并重算 `SBS_inner`、cross-fit/拟合 Selectors、生成三类 Utility。完整 BBOB-train threshold/Random calibration 也使用端到端 fold-specific OOF。
+
+训练 label、outer evaluation 与 external deployment 必须保存 fit scope/fold metadata。不得让同一 function 的 in-sample Selector prediction成为其 Decision OOF label。
+
+## 11. 失败规则
+
+BBOB train/validation 与 CEC2017 固定：failure cap `1e20`、取 log 前 gap floor/cap `1e-12/1e20`、success target `1e-8`、state-action timeout `3600 s`、Stage-A 逐 objective evaluation observed first hit。Stage-A timeout/failed path 的 final gap 按 cap 保留；若失败前已经命中，标准 ERT 保留 observed first hit，`endpoint_success=false` 继续表示路径未完成；未命中项计完整 planned budget。Stage-B timeout/failure 使用删失时间进入主 runtime，并另进入 timing failure/instability sensitivity。
+
+所有计划运行先进入 coverage denominator。缺失状态键/矩阵是不完整数据生成，修复后重生成 shard；科学运行失败则保留有限 target 与 failure status。CEC2022/工程问题必须先冻结同类 endpoint 与 constraint rule。
+
+## 12. 一致性检查
+
+正式数据要求：
+
+- trajectory/final endpoints 成对覆盖；
+- emitted state/reservoir 均对齐 integer FE；
+- Behavior permutation invariance 与窗口跨度成立；
+- trajectory/Behavior 不含 reference/gap/outcome 输入字段；
+- query sample、features、first-hit offset 与 FE charge 一致；
+- 两套 action budgets 和 transition 字段一致；
+- 三次计时与 cyclic order 完整；
+- outer/inner fit scope 可重建；
+- failure/timeout/target-hit/path-completion/endpoint-success/ERT 可逐行核对。
+
+旧重建式 trajectory、identity-dependent Behavior、静态 bucket Selection Reference、旧 Utility 和依赖它们的模型/结果全部撤回。

@@ -3,7 +3,7 @@
 
 \subsection{Overview}
 
-Decision-before-Feature is trained offline.  Native optimizer trajectories are first collected under a fixed sampling protocol.  Each accepted state is converted into a permutation-invariant behavior vector available before landscape descriptors are computed.  From the same complete state, the no-query continuation and all four query-adjusted actions are then run to generate observed losses.  A fixed, query-specific action-loss regressor produces the downstream selected action, after which Eq.~\eqref{eq:query-utility} yields a supervised utility label.  Finally, a lightweight decision model maps behavior alone to a query score.  The deployed controller performs no online parameter update.
+Decision-before-Feature is trained offline.  Native optimizer trajectories are first collected under a fixed sampling protocol.  Each accepted state is converted into a permutation-invariant Behavior vector available before landscape descriptors are computed.  Stage A runs each query-adjusted and full-budget four-action outcome once to supervise fold-specific Query and Behavior-only selectors and to fix the scientific gap, observed first hit, target hit, path completion, completion-conditioned endpoint success, planned FE, effective FE, and failure status.  Stage B freezes their selected actions and executes the selected Skip, Query, and Behavior-only state-to-terminal future paths three prespecified times under cyclic path order.  A completed replay retains its raw observed time, whereas a timed-out or failed replay contributes the larger of its raw time and role-specific timeout; the replays provide the median of these three censored conditional wall-clock values in Eqs.~\eqref{eq:query-utility}--\eqref{eq:operational-increment}.  The raw median is diagnostic only.  The performance and FE terms remain those of Stage A, and the already executed shared prefix is excluded.  Repeated action components do not replace selected future paths.  Every Stage-B repetition retains its status, observed hit, effective FE, timeout, and completion.  Path identity, consistency among completed replays, and Stage-A-to-completed-replay consistency are checked separately, as are within-Stage-B status instability and Stage-A/Stage-B completion instability.  Repetitions are never selected or rerun after their time or status is observed.  A lightweight Decision Model then maps pre-query Behavior alone to a query score.  The deployed controller performs no online parameter update, and its separate FE-zero-to-terminal wall-clock follows the same separation between a Stage-A scientific execution and three Stage-B timing replays.
 
 Figure~\ref{fig:framework} summarizes the separation between offline data
 construction, query-specific downstream selection, decision-model freezing,
@@ -17,8 +17,8 @@ their value for the present query decision remains an empirical question.
   \centering
   \includegraphics[width=\textwidth]{decision-before-feature-architecture-elsevier.png}
   \caption{Decision-before-Feature protocol.  The upper panel constructs
-  state-aligned utility labels and freezes the downstream Selection Reference,
-  Decision Model, preprocessing, and threshold using BBOB training families.
+  state-aligned joint, Behavior-only, and operational-increment labels and freezes the downstream Selection References,
+  Decision Model, preprocessing, and threshold using BBOB training function groups.
   The lower panel applies those frozen components at an online decision
   opportunity.  Query descriptors enter only the downstream Selection
   Reference; the pre-query Decision Model receives algorithm-agnostic behavior.}
@@ -134,7 +134,9 @@ The behavior representation has 34 unique outputs: 31 model-eligible variables a
     T0 & 1 & Actual FE ratio only & Time-only controller \\
     B1 & 19 & Progress, diversity, set and fitness-distribution change, stagnation, convergence, and elite concentration & Core permutation-invariant behavior \\
     B2 & 25 & B1 plus fitness-spread slope, population and elite centroid shifts, covariance trace ratio, covariance effective rank, and diversity recovery & Longitudinal set dynamics \\
-    B3 & 31 & B2 plus set-motion proxies and three maturity variables & Primary full input \\
+    B2+Motion & 28 & B2 plus three set-motion summaries & Motion-specific sibling ablation \\
+    B2+Maturity & 28 & B2 plus three deterministic maturity basis functions & Maturity-specific sibling ablation \\
+    B3 & 31 & B2 plus both Motion and Maturity variables & Primary full input \\
     \bottomrule
   \end{tabularx}
 \end{table*}
@@ -143,7 +145,7 @@ The raw fitness standard deviation, population-overlap statistic, and best-dista
 
 \subsection{Operational search-maturity variables}
 
-Search Maturity is an operational, study-specific summary rather than an established convergence measure.  Define
+Search Maturity denotes three deterministic, study-specific basis functions of existing Behavior, rather than an observed state, established convergence measure, latent variable, or causal mediator.  Define
 \begin{equation}
 \begin{gathered}
   h_+(z)=\frac{\max(z,0)}{1+\max(z,0)},\quad
@@ -173,25 +175,39 @@ where $DD_t$, $CR_t$, and $E_t$ denote distance decay, convergence rate, and eli
   M_t=ES_t(1-XS_t).
   \label{eq:search-maturity}
 \end{equation}
-The B3 group also contains the bounded linear alternative $c[(ES_t+1-XS_t)/2]$ and an exploration-to-exploitation ratio.  Undefined components remain missing and are handled by training-only median imputation.  Equation~\eqref{eq:search-maturity} is a hypothesis-bearing representation whose utility must be established by the T0--B3 comparison and external evaluation; it is not treated as an independently validated causal mechanism.
+The B3 group also contains the bounded linear alternative $c[(ES_t+1-XS_t)/2]$ and an exploration-to-exploitation ratio.  Undefined components remain missing and are handled by training-only median imputation.  The three variables add no raw information; their predictive contribution is assessed only through the prespecified $\mathrm{B2{+}Maturity}-\mathrm{B2}$ and $\mathrm{B3}-(\mathrm{B2{+}Motion})$ contrasts.  No monotone or non-monotone relationship with Utility is built into the definition.
 
-\subsection{Query-specific downstream selection reference}
+\subsection{Downstream action-loss selectors}
 
-For every eligible shared state, all actions in Eq.~\eqref{eq:state-action-set} are run under the query-adjusted budget.  Because raw objective values vary across problems, each action target is normalized within its state:
-\begin{equation}
-  \widetilde L(s_t,a)=
-  \frac{L(s_t,a)-\min_b L(s_t,b)}
-       {\max\!\left(\max_b L(s_t,b)-\min_b L(s_t,b),10^{-12}\right)}.
-  \label{eq:selector-target}
-\end{equation}
-The selection reference predicts the four targets jointly from the 31 B3 behavior variables, the fixed descriptors of the current query, and the continuous remaining-budget ratio $(B-e_t-FE_q)/B$:
+For every eligible shared state, all actions in Eq.~\eqref{eq:state-action-set}
+are run once under both budgets in Eqs.~\eqref{eq:query-budget} and
+\eqref{eq:behavior-budget}.  Their targets use the within-state transform in
+Eq.~\eqref{eq:selector-target-transform}.  The fixed estimator is a multi-output
+random-forest regressor with 200 trees, minimum leaf size two, training-fold
+median imputation, and random seed 1701.
+
+The full Query selector predicts the four query-budget losses from B3 Behavior,
+the current query descriptors, and continuous query-adjusted remaining budget,
 \begin{align}
-  \widehat{\boldsymbol L}(s_t)
-  &=g\!\left(b_t,\phi_q(p),\frac{B-e_t-FE_q}{B}\right),\\
-  \widehat a_t&=\arg\min_a\widehat L(s_t,a).
+  \widehat{\boldsymbol L}^{q}(S_t)
+  &=g_q\!\left(b_t,\phi_q,\frac{B-e_t-FE_q}{B}\right),\\
+  \widehat a_t^q&=\arg\min_a\widehat L_a^q(S_t).
   \label{eq:statewise-selector}
 \end{align}
-The fixed estimator is a multi-output random-forest regressor with 200 trees, minimum leaf size two, median imputation, and random seed 1701.  BBOB-training rows receive five-fold function-family cross-fitted predictions so that a training utility label never uses a selector fitted on the same family.  The final selector is refitted on all BBOB-training families for BBOB validation and external evaluation.  This selection reference is a downstream experimental component, not the proposed contribution.
+A query-adjusted state-only selector omits $\phi_q$ while using the same
+outcomes and budget; its OOF-selected continuation-only gap supplies
+Eq.~\eqref{eq:query-feature-predictive-increment}.  The Behavior-only selector
+uses B3 Behavior and $(B-e_t)/B$ to predict the distinct full-budget matrix.
+Traditional pre-run AAS uses a fourth, query-only selector at $e_t=0$ and no
+trajectory Behavior.  These fitted references are downstream experimental
+components, not the proposed contribution.
+
+Every selector prediction used for training evidence is function-cross-fitted.
+Within an outer Decision fold, selectors are refitted only on outer-fit
+functions; within every inner fold, they are again refitted only on inner-fit
+functions.  A complete-training selector is used only after OOF evidence has
+been produced, for BBOB validation and external deployment.  A selector fitted
+on all BBOB-training functions cannot generate its own OOF Utility labels.
 
 For each selected action, three relations distinguish whether it equals the
 default, whether it equals the prefix, and whether a handoff is required.
@@ -206,30 +222,88 @@ Here $h_t$, $\iota_t^{\mathrm{prefix}}$, and $r_t$ correspond, respectively, to
 the reported handoff indicator, equality with the prefix action, and transition
 type.  Equality with the default action is reported independently.  These
 relations hold by definition for every state, support stratified reporting,
-and are not Decision Model inputs.
+and are not Decision Model inputs.  The fields
+\texttt{selected\_equals\_default},
+\texttt{selected\_equals\_prefix}, \texttt{handoff\_required}, and
+\texttt{handoff\_type} remain distinct; no generic same/changed-algorithm alias
+replaces them.
 
-\subsection{Decision-model selection and threshold fitting}
+\subsection{Decision-model selection and first-trigger thresholds}
 
-The active candidates are fixed to (i) linear discriminant analysis with default estimator settings, (ii) logistic regression with $C=1$, balanced class weights, and the L-BFGS solver, and (iii) Ridge regression with $\alpha=1$.  Each candidate is a pipeline containing training-fold median imputation and standard scaling.  LDA and logistic regression fit Eq.~\eqref{eq:query-label}; Ridge fits the continuous primary utility.  These three candidates are compared only with the frozen B3 input group.
+The active candidates are fixed to (i) linear discriminant analysis with
+default estimator settings, (ii) logistic regression with $C=1$, balanced class
+weights, and the L-BFGS solver, and (iii) Ridge regression with $\alpha=1$.
+Each is a pipeline with training-fold median imputation and standard scaling.
+LDA and logistic regression fit Eq.~\eqref{eq:query-label}; Ridge fits the
+continuous $U_q^{\mathrm{joint}}$.  The model-family comparison uses B3 only.
 
-Model selection is performed once and is nested entirely within BBOB training.  The outer loop is a five-fold GroupKFold over function families.  Within each outer fit partition, a four-fold family out-of-fold procedure supplies scores used to fit an outer-fold decision threshold.  Candidate quality is the mean decision utility obtained after concatenating all outer holdouts.  Ties are resolved by the prespecified order LDA, logistic regression, then Ridge.  Neither T0, B1, B2 nor BBOB validation contributes to this model-family choice.
+For both Selector and Decision fitting, the primary sample weights are computed
+inside each fit fold.  Functions receive equal total weight, as do fixed
+dimension strata within a function, static problems within a
+function--dimension cell, and optimizer runs within a static problem.  A run's
+weight is divided equally among its eligible states, and the resulting row
+weights are normalized to mean one within the fit fold.  Holdout rows and
+outcome direction cannot affect these weights.  Unit state-row weighting is a
+prespecified sensitivity analysis.  The current estimators have not yet been
+wired to this weighting protocol, so model freezing remains blocked until that
+implementation is complete.
 
-After the B3 comparison freezes the model family, that same named estimator
-family is used for T0, B1, B2, and B3 with identical samples, family folds,
-training-fold preprocessing, and threshold-fitting procedure.  Each input group
-fits its threshold only from its own BBOB-training family-OOF scores.  The RQ5
-feature-group analysis reports all four prespecified groups; it neither repeats
-model-family selection nor selects a feature group from their observed results.
-B3 remains the primary deployable representation.
+The entire learning chain is nested within BBOB training.  For each outer
+function holdout, only outer-fit functions determine $SBS_{\mathrm{outer}}$,
+cross-fitted Query and Behavior-only selectors, Utility labels, preprocessing,
+Decision fits, and the outer threshold.  Within every inner function fold, the
+procedure again recomputes $SBS_{\mathrm{inner}}$, refits/cross-fits the
+selectors, regenerates Utility, and fits preprocessing and the Decision Model
+using inner-fit functions only.  Concatenated inner-holdout scores determine the
+outer first-trigger threshold.  Frozen outer components are then evaluated once
+on the outer holdout.  A label table generated by full-training selectors
+followed by Decision-only OOF does not satisfy this design.
 
-After a model family is selected, a separate five-fold function-family out-of-fold pass over all BBOB-training rows produces one score per row from a model that did not see that row's family.  The deployable threshold is
+For a run $r$ with ordered opportunities $j=1,\ldots,K_r$, define
+\begin{equation}
+  J_r(\tau)=\min\{j:z_{rj}^{\mathrm{OOF}}>\tau\}.
+  \label{eq:first-trigger-index}
+\end{equation}
+An empty set contributes zero Utility; otherwise the run contributes only
+$U_{q,rJ_r(\tau)}^{\mathrm{joint}}$.  The threshold
 \begin{equation}
   \tau_{\mathrm{OOF}}
   \in\arg\max_{\tau}
-  \sum_i
-  \mathbf{1}[z_i^{\mathrm{OOF}}>\tau]U_{q,i}.
+  \operatorname{Mean}_{\mathrm{run}\rightarrow\mathrm{problem}\rightarrow\mathrm{function}}
+  \!\left[
+  \mathbf{1}\{J_r(\tau)\ \mathrm{exists}\}
+  U_{q,rJ_r(\tau)}^{\mathrm{joint}}
+  \right]
   \label{eq:oof-threshold}
 \end{equation}
-If thresholds yield the same utility sum, the threshold calling fewer rows is preferred.  The selected estimator is then fitted on all BBOB-training families and deployed with the fixed threshold.  BBOB validation is evaluation-only.  The optional score-neighborhood review uses the tenth percentile of $|z_i^{\mathrm{OOF}}-\tau_{\mathrm{OOF}}|$ from BBOB training; it is performed only after model and threshold freezing and gives all comparison policies the same additional opportunities.
+uses equal weighting at each level.  Ties prefer fewer called runs and then the
+larger numerical threshold.
 
-At deployment, the default SBS advances natively while the streaming behavior extractor observes complete updates.  At each accepted decision opportunity, the controller evaluates Eq.~\eqref{eq:deployment-decision}.  If the score does not cross the threshold, native optimization continues.  If it crosses, the fixed query is executed once, the downstream selector chooses an action, and the selected continuation consumes the remaining query-adjusted budget.  No subsequent online training or repeated query-type selection is performed.
+Candidate quality is the function-balanced first-trigger mean Utility after
+concatenating outer holdouts.  Ties use the prespecified order LDA, logistic
+regression, then Ridge.  AUROC, average precision, Spearman correlation, Ridge
+RMSE, T0, and BBOB validation do not alter this choice.
+
+After B3 freezes the model family, the same named estimator is used for T0, B1,
+B2, B2+Motion, B2+Maturity, B3, and Behavior-only fitting.  Each group obtains
+its own train-only first-trigger threshold without reselecting the model or a
+preferred input group.  The primary T0 comparison uses only the 12 mandatory
+milestones and recomputes B3 on the same rows; a time-only model on the
+Behavior-triggered schedule is reported only as schedule-conditioned
+sensitivity.  A second static-context diagnostic, \emph{dimension-stratified
+T0}, fits a separate FE-ratio-only controller within each evaluated dimension.
+It does not add dimension to the primary Decision input and cannot replace the
+milestone-matched B3--T0 comparison.
+
+A final full-training OOF pass repeats the same fold-specific upstream chain to
+freeze the deployable Query and Behavior-only thresholds.  It also freezes the
+matched-rate Random run-call probability and empirical first-trigger FE-ratio
+distribution.  Only afterward are final components refitted on all BBOB
+training functions.  BBOB validation and external suites are evaluation-only.
+
+At deployment, the default SBS advances natively while the streaming Behavior
+extractor observes complete updates.  If the score does not cross the frozen
+threshold, native optimization continues.  At the first crossing, the fixed
+query is executed once, the full Query selector chooses an action, and its
+selected future path consumes the remaining query-adjusted budget.  There is
+no subsequent trigger, online training, or query-type selection.

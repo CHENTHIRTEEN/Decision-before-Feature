@@ -21,6 +21,7 @@ WINDOW_LONG = WINDOW_RATIOS["w10"]
 
 BEHAVIOR_METADATA_COLUMNS = (
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "algorithm",
@@ -123,9 +124,11 @@ BEHAVIOR_FEATURE_GROUPS = {
     "primary": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS,
     "B2": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_dynamorep_lite": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS,
+    "B2+Motion": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
     "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
+    "B2+Maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "B3": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
-    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
+    "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "diagnostic_only": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
     "all_candidates": SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
 }
@@ -137,6 +140,8 @@ _EXPECTED_FEATURE_COUNTS = {
     "T0": 1,
     "B1": 19,
     "B2": 25,
+    "B2+Motion": 28,
+    "B2+Maturity": 28,
     "B3": 31,
 }
 
@@ -146,7 +151,10 @@ def _validate_behavior_feature_contract() -> None:
         "all": BEHAVIOR_FEATURE_COLUMNS,
         "selector": SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
         "diagnostic": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
-        **{name: BEHAVIOR_FEATURE_GROUPS[name] for name in ("T0", "B1", "B2", "B3")},
+        **{
+            name: BEHAVIOR_FEATURE_GROUPS[name]
+            for name in ("T0", "B1", "B2", "B2+Motion", "B2+Maturity", "B3")
+        },
     }
     for name, columns in collections.items():
         expected_count = _EXPECTED_FEATURE_COUNTS[name]
@@ -168,7 +176,8 @@ def _validate_behavior_feature_contract() -> None:
         "time_only": "T0",
         "primary": "B1",
         "primary_with_dynamorep_lite": "B2",
-        "primary_with_maturity": "B3",
+        "primary_with_movement": "B2+Motion",
+        "primary_with_maturity": "B2+Maturity",
         "all_candidates": "B3",
     }
     for alias, canonical in aliases.items():
@@ -183,6 +192,7 @@ BEHAVIOR_COLUMNS = BEHAVIOR_METADATA_COLUMNS + BEHAVIOR_WINDOW_METADATA_COLUMNS 
 BEHAVIOR_SCHEMA = pa.schema(
     [
         ("problem_id", pa.string()),
+        ("function_id", pa.string()),
         ("family", pa.string()),
         ("dimension", pa.int32()),
         ("algorithm", pa.string()),

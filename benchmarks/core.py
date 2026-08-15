@@ -13,14 +13,25 @@ CloseCallback = Callable[[], None]
 @dataclass(frozen=True)
 class Problem:
     problem_id: str
+    function_id: str
     family: str
     dimension: int
+    suite_code: int
+    function_number: int
+    instance_number: int
     bounds: np.ndarray
     objective: Objective
     reference_value: float | None = None
     close_callback: CloseCallback | None = None
 
     def __post_init__(self) -> None:
+        if not str(self.problem_id) or not str(self.function_id) or not str(self.family):
+            raise ValueError("problem_id, function_id, and family must be non-empty")
+        for name in ("suite_code", "function_number", "instance_number"):
+            value = int(getattr(self, name))
+            if value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+            object.__setattr__(self, name, value)
         bounds = np.asarray(self.bounds, dtype=float)
         if bounds.shape != (self.dimension, 2):
             raise ValueError("bounds must have shape (dimension, 2)")

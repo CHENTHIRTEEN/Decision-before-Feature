@@ -1,101 +1,194 @@
 # 论文待补证据清单
 
-## 1. 当前证据状态与统一边界
+## 1. 当前证据状态
 
-根据当前项目交接记录，正式证据链尚未生成完成：
+本文只有方法与结果占位，不含当前协议下的正式实证结论：
 
-- BBOB train/validation 的 **72 个正式 trajectory shards 尚未启动**；
-- 当前项目中既有 Phase 1 数值基于已替换的方法实现，**全部撤回论文证据资格**，不得写入表格、图形、摘要或结论；
-- **BBOB-validation 尚未完成冻结评价，不能声称 held-out family 表现已经验证**；
-- **CEC2017、CEC2022 与工程问题尚未完成正式外部评价，不能声称跨 benchmark 泛化已经验证**；
-- 本稿不得读取、引用或恢复 `archive` 中的撤回结果；所有数值必须由当前冻结协议从 trajectory 开始重新生成。
+- 72 个 BBOB train/validation trajectory shards 尚未启动；
+- 旧 trajectory 下游数值已撤回，不得进入摘要、主文表图或结论；
+- BBOB-validation 已被历史开发结果查看，现只可作为已见的 post-development 内部评价集，不能称 untouched/confirmatory；该集合与 CEC2017、CEC2022、工程问题均未完成当前协议下的评价；
+- CEC2017 F2/F30 口径尚待核对；CEC2022 与工程问题的 suite、预算、reference、失败端点和约束规则尚未冻结；
+- replay planner 已有枚举能力，但正式 plan 尚未物化实测；decision-state-to-terminal runner、fold-role→Selector artifact 路由、BBOB-validation instance-aware online coverage、standard/broad full-policy、Stage-A Skip 复用、真实 evaluator timing 与资源排期尚未闭合；BBOB-validation 的 functions/instances/dimensions/seeds/problem-state coverage 也尚未由 validation 配置逐项强制核对；
+- CEC2022 benchmark factory/配置与工程问题 factory/约束处理/配置尚未实现，不能仅以文档占位视为外部套件可执行。
 
-所有结果占位项都必须经过以下共同链路：正式 trajectory 与完整预算终值表成对生成 → permutation-invariant behavior → 逐状态四动作 loss → query-specific Selection Reference → utility labels → Decision dataset/model → baseline 或外部冻结评价 → 论文级统计表与图。跨表连接使用整数 `FE`；不同 query 的产物不得混读。
+任何 TBD 只能由当前活动协议的新产物补齐。禁止读取 archive、旧 query ID、旧 Utility 字段或非完整嵌套预测。
 
-正式运行开始前还必须冻结当前未决的统计选项：实际等价界值／最小实际效应、cluster bootstrap 的聚类层级与重复次数，以及 TOST 与等价性置信区间哪一个作为主分析。本文不替这些预注册选择填入任意数值；“差异不显著”也不得解释为实际等价。
+## 2. 共同证据链与正式产物
 
-## 2. 正式产物代码
+正式链必须依次完成：trajectory/final performance → permutation-invariant Behavior → query samples/features → Stage-A 两套四动作 matrices 与 FE=0 outcomes 各运行一次并冻结科学端点 → fold-specific SBS/Selectors → outer/inner/full-train selected replay plan → Stage-B selected Skip/Query/Behavior-only future paths 与 FE=0 policy paths 各真实计时三次 → endpoint consistency/instability 检查 → Utility/Decision → first-trigger policies → 统计表图。不得从 action matrices 直接生成带主计时的最终 Utility，也不得用 Stage-B outcome 改写 Stage-A 科学端点。
 
 | 代码 | 正式产物 |
 | --- | --- |
-| P1 | BBOB train/validation 72 个 trajectory shard 与配对的 `final_performance` 终值数据 |
-| P2 | 基于完整原生 update 的 permutation-invariant behavior 数据及窗口 metadata |
-| P3 | 同一共享状态上的四个唯一动作 loss 数据，包含完整 budget、动作关系与 handoff 字段 |
-| P4 | 三档 query 各自的 Selection Reference 交叉拟合/冻结预测、action-loss 回归评价与 selector regret |
-| P5 | query-specific utility labels 与 Decision dataset，主目标为 `u_query_lamT_1` |
-| P6 | LDA、Logistic Regression、Ridge 的 nested function-family OOF 预测、模型选择与完整 train OOF threshold |
-| P7 | 覆盖 Never Query、Always Query、Random Analysis、Traditional AAS、SBS、VBS、Time-only Controller 与 Proposed Controller 八个预设比较角色的等预算输出；主 population 汇总为 Never Query / SBS、Always Query / Traditional AAS、Random Analysis、VBS、Time-only Controller 与 Proposed Controller 六个非重复 outcome，并保留各角色的适用指标／N/A 语义 |
-| P8 | 冻结模型在 BBOB-validation、CEC2017、CEC2022 与工程问题上的正式评价输出 |
-| P9 | T0/B1/B2/B3 消融、线性候选对应的标准化系数或判别方向、maturity--utility 关系与稳定性输出 |
-| P10 | 论文级汇总表、绘图数据、效应量、置信区间、非参数检验与多重比较校正结果 |
+| P1 | BBOB train/validation 72 个 trajectory shards 与配对 `final_performance`；整数 FE 状态键、完整 optimizer state、12--18 状态/run |
+| P2 | 基于完整 native updates 的 31 个正式 Behavior 输入、3 个诊断字段和窗口 metadata；逐状态 population permutation consistency |
+| P3 | `descriptor_cheap_invariant` 14 列、`pflacco_standard_invariant` 37 列、`pflacco_broad_invariant` 52 列；query/sample/protocol/FE 逐行一致 |
+| P4 | Stage-A Query-adjusted 与 Behavior-only full-budget 两套四动作 matrices，以及各需报告 query 的 FE=0 四算法 outcomes；逐行保存科学 gap、observed hit、completion、endpoint success、planned/effective FE/failure，失败动作保留 |
+| P5 | outer/inner/full-train fold-specific SBS 和四类 Selector 的 cross-fitted/frozen predictions、持久化 artifacts、`fold role/family -> Selector artifact` 路由、selected actions、regret 与 replay plan |
+| P6 | Stage-B selected Skip/Query/Behavior-only decision-state-to-terminal paths 与 FE=0 policy paths 各三次真实 timing replay；逐次原始顺序、raw/censored time、status、observed hit、effective FE、timeout/completion/failure，三类一致性与两类 instability；不选择性重跑 |
+| P7 | query-specific Utility/Decision 数据；主字段 `u_query_joint_lamT_1`，并含 Behavior-only Utility、两类增量、sample endpoint 与动作关系 |
+| P8 | LDA、Logistic Regression、Ridge 的完整 nested grouped-by-function OOF；B3 选模、完整 train `oof_utility_first_trigger` threshold 与 Random calibration |
+| P9 | 九个预设角色、八个不重复 outcome 的等预算 policy 输出；matched-trigger Behavior-only 仅作诊断 |
+| P10 | 六组 T0/B1/B2/B2+Motion/B2+Maturity/B3 消融、线性方向稳定性和 maturity 关联 |
+| P11 | 冻结模型在已见 BBOB-validation 内部评价集、CEC2017、CEC2022 与工程问题上的 suite-specific 覆盖、失败、性能和资源输出；BBOB 结果不得称为未查看确认性证据 |
+| P12 | 固定六个 BBOB-validation functions 的条件 bootstrap、逐 function effects、有限集均值、仅作函数组成敏感性的 function-resampling、假设敏感的 exact sign-flip/Holm、描述性 Bonferroni simultaneous interval、operational tolerance、专用 ERT ratio bootstrap 与 failure sensitivity 表图 |
 
-## 3. Abstract 预留项
+## 3. 所有结果必须保存或派生的核心字段
 
-| ID | 所需正式产物 | 必需字段或分析 | 完成判据 |
-| --- | --- | --- | --- |
-| `TBD-ABS-RQ1` | P1--P5、P10 | `query_id=descriptor_cheap`、`u_query_lamT_1`、`U<=0` 比例、效应量与区间 | RQ1 正式汇总完成；只写实际方向、数值、区间与 query-specific 范围 |
-| `TBD-ABS-RQ2` | P2、P5、P6、P8、P10 | B3 三候选的 nested family-OOF mean decision utility；AUROC、AP、Spearman；Ridge RMSE；冻结同名模型的 B3--T0 比较 | 仅由 BBOB-train 的 B3 比较完成模型家族选择；BBOB-validation 只作冻结评价且比较区间已报告 |
-| `TBD-ABS-RQ3` | P5--P7、P10 | mean decision utility、final error、runtime、call rate、utility capture、precision、unhelpful-call cost | 八个冻结比较角色在相同状态机会与等总 FE 下均被覆盖，两组同一 outcome 各只计一次，且配对效应与区间齐全 |
-| `TBD-ABS-RQ4` | P6--P8、P10 | BBOB-validation 与各外部 suite 的覆盖率、失败率、效应量和区间 | 冻结管线完成全部指定 suite；不得用部分 CEC 运行或旧 validation 结果补齐 |
-| `TBD-ABS-RQ5` | P6、P9、P10 | T0/B1/B2/B3 差异、系数/判别方向稳定性、maturity--utility 关联及区间 | 正式消融和解释分析完成；只表述预测关联，不作因果结论 |
+### 3.1 Utility 与路径端点
 
-## 4. Results 逐项映射
+```text
+gap_skip_terminal
+gap_query_terminal
+gap_behavior_only_terminal
+gap_query_continuation_only
+query_sample_best_contribution_log10_gap
+query_first_hit_offset
+scientific_endpoint_source  # stage_a_selection_reference_outcome | stage_a_online_policy_outcome
+{skip,query_path,behavior_path}_{planned,effective}_FE
+{skip,query_path,behavior_path}_observed_first_hit_FE
+{skip,query_path,behavior_path}_target_hit_observed
+{skip,query_path,behavior_path}_target_hit_before_failure
+{skip,query_path,behavior_path}_path_completed
+{skip,query_path,behavior_path}_endpoint_success
+runtime_{skip,query_joint,behavior_only_full_budget}_raw_observed_repetitions
+runtime_{skip,query_joint,behavior_only_full_budget}_raw_observed_median
+runtime_{skip,query_joint,behavior_only_full_budget}_censored_repetitions
+runtime_{skip,query_joint,behavior_only_full_budget}_median  # censored median, main Utility
+timing_replay_status_repetitions_*
+timing_replay_effective_FE_repetitions_*
+timing_replay_timed_out_flags_*
+timing_replay_path_completed_flags_*
+timing_replay_observed_first_hit_FE_repetitions_*
+timing_replay_target_hit_observed_flags_*
+timing_replay_target_hit_before_failure_flags_*
+timing_replay_endpoint_success_flags_*
+timing_replay_path_identity_consistent_*
+completed_timing_replay_outcomes_internally_consistent_*
+stage_a_to_completed_timing_replays_consistent_*
+timing_replay_status_instability_*
+stage_a_stage_b_completion_status_instability_*
+runtime_full_run_wall_clock_raw_observed_repetitions  # online FE=0 policy
+runtime_full_run_wall_clock_raw_observed_median
+runtime_full_run_wall_clock_censored_repetitions
+runtime_full_run_wall_clock_median  # censored median
+u_query_joint_lamT_{0,025,05,1,2}
+u_behavior_only_full_budget_lamT_{0,025,05,1,2}
+query_operational_increment_lamT_{0,025,05,1,2}
+query_feature_predictive_increment_log10_gap
+```
 
-| ID | 所需正式产物 | 必需字段或分析 | 完成判据 |
-| --- | --- | --- | --- |
-| `TBD-RQ1-TAB-01` | P1--P5、P10 | split、dimension、实际 `FE_ratio`、`u_query_lamT_1`、`potential_gain_raw`、`selector_regret_raw`、`time_cost_norm` | 正式 eligible 状态键双向覆盖；表中每个分层均有样本数、估计值与区间，无撤回数值 |
-| `TBD-RQ1-FIG-01` | P5、P10 | Utility 分布、零线、dimension/FE-ratio 分面、family-aware uncertainty | 图数据与表使用同一正式状态范围；图注记录 query、lambda、样本与聚类单位 |
-| `TBD-RQ1-STAT-01` | P5、P10 | `Pr(U<=0)`、性能差/selector regret/成本分解、family-level 效应量与区间 | 推断单位不是 pooled state row；方法、区间和有效 family 数可复现 |
-| `TBD-RQ1-CLAIM-01` | 前三项 | RQ1 的方向、效应量、区间、适用 split/query | 结论逐字由正式数值支持；若区间不支持明确方向则写“不确定”，不得外推至一般 ELA |
-| `TBD-RQ2-TAB-01` | P5、P6、P8、P10 | 面板 A：B3 上 LDA、Logistic Regression、Ridge 的 nested train-family OOF utility、AUROC、AP、Spearman 与仅 Ridge RMSE；面板 B：冻结同名模型在 train OOF 与 BBOB-validation 上分别报告 B3--T0 配对效应 | 模型家族只由面板 A 的 BBOB-train B3 mean decision utility 选择；不设置模型或输入组选择标记列，validation 不参与任何选择或 threshold 拟合 |
-| `TBD-RQ2-FIG-01` | P6、P8、P10 | 面板 A：B3 三候选的 BBOB-train outer-family OOF utility 分布；面板 B：冻结同名模型在 train OOF 与 BBOB-validation 上的 B3--T0 配对效应 | 每个点可追溯到 held-out family；validation 只作冻结评价，不用于选择展示子集、模型或输入组 |
-| `TBD-RQ2-STAT-01` | P6、P8、P10 | 先比较 B3 三候选的 paired outer-family train OOF 差异，再报告不重选模的 B3--T0 效应与冻结 validation 表现；效应量、区间和预定多重比较校正 | 模型主选择严格按拼接 B3 outer holdout 的 mean decision utility；辅助指标、T0 和 validation 均不改写选择 |
-| `TBD-RQ2-CLAIM-01` | 前三项、P8 | 冻结同名模型下 B3 相对 T0 的差异与区间；validation 明确标为评价证据 | 仅在 B3 相对 T0 的差异跨 family 稳定时写“行为提供额外信息”；否则报告无明确差异或依赖性 |
-| `TBD-RQ3-TAB-01` | P5--P7、P10 | 面板 A：覆盖八个比较角色的六个非重复 outcome 行，报告 policy decision utility、final error、runtime、total FE、query FE、call rate；面板 B：Always Query / Traditional AAS、Random Analysis、Time-only Controller、Proposed Controller 四行的 `U_q<=0` 调用数、within-call 比例、accumulated utility loss、positive-row capture、utility capture、precision | 共享 decision opportunities、相同总 FE、query、Selector 和 handoff 口径；Never Query 的 decision utility 为 0、同一 slash 行中的 SBS 角色为 N/A，slash 行不是两个估计的平均且不重复计数；VBS 与 statewise best observed action 分开 |
-| `TBD-RQ3-FIG-01` | P7、P10 | cost--performance 坐标、call rate、runtime、final loss、family-level interval | 不以单点连线宣称 Pareto；图中显示不确定性且所有策略预算一致；两组 coincident roles 各只绘制一个点和区间 |
-| `TBD-RQ3-STAT-01` | P7、P10 | Friedman、Holm-adjusted paired Wilcoxon、paired effect sizes；unhelpful-call cost | distinct applicable outcomes 才进入秩与配对比较；相同行不重复增加检验数或多重比较校正，且报告区间和无法检验的情形 |
-| `TBD-RQ3-CLAIM-01` | 前三项 | 无效调用变化、效用、最终性能、runtime 的联合解释 | 不能只凭 call rate；需等预算 final performance 与成本区间共同支持，否则写权衡或不确定 |
-| `TBD-RQ4-TAB-01` | P8、P10 | suite、函数/问题/维度/seed 覆盖、mean utility、final error、`feature_status`、`feature_failure`、区间 | BBOB-validation 与三个外部评价来源分别完整；缺失/失败不删除，覆盖率与失败率逐 suite 报告 |
-| `TBD-RQ4-FIG-01` | P8、P10 | Proposed 对 Never/Always/Time-only 的 suite-level paired effects 和区间 | 明确区分 held-out BBOB 与 cross-benchmark；所有外部预测来自完全冻结模型 |
-| `TBD-RQ4-STAT-01` | P8、P10 | 各 suite 配对效应、区间、多重比较校正、failure sensitivity | 不把不同 benchmark 池化成单一显著性结论；存在 group failure 时另报敏感性分析 |
-| `TBD-RQ4-CLAIM-01` | 前三项 | BBOB-validation、CEC2017、CEC2022、工程问题逐项结论 | 全部正式产物完成后才可写；若方向不一致或覆盖不足，必须限定或拒绝泛化主张 |
-| `TBD-RQ5-TAB-01` | P6、P9、P10 | T0/B1/B2/B3 字段数、utility、AUROC/AP、Spearman、仅 Ridge 定义的 RMSE、对 T0 差异 | 四组使用相同样本、fold 和 RQ2 在 B3 上选定的同一模型家族，各自执行 train-only threshold 过程；不重新选模或选输入组，`all_candidates` 不作为第五组 |
-| `TBD-RQ5-FIG-01` | P9、P10 | B3 所选 Logistic/Ridge 的标准化系数或所选 LDA 的标准化判别方向；跨 fold/family 稳定性；maturity--utility 曲线及区间 | 复用 RQ2 所选线性模型家族和 train/held-out 分离输出；不重选模，不把系数或判别方向当因果效应 |
-| `TBD-RQ5-STAT-01` | P9、P10 | 预设 paired ablation effects、校正后 contrasts、系数/判别方向的符号与幅度稳定性、Spearman、非线性拟合区间 | 所有分析复用 B3 所选模型家族且不选择输入组；不能仅凭视觉宣称非单调关系，每个解释结论有 family-level 稳定性和 uncertainty |
-| `TBD-RQ5-CLAIM-01` | 前三项 | 各预设行为增量相对 T0 的稳定性、representation/family dependence | 消融与稳定性结果一致才作预测关联解释；否则完整报告不一致，不重选模型或事后挑选输入组 |
-| `TBD-SENS-DIAG-01` | P1--P10 | 三档 query 各自完整平行链路；$\lambda_T\in\{0,0.25,0.5,1,2\}$；`selected_equals_default`、`selected_equals_prefix`、`handoff_required` 分层；state-only/query-only/full Selector 的 action-loss、selected-action observed loss 与 selector regret | 三档 query 均完成各自 Selector、Utility、Decision Model/threshold、全部 required baselines 与冻结评价；$\lambda_T=1$ 仍为主目标；三个动作关系字段分别报告且 handoff 逐行一致；Selector 变体只作诊断，不进入 Decision Model 或替代 baseline |
+主 Utility 的科学性能与 FE 字段只取预指定 Stage-A；时间项使用同一 decision state 分支后的 Stage-B censored median。共享 prefix、Behavior extraction、Decision inference 与 threshold comparison 是分支前共同成本，只进入 FE=0→terminal policy wall-clock。每次 raw observed time 原样保留；completed 的 censored time=raw，timed_out/failed 的 censored time=`max(raw, role timeout)`，避免快速失败降低主时间成本。三类一致性字段按各自适用条件保存 null/not_evaluable，不得压成一个布尔量；两类 instability 分开保存。不得按观察到的时间或状态选择性重跑。
 
-## 5. Discussion 逐项映射
+`query_operational_increment_lamT_1` 比较不同预算的 Query 与 Behavior-only operational paths，包含 query FE/runtime、sample best、预算差与 Selector 差异；必须在全 eligible states 与 Proposed-triggered states 同时报，且不是纯信息效应或因果 estimand。`query_feature_predictive_increment_log10_gap` 比较同一 Query-adjusted outcomes 上 state-only 与 full Query Selector 的 OOF selected continuation-only gap。正式五路径还必须提供 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量及逐行加法一致性；这些量回答不同问题，均不作因果解释。
 
-| ID | 所需正式产物 | 必需字段或分析 | 完成判据 |
-| --- | --- | --- | --- |
-| `TBD-DISC-01` | RQ1 四项与 P10 | query-specific Utility 分布、组成、效应与区间 | 解释不超出 `descriptor_cheap`；说明何种状态、何种方向及 uncertainty |
-| `TBD-DISC-02` | RQ2 四项与冻结评价 | B3 对 T0、各评价指标的异同 | 解释主选择指标与辅助指标，不隐藏指标冲突，不把 T0 或 validation 用于选模 |
-| `TBD-DISC-03` | RQ3 四项 | 等总 FE、runtime、unhelpful calls、final performance | 资源效率结论同时得到性能与成本证据；若只是减少调用则不得写成性能改善 |
-| `TBD-DISC-04` | RQ4 四项 | 各 suite 覆盖、failure、效应方向与区间 | 逐 suite 讨论；外部评价未全完成前保持占位，不能声称 CEC 泛化 |
-| `TBD-DISC-05` | RQ5 四项 | ablation、系数/判别方向、maturity curve、family stability | 仅作预测关联解释；因果、普遍非单调关系或 Search Maturity 单独致效的表述均禁止 |
-| `TBD-DISC-06` | P1--P10 的数据质量/敏感性汇总 | 状态键覆盖、query failure、family dependence、`handoff_required`、三档 query 与 lambda sensitivity | 所有质量与敏感性输出可追溯；限制与失败行为完整披露，无选择性报告 |
+### 3.2 样本、动作与失败
 
-## 6. Reproducibility 逐项映射
+```text
+query_id
+query_protocol
+sample_design_id
+FE_query
+query_sample_best
+query_first_hit_offset
+best_observed_action
+potential_gain_raw
+selector_regret_raw
+selected_equals_default
+selected_equals_prefix
+handoff_required
+handoff_type
+controller_status
+query_status
+selector_status
+action_status
+optimizer_status
+attempted_coverage
+```
 
-| ID | 所需正式产物 | 必需字段或分析 | 完成判据 |
-| --- | --- | --- | --- |
-| `TBD-REPRO-RESOURCE-01` | P7、P10 | processor、operating system、Python environments、thread setting、batch size、cache condition、peak-memory measurement procedure，以及同系统 behavior extraction、Decision inference、query、Selector、wall-time 与 memory 实测值 | 机器与测量条件和同系统正式资源输出均已记录并可追溯；在此之前不得声称 controller overhead 可忽略 |
+逐行检查 `handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`，并满足 `target_hit_observed := observed_first_hit_FE != null`、`target_hit_before_failure := target_hit_observed and not path_completed`、`path_completed := status == completed`、`endpoint_success := target_hit_observed and path_completed`。兼容 `first_hit_FE/success` 只能分别别名为 `observed_first_hit_FE/target_hit_observed`；正式 ERT 使用 `target_hit_observed`。Query sample 不进入 population，但其 best/observed hit 属于 operational Query endpoint。timeout/失败行保留并使用 suite 冻结 cap；所有计划 run 先进入 coverage denominator。
 
-## 7. Conclusion 逐项映射
+FE=0 AAS 另显式固定：`prefix_algorithm=selected_algorithm`（只作关系记账）、`selected_equals_prefix=true`、`handoff_required=false`、`handoff_type=fresh_optimizer_initialization`、`default_algorithm=no_query_algorithm=SBS_fold`。
 
-| ID | 所需正式产物 | 必需字段或分析 | 完成判据 |
-| --- | --- | --- | --- |
-| `TBD-CONC-RQ1` | Results 中 RQ1 的最终正式证据 | RQ1 数值、区间、query scope | 与 Results 数值及 Discussion 边界完全一致，不新增未检验结论 |
-| `TBD-CONC-RQ2` | Results 中 RQ2 的最终正式证据 | behavior 对 T0、nested OOF 与冻结评价 | 不把辅助 metric 单独写成预测有效，不声称已验证的 validation 除非正式评价完成 |
-| `TBD-CONC-RQ3` | Results 中 RQ3 的最终正式证据 | 全部八个比较角色由六个非重复 outcome 覆盖的等预算性能／成本联合结果 | 明确比较顺序、符号含义、效应与区间；不重复计算重合角色，不把 VBS 写成可部署方法 |
-| `TBD-CONC-RQ4` | Results 中 RQ4 的最终正式证据 | BBOB-validation 与每个外部 suite 的正式结果 | 未完成任何 suite 时保留对应限定；不得把部分 CEC2017 运行外推到 CEC2022/工程问题 |
-| `TBD-CONC-RQ5` | Results 中 RQ5 的最终正式证据 | ablation、解释稳定性、关联边界 | 只总结得到共同支持的行为信息；不对系数或判别方向作因果解释 |
+## 4. Abstract 与 Results 映射
 
-## 8. 补齐顺序
+| ID | 所需产物 | 必需分析与完成判据 |
+| --- | --- | --- |
+| `TBD-ABS-RQ1` / `TBD-RQ1-*` | P1--P7、P12 | 限于主 14 维 query、SBS prefix、eligible states 与固定 problem-keyed LHS realizations；报告 $U_q^{joint}$、$U_b$、全 eligible/Proposed-triggered $I_q$、`Pr(U<=0)`、continuation/sample 分解、效应量和区间；state → run → static problem → fixed dimension stratum → function |
+| `TBD-ABS-RQ2` / `TBD-RQ2-*` | P7--P8、P11--P12 | B3 train grouped-by-function outer-OOF first-trigger mean只用于三候选选模与开发诊断；AUROC/AP/Spearman 辅助，RMSE 仅 Ridge；selected procedure 与 milestone-only B3--T0 在已见 BBOB-validation 上只作 post-development 内部评价，不具 untouched/confirmatory 资格；各真正外部 suite 分开报告 |
+| `TBD-ABS-RQ3` / `TBD-RQ3-*` | P7--P9、P12 | 九角色由八个不重复 outcome 覆盖：Never/SBS 共用一行，其余 Always、Random、pre-run AAS、VBS、milestone T0、self-thresholded Behavior-only、Proposed 各一行；报告 Utility、final gap、target-hit rate、endpoint success、ERT、FE、future-path time、FE=0 policy wall-clock、call/trigger/handoff rate 和 failure |
+| `TBD-ABS-RQ4` / `TBD-RQ4-*` | P8、P11--P12 | BBOB-validation 与每个外部 suite 分开报告完整计划覆盖、失败率、效应量和区间；所有 train-derived components 冻结；未关闭 suite blocker 或覆盖不足时拒绝泛化主张 |
+| `TBD-ABS-RQ5` / `TBD-RQ5-*` | P8、P10--P12 | 六组 `1/19/25/28/28/31` 在同一 rows、folds、模型名下比较；六个预设 contrasts、方向稳定性与 maturity 关联只作预测解释，不重选模型或输入组 |
 
-1. 先完成 72 个正式 trajectory shards 与配对终值表，期间不并发运行下游读取；
-2. 依次重建 P2--P6，并完成 train-only nested family-OOF 选模与 threshold 冻结；
-3. 完成三档 query 的 P7 内部 baseline、消融和成本--性能评价；
-4. 内部证据固定后再运行 P8 外部评价；
-5. 最后统一生成 P9--P10，并按本清单从 Results 到 Discussion、Conclusion、Abstract 逆向补齐，禁止用撤回数值临时填表。
+### 4.1 RQ1 必需表图
+
+- 表：按 split、dimension、actual FE ratio 分层报告 $U_q^{joint}$、$U_b$、$I_q$、性能项、future-path runtime ratio、sample-best contribution、N、coverage 与 95% CI。
+- 图：主 Utility 分布与零线；family-aware uncertainty；Query terminal gap 与 continuation-only gap 的配对差。
+- 统计：BBOB-validation 的内部评价 estimand 为固定 F5/F9/F13/F14/F19/F24、dimensions 与 instances 1/2/3 上的等权有限集均值；10,000 次条件 CI 不重抽 function 或 static problem，只在每个固定 static problem 内配对重抽 optimizer seeds，并对每个抽中 seed/run 保留完整有序 states。function-resampling 只作函数组成敏感性。由于该集合已被历史开发查看，这些分析均不得称为确认性，也不作 function 或 transformed-instance 超总体推断。
+
+### 4.2 RQ2 必需表图
+
+- 面板 A：B3 上 LDA/Logistic/Ridge 的 train grouped-by-function outer-OOF first-trigger Utility；列出 AUROC、AP、Spearman，Ridge 另列 RMSE。
+- 面板 B：冻结所选模型名后，milestone-only B3--T0 的 train OOF 与 BBOB-validation 配对效应。
+- 三候选的 3 个两两 train-OOF contrasts 只作选模诊断，不作为 selected procedure 的无偏估计；milestone-only B3--T0 是 BBOB-validation 的预指定内部主要比较，但不是未查看确认性检验。
+- BBOB-validation `n=6` 的双侧 exact sign-flip raw p 最小为 0.03125；RQ3 与 RQ5 各自六 contrast Holm family 的最小 adjusted p 均为 0.1875，故在 0.05 下不可能拒绝。RQ4 按 suite 与 endpoint 分开，不建立跨四个 suites 的 Holm family。鉴于集合已见，表中 p 值只作内部描述，主输出为逐 function/problem effects、固定有限集均值和条件 CI。
+
+### 4.3 RQ3 必需表图
+
+- 八个 outcome 行明确九个角色语义；Never Query 的 query-decision Utility 为 0，SBS/VBS 对该指标为 N/A，slash 行不是两个估计的平均。VBS 必须在每个 function × instance × dimension problem 内先按 seeds 聚合各算法完整预算 clipped `log10_gap`、选择均值最低算法，再汇总该算法的 paired seed outcomes；不得逐 seed 选择最小算法。
+- `self_thresholded_behavior_only` 使用自己的 $U_b$ threshold；`matched_trigger_behavior_only` 只用于 Proposed 首次触发状态的 $I_q$，不作为第十个 baseline。
+- Random 的 30 streams 先在同一科学 run 内平均。Never/SBS、Always、Random、pre-run AAS、milestone T0、self-thresholded Behavior-only 构成 Proposed 的 6 个 endpoint-specific Holm contrasts；VBS 和 matched-trigger诊断不进入。
+- 图中同时显示 final `log10_gap`、future-path runtime 与 FE=0 policy wall-clock 的区间；不得仅凭 call rate 或单点连线宣称性能优势/Pareto。
+
+### 4.4 RQ4 必需表图
+
+- 每个 suite 列出预注册 functions/problems、dimensions、seeds、budget、reference、success target、timeout、constraint rule、attempted coverage 和各类 failure。
+- Proposed 对 Never、Always、milestone T0、Behavior-only 的 paired effects按 suite与 endpoint 分开，不把 benchmark 池化为单一显著性结论。
+- 未闭合 pair 按 gap floor/cap、`target_hit_observed` 1/0、未命中 ERT 项的 full planned budget、runtime complete-pair 最小正值/timeout 双向赋值，并重算 Utility。attempted coverage <95%，或 sensitivity 改变方向、区间相对 operational tolerance 的位置任一项时，对应 suite × endpoint 结论标为“未建立”。
+
+### 4.5 RQ5 必需表图
+
+```text
+B1 - T0
+B2 - B1
+B2+Motion - B2
+B2+Maturity - B2
+B3 - (B2+Motion)
+B3 - (B2+Maturity)
+```
+
+六个 contrasts 组成一个 Holm family。系数或 LDA 判别方向必须来自标准化的 fold-specific fit，并报告跨 function/fold 的符号和幅度稳定性。Maturity 曲线必须带区间；不能仅凭视觉宣称非单调，也不能把确定性基函数解释为因果阶段。
+
+## 5. Discussion、Reproducibility 与 Conclusion 映射
+
+| ID | 完成要求 |
+| --- | --- |
+| `TBD-DISC-01` | 只解释主 14 维 query 的 $U_q^{joint}$、$U_b$、$I_q$ 与 sample endpoint，写明比较方向、效应量和区间 |
+| `TBD-DISC-02` | 区分主 first-trigger Utility 与 AUROC/AP/Spearman/Ridge RMSE；解释 B3--milestone T0，不隐藏指标冲突 |
+| `TBD-DISC-03` | 联合解释 equal-FE final gap、target-hit/endpoint-success/ERT、future-path runtime、FE=0 policy wall-clock、call/handoff 和无效调用成本 |
+| `TBD-DISC-04` | BBOB-validation、CEC2017、CEC2022、工程问题逐 suite 讨论覆盖、失败与区间；不从部分运行外推 |
+| `TBD-DISC-05` | 六组消融与 stability 只作预测关联解释；不得声称 Search Maturity 单独致效 |
+| `TBD-DISC-06` | 披露状态覆盖、query/selector/action/optimizer failures、family dependence、handoff、lambda/query sensitivity 和双向极端 failure analysis |
+| `TBD-REPRO-RESOURCE-01` | 记录 processor、OS、Python environments、thread、batch/cache、memory procedure、replay multiplicity、存储、同系统 evaluator/behavior/query/selector/controller timings；区分 future-path 与 FE=0 policy time |
+| `TBD-CONC-RQ1`--`RQ5` | 逐字复用 Results 已支持的范围、效应与区间；未完成项保持“尚未验证”，不得新增因果、普适或跨 suite 结论 |
+
+## 6. 敏感性与诊断的完整边界
+
+`TBD-SENS-DIAG-01` 需要：
+
+- 三档 query 各自完整 Selector、Utility、Decision/threshold、baseline、Stage-B future paths 与 FE=0 full-policy 评价；当前 online evaluator 只支持 main cheap，因此 standard/broad 是正式 blocker；
+- `lambda_T={0,0.25,0.5,1,2}` 全部报告，主值仍为 1；
+- `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 分别分层；
+- Query-adjusted state-only、query-only、full Query 与 Behavior-only Selector 的 observed selected loss/regret；
+- `query_feature_predictive_increment_log10_gap` 与 `query_operational_increment_lamT_1` 分栏，不能互相替代；
+- `schedule_conditioned_T0`、reservoir、全 prefix、不同 query 和 lambda 只作敏感性/诊断，不进入主模型选择。
+- 主 unweighted state-row fit 与 function/dimension/static-problem/run-balanced fit 的预设 sensitivity；后者尚未实现/运行，是 blocker。
+- 若运行前增加多个独立 LHS replicates，只作为 sampling-robustness sensitivity 并纳入配对/层级统计；否则明确结论条件于单个固定 realization，standard--broad 不拆分归因。
+
+## 7. 补齐顺序
+
+1. 先关闭 decision-state-to-terminal runner、fold-role→Selector artifact 路由、已见 BBOB-validation 的 instance-aware online coverage、standard/broad full-policy、资源、CEC2017、CEC2022 benchmark factory/config 与工程问题 factory/constraint/config blockers；
+2. 完成阶段 A，以预指定单次运行冻结科学端点、fold-specific SBS/Selectors 并枚举 replay plan；
+3. 完成阶段 B 三次预定 future-path/FE=0 timing replays，保存逐次状态并完成 endpoint consistency/instability 检查，再生成 P7--P10；
+4. BBOB 已见内部评价链闭合后，再按各自完整且未使用其 outcome 调整过模型的 suite 协议执行 P11；
+5. 最后生成 P12，并按 Results → Discussion → Conclusion → Abstract 逆向补齐；
+6. 在任一正式结果完成前，所有 TBD 保持占位，不用撤回数值临时填表。

@@ -13,6 +13,7 @@ OPTIMIZER_STATE_MODE = "native_optimizer_state_with_dynamic_sampling_v4"
 @dataclass(frozen=True)
 class TrajectoryRecord:
     problem_id: str
+    function_id: str
     family: str
     dimension: int
     algorithm: str
@@ -51,6 +52,7 @@ class TrajectoryRecord:
         cls,
         *,
         problem_id: str,
+        function_id: str,
         family: str,
         dimension: int,
         algorithm: str,
@@ -78,6 +80,7 @@ class TrajectoryRecord:
         metadata = _sampling_metadata(sampling_metadata)
         return cls(
             problem_id=problem_id,
+            function_id=function_id,
             family=family,
             dimension=int(dimension),
             algorithm=algorithm,

@@ -5,11 +5,14 @@ from typing import Any
 
 import numpy as np
 from sklearn.base import BaseEstimator
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+
+from decision.cluster_weighting import (
+    WeightedLinearDiscriminantAnalysis,
+    WeightedMedianImputer,
+)
 
 
 ACTIVE_MODEL_NAMES = (
@@ -17,9 +20,10 @@ ACTIVE_MODEL_NAMES = (
     "logistic_regression_classifier",
     "ridge_regression",
 )
-MODEL_SELECTION_METRIC = "nested_family_oof_decision_mean_utility"
+MODEL_SELECTION_METRIC = "nested_family_oof_first_trigger_decision_mean_utility"
 SELECTED_MODEL_ALIAS = "selected"
-FROZEN_THRESHOLD_MODE = "oof_utility"
+FROZEN_THRESHOLD_MODE = "oof_utility_first_trigger"
+BEHAVIOR_FROZEN_THRESHOLD_MODE = "oof_behavior_utility_first_trigger"
 OUTER_OOF_FOLDS = 5
 INNER_OOF_FOLDS = 4
 FULL_TRAIN_OOF_FOLDS = 5
@@ -47,12 +51,12 @@ def active_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
         DecisionModelSpec(
             model_name="lda_classifier",
             model_family="lda",
-            estimator_name="LinearDiscriminantAnalysis()",
+            estimator_name="LinearDiscriminantAnalysis(weighted fit-fold estimates)",
             estimator=Pipeline(
                 [
-                    ("imputer", SimpleImputer(strategy="median")),
+                    ("imputer", WeightedMedianImputer()),
                     ("scaler", StandardScaler()),
-                    ("classifier", LinearDiscriminantAnalysis()),
+                    ("classifier", WeightedLinearDiscriminantAnalysis()),
                 ]
             ),
             objective="classification",
@@ -60,16 +64,16 @@ def active_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
         DecisionModelSpec(
             model_name="logistic_regression_classifier",
             model_family="logistic_regression",
-            estimator_name="LogisticRegression(class_weight='balanced',C=1.0)",
+            estimator_name="LogisticRegression(class_weight=None,C=1.0)",
             estimator=Pipeline(
                 [
-                    ("imputer", SimpleImputer(strategy="median")),
+                    ("imputer", WeightedMedianImputer()),
                     ("scaler", StandardScaler()),
                     (
                         "classifier",
                         LogisticRegression(
                             C=1.0,
-                            class_weight="balanced",
+                            class_weight=None,
                             max_iter=1000,
                             solver="lbfgs",
                             random_state=logistic_seed,
@@ -85,7 +89,7 @@ def active_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
             estimator_name="Ridge(alpha=1.0)",
             estimator=Pipeline(
                 [
-                    ("imputer", SimpleImputer(strategy="median")),
+                    ("imputer", WeightedMedianImputer()),
                     ("scaler", StandardScaler()),
                     ("regressor", Ridge(alpha=1.0)),
                 ]

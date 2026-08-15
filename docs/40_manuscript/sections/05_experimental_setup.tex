@@ -4,9 +4,12 @@
 \subsection{Research questions and evaluation design}
 
 The empirical study addresses the five prespecified questions in
-Table~\ref{tab:research-questions}.  Each question is linked to an estimand, a
-comparison set, and uncertainty summaries that respect dependence among states
-from the same optimization trajectory and function family.
+Table~\ref{tab:research-questions}.  Each question is linked to a target
+distribution, a comparison set, and uncertainty summaries that respect the
+nested dependence of decision states within runs, problems, and benchmark
+functions.  A benchmark function, rather than a state, run, transformed
+instance, or function--dimension combination, is the top-level statistical
+unit.
 
 \begin{table*}[t]
   \caption{Research questions and corresponding evaluation criteria.}
@@ -17,20 +20,20 @@ from the same optimization trajectory and function family.
     \toprule
     RQ & Question & Evaluation criteria \\
     \midrule
-    RQ1 & Statewise value of the primary query & Utility distribution and decomposition; proportion with $U_q\le0$; family-balanced effects and intervals. \\
-    RQ2 & Information beyond elapsed budget & Nested training-family OOF selection; paired B3--T0 effects; frozen BBOB-validation evaluation. \\
-    RQ3 & End-to-end policy trade-off & Call quality, final performance, FE use, runtime, and paired comparisons with all required policies. \\
-    RQ4 & Transport of the frozen procedure & Separate held-out BBOB, CEC2017, CEC2022, and engineering estimates, with coverage and query failures. \\
-    RQ5 & Behavioral associations with query value & T0--B3 increments, model-parameter stability, maturity--utility association, and prespecified strata. \\
+    RQ1 & Statewise value of the primary query & State--run--static-problem--fixed-dimension-stratum--function-balanced Utility distribution and decomposition; proportion with $U_q\le0$; effect intervals. \\
+    RQ2 & Information beyond elapsed budget & Grouped-by-function training OOF candidate selection and diagnostics; the prespecified milestone-matched B3--T0 contrast is reported as a previously inspected BBOB-validation internal estimate and separately on each eligible external suite. \\
+    RQ3 & End-to-end policy trade-off & First-trigger call quality, final performance, FE use, runtime, and paired comparisons with all required policies. \\
+    RQ4 & Transport of the frozen procedure & Separate previously inspected BBOB and CEC2017 development estimates and prospective CEC2022 and engineering estimates, including coverage and prespecified failures. \\
+    RQ5 & Behavioral associations with query value & Milestone-matched behavior increments, maturity-separated ablations, parameter stability, and prespecified strata. \\
     \bottomrule
   \end{tabularx}
 \end{table*}
 
-\subsection{Internal benchmark and function-family partition}
+\subsection{Internal benchmark and grouped-by-function partition}
 
 The internal benchmark is the noiseless BBOB suite.  The training set comprises
 functions 1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, and 23;
-functions 5, 9, 13, 14, 19, and 24 form the held-out validation set.  Functions,
+functions 5, 9, 13, 14, 19, and 24 form the function-held-out validation split.  Functions,
 rather than randomly selected transformed instances, define the grouping
 variable.  This partition addresses evidence that instance-level splits can
 overstate algorithm-selection generalization
@@ -41,41 +44,95 @@ and SHADE, giving 54 training and 18 validation function--dimension
 combinations.
 
 The single best solver (SBS) is estimated exclusively from terminal outcomes at
-$FE=B$.  For each problem--algorithm pair, final best fitness is first averaged
-over seeds.  The four algorithms are then ranked within each problem, with
-smaller mean fitness preferred and average ranks assigned to ties.  These ranks
-are averaged over the training problems; any remaining tie is resolved in the
-prespecified order DE, PSO, CMA-ES, SHADE.  Intermediate decision states,
-including the last state at or before approximately $0.60B$, do not contribute
-to the SBS estimate.
+$FE=B$.  Each raw gap is clipped with the suite endpoints and transformed to
+$\log_{10}$ gap.  For each algorithm, outcomes are averaged with equal weight
+from run to problem (dimension--instance pair) to function; the algorithm with
+the smallest function-balanced mean is selected.  A tie is resolved in the
+prespecified order DE, PSO, CMA-ES, SHADE.  The procedure is repeated using only
+the fit functions of every outer and inner fold.  It does not use average ranks,
+and intermediate decision states do not contribute.
 
-BBOB validation is a held-out internal evaluation set.  It remains untouched
-during query selection, preprocessing, model-family selection, input-group
-comparison, threshold fitting, and score-neighborhood definition.
+BBOB validation is a previously inspected internal development-evaluation set.
+Historical model comparison, tuning, and ablation work examined its outcomes,
+so excluding it from the current query selection, preprocessing, model-family
+selection, input-group comparison, threshold fitting, and score-neighborhood
+definition does not restore independent-confirmation status.  Its six
+functions are six top-level evaluation units.  Its role is estimation-first:
+all six function-level effects, the fixed-set mean, and conditional intervals
+are reported, but its results do not trigger model reselection or binary claims
+based on a $p$-value threshold.
 
 \subsection{External benchmarks}
 
 External evaluation is organized as non-pooled, suite-specific analyses.  The
-CEC2017 analysis comprises functions 1--29, dimensions 10, 30, and 50, seeds
-$1,\ldots,30$, population size 40, and budget $B=1000d$.  The four-algorithm
-portfolio and dynamic decision-opportunity protocol are unchanged, and the
-controller, downstream selector, imputation values, and threshold are held
-fixed at their BBOB-training estimates.
+current CEC2017 configuration specifies dimensions 10, 30, and 50, seeds
+$1,\ldots,30$, population size 40, and budget $B=1000d$.  Its function list is
+not yet an executable manuscript commitment: the current F1--F29 list includes
+F2 and excludes F30, while the project contains no source establishing that
+choice for the implementation in use.  The F2/F30 treatment must be reconciled
+with the implementation and benchmark definition before any further evaluation
+under the current protocol.  The four-algorithm portfolio and dynamic opportunity protocol remain
+unchanged, and all learned components are then held fixed at their
+BBOB-training estimates.
 
 CEC2022 and engineering problems form separate components of RQ4.  Their
-problem sets, dimensions, bounds, budgets, success targets, and failure rules
-are specified independently of policy-outcome inspection.  For every external
-suite, query-extraction failures remain in the coverage denominator rather than
-being removed from the analysis.  Missing descriptors may be imputed only with
-BBOB-training medians.  Held-out BBOB, CEC2017, CEC2022, and engineering
-estimates are reported separately; neither partial coverage nor agreement on a
-subset of suites is interpreted as unconditional cross-benchmark transfer.
+problem sets, dimensions, bounds, budgets, target errors, error floors and
+caps, wall-time limits, and official constraint-handling rules are specified
+before any policy outcomes are inspected.  A run that raises an optimizer
+exception, returns a non-finite objective value, exceeds its fixed wall-time
+limit, or violates a suite-defined completion condition is retained as a run
+failure.  A target hit observed before that failure remains a target hit for
+standard ERT, while path completion is false and completion-conditioned
+endpoint success is false.  A failed path with no observed hit contributes its
+full planned budget to ERT.  The path receives the prespecified suite-level
+worst rank and capped error for summaries that require a finite value; the cap
+is never estimated from observed policy contrasts.
+
+For every external suite, an attempted query whose descriptor group cannot be
+computed remains in the coverage denominator and is recorded as a query
+failure.  The evaluations and time already spent on that query remain charged,
+no replacement descriptor group is invented, and the optimizer continues the
+prefix action with its remaining budget.  Individual undefined descriptor
+values may be imputed only with frozen BBOB-training medians; a group-level
+extraction failure is not converted into a successful query by imputation.
+Missing benchmark implementations or unexecuted problems are reported as
+missing coverage and cannot be counted as completed evaluation.  Previously
+inspected BBOB validation, CEC2017, prospective CEC2022, and engineering
+estimates are reported separately;
+neither partial coverage nor agreement on a subset of suites is interpreted as
+unconditional cross-benchmark transfer.
+
+For BBOB training/validation and CEC2017, the prespecified values are a raw-gap
+floor of $10^{-12}$, a raw-gap and failure-loss cap of $10^{20}$, success target
+$10^{-8}$, and a 3600-second state--action timeout.  First hits are checked after
+every objective evaluation, including evaluations in a query sample.  A timeout
+is retained as path failure.  It does not erase an earlier observed hit;
+standard ERT uses that hit, whereas an unhit path contributes its full planned
+budget.  Path completion and completion-conditioned endpoint success are
+reported separately.  CEC2022 and engineering problems cannot be run until
+analogous endpoints and their constraint-handling rules have been fixed.
+
+For every suite and endpoint, the attempted denominator and coverage are shown
+beside the complete-pair estimate.  Unclosed pairs receive two prespecified
+extreme assignments: gap uses the suite floor and cap; target hit uses one and
+zero; an unsuccessful ERT contribution uses the full budget; adverse runtime
+uses the timeout; and favorable runtime uses the smallest strictly positive
+runtime among that suite's complete pairs, with this rule frozen before a run.
+Utility is recomputed from the same extreme gap and runtime endpoints rather
+than assigned an arbitrary value.  A scientific path failure already retained
+through a cap or timeout is an observed outcome, not a missing pair.  If either
+extreme analysis changes the effect direction or the interval's position
+relative to the operational tolerance, or if coverage is below 95\%, the
+corresponding conclusion is not established.
 
 \subsection{Landscape-query configurations}
 
 Table~\ref{tab:query-configurations} defines the three prespecified queries.
-Primary inference concerns \texttt{descriptor\_cheap}; the two \texttt{pflacco}
-configurations evaluate dependence on representation and acquisition cost.
+Primary inference concerns \texttt{descriptor\_cheap\_invariant} at $\lambda_T=1$ and
+$\lambda_M=0$.  The two \texttt{pflacco} configurations are prespecified
+robustness analyses of representation and acquisition cost.  They cannot
+replace the primary query after outcomes are observed, and agreement among
+them does not support a claim beyond the three evaluated configurations.
 
 \begin{table*}[t]
   \caption{Prespecified landscape-descriptor queries.}
@@ -86,14 +143,17 @@ configurations evaluate dependence on representation and acquisition cost.
     \toprule
     Query & Sample & FE share & Features & Role \\
     \midrule
-    \texttt{descriptor\_cheap} & LHS $50d$ & 5\% & 16 & Primary \\
-    \texttt{pflacco\_standard} & Same LHS $50d$ & 5\% & 37 & Configuration robustness \\
-    \texttt{pflacco\_broad} & Independent LHS $100d$ & 10\% & 52 & Configuration robustness \\
+    \texttt{descriptor\_cheap\_invariant} & LHS $50d$ & 5\% & 14 & Primary \\
+    \texttt{pflacco\_standard\_invariant} & Same LHS $50d$ & 5\% & 37 & Configuration robustness \\
+    \texttt{pflacco\_broad\_invariant} & Independent LHS $100d$ & 10\% & 52 & Configuration robustness \\
     \bottomrule
   \end{tabularx}
 \end{table*}
 
-The cheap and standard queries use the same evaluated $(X,y)$ sample, yielding
+The cheap and standard queries use the same evaluated $(X,y)$ sample.  The
+cheap list excludes the response median and IQR because the common median/IQR
+preprocessing makes them constants zero and one.  Their removal changes neither
+the sample nor the action outcomes.  Sharing the sample yields
 a paired comparison of descriptor representations at a common FE cost.  The
 broad query uses an independent $100d$ design.  The standard configuration
 comprises PCA, nearest-better clustering, dispersion, information-content, and
@@ -105,6 +165,16 @@ the optimizer population.  Each query defines a separate downstream selector,
 utility target, decision model, threshold, baseline comparison, and external
 evaluation; observations from different query identities or FE designs are not
 pooled.
+
+Each static problem and sample design has one problem-keyed LHS realization,
+shared across optimizer seeds, decision states, and actions.  The primary
+estimands are therefore conditional on these fixed query realizations; without
+multiple independent LHS replicates they do not average over query-sampling
+randomness.  Additional replicates could only enter as a prespecified
+sampling-robustness sensitivity, with replicate identifiers included in pairing
+and hierarchical analysis.  Standard versus broad changes representation,
+sample size, sample realization, and action budget simultaneously, so that
+contrast is interpreted only at the whole-query-configuration level.
 
 \subsection{Dynamic decision opportunities}
 
@@ -128,11 +198,16 @@ and does not consume an event-only quota or spacing anchor.  Otherwise, the most
 recent crossed monitor point supplies the nominal location.  Each of the early,
 middle, and late phases admits at most two event-only states, with at least
 $0.02B$ separation in realized FE ratio.  Suppressed crossings still update
-event rearming.  This scheme admits 12--18 states per run, each with unit sample
-weight.  The realized $FE/B$ represents elapsed budget and is the sole T0
-covariate; exact integer FE aligns shared-state outcomes.  Nominal milestones
-and native-update counts describe the sampling process but do not add Decision
-Model inputs.
+event rearming.  This scheme admits 12--18 states per run.  All accepted states
+are retained for the full B3 controller, but they are not treated as independent
+or globally equal-weight observations.  The realized $FE/B$ represents elapsed
+budget and is the sole T0 covariate; exact integer FE aligns shared-state
+outcomes.  Nominal milestones and native-update counts describe the sampling
+process but do not add Decision Model inputs.  T0 is fitted, thresholded, and
+evaluated only on the twelve mandatory milestone states.  Whenever B3 is
+compared directly with T0 as an information ablation, the B3 estimate is
+recomputed on the same milestone rows; event-only opportunities therefore
+cannot disclose behavioral event occurrence to the time-only comparator.
 
 \subsection{Matched states and analysis population}
 
@@ -143,7 +218,7 @@ and the query-budget-specific outcome of every eligible action.  A trajectory
 enters an estimand only when both its complete native history and terminal
 outcome satisfy the same state definition.  Query-specific selection
 references, utilities, decision models, and policies are estimated from these
-matched observations under the family partitions described above.
+matched observations under the function-group partitions described above.
 
 The primary Decision Model population contains states for which both the prefix
 and default algorithm equal the training SBS and the no-query path continues
@@ -152,91 +227,229 @@ for cross-prefix robustness, leave-one-prefix-algorithm-out analysis, and tests
 of portability across the four search processes.  They are excluded from
 primary model fitting, threshold fitting, and primary result aggregation.
 
+Offline generation is explicitly two-stage.  The four-action matrices and
+FE=0 four-algorithm outcomes are each generated once to fit fold-specific
+selectors.  These prespecified Stage-A executions also fix terminal gap,
+observed first hit, target-hit status, path completion,
+completion-conditioned endpoint success, planned FE, effective FE, and
+scientific failure status.
+Those selectors emit a replay plan; only then are their selected
+Skip, Query, and Behavior-only paths from the corresponding decision state to
+termination executed three prespecified times with cyclic path order.  The
+pre-run AAS and complete online-policy paths use the same division: one Stage-A
+scientific execution and three Stage-B timing replays from FE zero.  Stage B
+provides only wall-clock measurements and repetition-level status, effective
+FE, timeout, completion, and failure diagnostics; it cannot overwrite a
+Stage-A scientific endpoint.  A completed replay contributes its raw observed
+time to the censored time, whereas a timed-out or failed replay contributes the
+larger of its raw time and role-specific timeout.  Utility uses the median of
+the three censored times; the raw observed median is diagnostic only.
+Path-identity consistency, consistency among completed replays, and consistency
+between Stage A and completed replays are stored separately, as are within-Stage-B
+status instability and Stage-A/Stage-B completion instability.  No repetition
+is selectively rerun after its time or status is observed.  Utility
+is constructed after these replays from Stage-A performance and Stage-B
+state-conditional future-path times for Skip, Query, and Behavior-only.  The
+replay plan is a scientific dependency, not an optional timing pass: without an
+offline decision-state-to-terminal producer and a fold-role-complete plan,
+formal data generation does not begin.
+
 \subsection{Comparison policies}
 
-Eight prespecified comparison roles are retained because they answer different
-benchmarking questions.
+Nine prespecified comparison roles are retained because they answer different
+benchmarking questions.  Every sequential decision policy is a first-trigger
+policy: it scans its eligible opportunities in increasing exact FE order, can
+trigger at most once in a run, and contributes only the Utility and terminal
+outcome associated with that first trigger.  Once a query or behavior-only
+handoff has been initiated, later states in that run are not additional calls,
+observations, or policy rewards.
 \begin{itemize}
   \item \textbf{Never Query}: continue the complete SBS state natively and incur no query acquisition cost.
   \item \textbf{Always Query}: execute the fixed query at the first accepted decision opportunity and invoke the same downstream selector used by the proposed policy.
-  \item \textbf{Random Analysis}: at each shared opportunity before a call, trigger with probability 0.5.  Thirty independent repetitions use explicit integer random streams.
-  \item \textbf{Traditional AAS}: execute the fixed query and apply the same statewise downstream selector, without a preceding Decision-before-Feature controller, consistent with the sample--feature--selector structure of landscape-based selection \cite{guoAutomatedAlgorithmSelection2025}.  Under this definition, it induces the same first-opportunity decision as Always Query.
+  \item \textbf{Matched-rate Random Analysis}: freeze the proposed controller's run-level call rate and empirical first-trigger FE-ratio distribution from the complete BBOB-training fold-specific OOF chain.  At the start of a run, one Bernoulli draw determines whether a call is planned; if so, a target ratio is drawn and the first eligible opportunity not earlier than that target is used.  The run does not call when no such opportunity exists.  Thirty explicit \texttt{SeedSequence} streams are averaged within the same scientific run before problem/function aggregation; they are not independent scientific replications.  Neither a constant opportunity hazard nor a state drawn uniformly after observing the complete opportunity set is used.
+  \item \textbf{FE-zero query-only, sample-isolated pre-run AAS}: before any portfolio optimizer update, acquire the fixed LHS query, compute its descriptors, and use a separately trained query-only selector to choose one portfolio algorithm for the remaining budget.  The query consumes its configured FE and runtime, its sample neither initializes nor augments the optimizer population, and the selected algorithm starts from its fresh native initialization with budget $B-FE_q$.  The selector uses query descriptors and static remaining-budget information but no trajectory behavior.  For explicit relation accounting, the prefix and selected algorithms are set equal, selected-equals-prefix is true, handoff-required is false, handoff type is fresh-optimizer-initialization, and the default/no-query algorithm is the corresponding fold SBS.  This baseline is not identified with the statewise Always Query policy, and its interpretation is conditional on the repository's fixed implementations, parameters, and population size 40.
   \item \textbf{SBS}: use the training-derived static default defined above.  In the primary population, the prefix and default are this same SBS, so its native complete-budget path coincides with Never Query; the separate name preserves its role as the standard algorithm-selection reference rather than introducing another online trajectory.
-  \item \textbf{VBS}: use the static, per-problem hindsight choice among complete-budget portfolio outcomes.  It is an upper reference rather than a deployable method and is distinct from the statewise best observed action.
-  \item \textbf{Time-only Controller}: use the selected Decision Model family and the same training and threshold procedure as the full controller, with input restricted to $\{FE/B\}$.
-  \item \textbf{Decision-before-Feature}: use B3 behavior with the selected model and the threshold estimated from full-training OOF predictions.
+  \item \textbf{VBS}: for each static problem defined by function, instance, and dimension, average each algorithm's complete-budget clipped $\log_{10}$ gap over optimizer seeds, select the algorithm with the smallest mean (ties follow DE, PSO, CMA-ES, SHADE), and then retain that algorithm's paired seed-level outcomes for aggregation.  It never chooses an algorithm separately for each seed.  It is a non-deployable problem-level hindsight reference, does not necessarily upper-bound a dynamic policy run by run, and is distinct from the statewise best observed action.
+  \item \textbf{Milestone-only Time Controller}: use the selected Decision Model family and the same training-only threshold procedure as the full controller, with input restricted to $\{FE/B\}$.  It is fitted and checked only at the twelve mandatory milestones and stops after its first trigger.
+  \item \textbf{Self-thresholded Behavior-only Selection}: fit the same frozen model family to $U_b$ and obtain its own train-only first-trigger threshold.  At its first crossing, the full-budget Behavior-only selector chooses the continuation or handoff action; query-call rate and query FEs are zero, while trigger and handoff rates remain reportable.
+  \item \textbf{Decision-before-Feature}: use B3 Behavior with the selected model and the threshold estimated from full-training fold-specific upstream OOF predictions; acquire the query only at the first threshold crossing and invoke the full state-plus-query selector once.
 \end{itemize}
 In the primary population, Never Query and SBS yield the same native terminal
-outcome, whereas Always Query and Traditional AAS yield the same
-first-opportunity query outcome.  RQ3 therefore reports these roles as
-\emph{Never Query / SBS} and \emph{Always Query / Traditional AAS}; each shared
-outcome enters summaries and inferential comparisons once.
-All online policies share the same accepted decision opportunities, total FE
-budget, portfolio, query definition, downstream selector, and
-population-transfer rule.  State-only, query-only, and combined statewise
-selectors are additionally compared as diagnostics of the downstream selector;
-they do not replace the required policy baselines.
+outcome and are therefore reported once as \emph{Never Query / SBS}.  The other
+seven roles produce distinct outcome rows, giving eight distinct rows for the
+nine roles.  Traditional pre-run AAS remains separate from Always Query because
+it queries before an optimizer trajectory exists and commits to one algorithm.
+For every applicable endpoint, the shared Never Query / SBS outcome enters
+summaries and multiplicity counts once.
+
+All methods receive the same total FE budget, portfolio, benchmark bounds, and
+suite-specific stopping rules.  Sequential full-state policies use the same
+accepted opportunity stream, except that the time-only controller is
+deliberately restricted to milestones.  Query policies use the same query
+definition and full downstream selector, and statewise handoffs use the same
+population-transfer rule.  The pre-run AAS and behavior-only selectors are
+  separate prespecified estimators because their available information and action
+  budgets differ.  A distinct matched-trigger Behavior-only diagnostic acts at
+  the proposed controller's trigger solely to compute $I_q$; it is not the
+  self-thresholded baseline.  Query-adjusted state-only, query-only, Behavior-only,
+  and full selector regressions remain component diagnostics in addition to the
+  policy-level baseline.
 
 \subsection{Evaluation measures}
 
-Decision-model family selection uses nested function-family OOF mean decision
+Decision-model family selection uses nested grouped-by-function OOF mean decision
 utility.  AUROC, average precision, and Spearman correlation are secondary
 score-level measures.  Continuous-utility RMSE is reported only for Ridge;
 classification probabilities and discriminant scores are not compared with
 continuous utility using RMSE.
 
-Policy-level reporting includes query-call rate, mean decision utility, the
-proportion of called states for which $U_q>0$, the fraction of positive-utility
-states called, and
+Training outer OOF outcomes select among the three prespecified candidates and
+support development diagnostics only.  Once the largest-OOF candidate is
+selected, the same OOF outcomes are not an unbiased estimate of the selected
+procedure.  The prespecified RQ2 contrast---milestone-only B3 minus
+milestone-only T0---is reported on BBOB validation only as a post-development
+internal finite-set estimate, with each external suite reported separately.
+Candidate pairwise contrasts do not enter an RQ2 Holm family.
+
+The primary fitting estimand gives equal weight successively to functions,
+fixed dimension strata, static problems, and optimizer runs, then divides each
+run's weight equally among its eligible states.  Fold-local row weights are
+normalized to mean one and cannot depend on holdout rows or outcome direction.
+Unit weight per state row is retained only as a sensitivity analysis.  The
+Decision and Selector estimators have not yet been wired to these cluster-balanced
+weights, which is a formal pre-run blocker; nested first-trigger evaluation does
+not by itself correct fitting weights.
+
+Policy-level reporting includes run-call rate, first-trigger precision, mean
+joint decision Utility, matched-trigger $I_q$, and terminal outcomes.  If
+$J_r^\pi$ is policy $\pi$'s first trigger, its run Utility is
 \begin{equation}
-  \overline U_{\mathrm{decision}}(\pi)
-  =\frac{1}{n}\sum_{i=1}^{n}d_{\pi,i}U_q(s_i),
+  U_r^\pi=
+  \begin{cases}
+    U_q^{\mathrm{joint}}(S_{r,J_r^\pi}), & J_r^\pi\text{ exists},\\
+    0, & \text{otherwise}.
+  \end{cases}
   \label{eq:policy-decision-utility}
 \end{equation}
-where $d_{\pi,i}$ is the call indicator of query-decision policy $\pi$.  A
-skipped state contributes zero, so the Never Query role has zero decision
-utility by definition.  The coincident SBS reference role and VBS are not
-query-decision policies and therefore remain not applicable for this quantity;
-mean observed utility conditional on calling is reported separately.
-Positive-utility capture is summarized by
+The reported mean aggregates $U_r^\pi$ equally from run to problem to function.
+Never Query has zero query-decision Utility by definition; the SBS role and VBS
+remain not applicable for this quantity.  Mean observed Utility conditional on
+calling is reported separately.
+
+All sequential policies share one hindsight capture reference from the native
+SBS/default trajectory,
 \begin{equation}
-  \mathrm{utility\ capture}=
-  \frac{\sum_i U_{q,i}\,\mathbf{1}[U_{q,i}>0]\,\mathbf{1}[\widehat d_i=1]}
-       {\sum_i U_{q,i}\,\mathbf{1}[U_{q,i}>0]}.
+  H_r=\max_t\max\{U_q^{\mathrm{joint}}(S_{r,t}),0\}.
+\end{equation}
+Policy capture uses only its first trigger,
+\begin{equation}
+  \mathrm{utility\ capture}(\pi)=
+  \frac{\sum_r\max\{U_q^{\mathrm{joint}}(S_{r,J_r^\pi}),0\}}
+       {\sum_r H_r},
   \label{eq:utility-capture}
 \end{equation}
-The positive-state capture rate and utility capture in
-Eq.~\eqref{eq:utility-capture} are reported separately.  Calls with $U_q\le0$
-are summarized by their count, their proportion among calls, and their
-accumulated utility loss.
+with zero numerator for an untriggered run.  Weighted numerator and denominator,
+their ratio, and the number of $H_r=0$ runs are reported.  Calls with
+$U_q^{\mathrm{joint}}\le0$ are summarized by count, within-call proportion, and
+accumulated Utility loss.  A state-score ranking diagnostic, if shown, is not
+called policy capture.
 
-End-to-end endpoints comprise final best objective value or error,
-target-based success rate and expected running time (ERT), total and query FEs,
-wall-clock time, behavior-extraction time, controller-inference time, query
+Policy-level endpoints comprise terminal clipped $\log_{10}$ gap,
+observed target-hit rate, completion-conditioned endpoint-success rate,
+expected running time (ERT), total and query FEs,
+FE-zero-to-terminal wall-clock time, behavior-extraction time,
+controller-inference time, query
 sampling and descriptor-computation time, downstream-selection latency, and
-peak memory.  Success targets are suite specific and are fixed independently
+peak memory.  These full-run wall-clock values include the realized prefix and
+are reported separately from the decision-state-to-terminal future-path times
+that enter $U_q^{\mathrm{joint}}$, $U_b$, and $I_q$.  Success targets are suite specific and are fixed independently
 of the observed policy contrasts.  Cost--performance reporting retains all
-eight prespecified comparison roles but uses six distinct primary-population
-outcomes: five online trajectories, including the two slash-labelled
-identities, and the VBS hindsight reference.
+nine prespecified comparison roles but uses eight distinct primary-population
+outcomes because Never Query and SBS share one native outcome.  Traditional
+pre-run AAS remains distinct from Always Query.
 
 \subsection{Statistical analysis}
 
-Repeated states from one trajectory are not treated as independent replicates.
-Descriptive summaries include state-level micro-averages and macro-averages
-balanced across function families.  Results are also stratified by family,
-dimension, phase, and transition type.  Support for the RQ1 statement that a
-majority of evaluated states do not benefit from the primary query requires the
-95\% lower confidence bound for the relevant proportion to exceed 0.5.  Paired
-policy comparisons use nonparametric procedures, including Wilcoxon signed-rank
-comparisons and Friedman comparisons with Holm-adjusted follow-ups, at a
-prospectively declared aggregation level.
-For every endpoint, analytically identical roles enter once; duplicated role
-labels add no ranks, paired contrasts, or multiplicity counts.
+Repeated states from one trajectory are not independent replicates.  The
+aggregation hierarchy is state, run, static problem, fixed dimension stratum,
+and function.  RQ1 first averages the complete eligible-state sequence within
+each run; policy endpoints start from one first-trigger outcome per run.
+Paired optimizer seeds are averaged within each static
+function--dimension--instance problem, static problems within each
+function--dimension stratum, and the fixed 10D, 20D, and 40D strata within each
+function.  The benchmark function is the highest aggregation stratum.
 
-Equivalence is assessed only against a smallest effect of interest, margin, and
-primary procedure fixed before policy outcomes are examined.  Confidence
-intervals use a prespecified hierarchical resampling unit and replication
-count, and ERT uses suite-specific targets fixed independently of policy
-outcomes.  Absence of statistical significance is not interpreted as
-equivalence or preservation of optimization performance.
+The BBOB-validation estimand is the equally weighted finite-set mean for
+the six prespecified functions F5, F9, F13, F14, F19, and F24, conditional on
+those functions and the fixed dimensions and instances.  It is a previously
+inspected post-development internal estimate; it neither treats the six
+functions or three transformed instances as probability samples nor supports
+inference to a function or transformed-instance superpopulation.  The current
+choice of three instances and 30 optimizer seeds has no repository-local
+precision or power justification; it is a fixed development design, not
+evidence that a target half-width has been attained.  Repetition counts for
+prospective CEC2022 and engineering evaluations must receive an explicit
+precision target and be fixed before their outcomes are observed.
+
+Primary intervals use 10,000 conditional paired hierarchical-bootstrap
+resamples.  Every resample retains all six validation functions, every fixed
+dimension, and every static problem for instances 1--3; paired optimizer seeds
+are resampled only within each fixed static problem.  An RQ1 seed/run retains
+its complete ordered state sequence as one cluster.  Function
+resampling is reported only as a separately labelled function-composition
+sensitivity and never replaces the primary 95\% interval.
+
+ERT uses a dedicated paired ratio bootstrap rather than treating a run-level
+ERT contribution as an ordinary mean.  Within each bootstrap replicate and
+each function--dimension cell, static problems remain fixed and paired
+optimizer runs are resampled within each problem.  The FE numerator and
+target-hit count are recomputed for each policy,
+and the treatment-to-reference $\log_{10}$ ERT ratio is formed before fixed
+dimensions and functions are equally averaged.  A one-sided zero-hit cell is
+retained as signed infinity and a two-sided zero-hit cell is undefined; neither
+is deleted, and either makes the corresponding interval unestablished.  The
+suite-level consumer must combine this ratio analysis with attempted coverage
+and the two failure-sensitivity assignments before any suite conclusion is
+reported.
+
+The numerical margins---mean Utility difference $[-0.01,0.01]$, mean
+$\log_{10}$-gap difference $[-0.05,0.05]$, geometric-mean runtime ratio
+$[0.95,1.05]$, and absolute call/target-hit-rate difference $[-0.05,0.05]$---are
+study-specific operational tolerances, not domain-grounded practical-importance
+bounds.  Primary conditional intervals use 95\% coverage.  Bonferroni
+hierarchical-bootstrap intervals are descriptive sensitivity summaries of
+where a prespecified family lies relative to these tolerances.  For $m$
+contrasts, each uses two-sided level $1-0.05/m$, giving family-wise 95\%
+coverage.  Neither interval produces a
+confirmatory equivalence claim.  Offset between gap and runtime inside Utility
+does not establish either endpoint, and lack of significance does not establish
+equivalence.
+
+Prespecified paired contrasts use function-level sign-flip summaries under the
+null assumption that the six fixed function-effect signs are exchangeable.
+BBOB validation enumerates all $2^6=64$ sign vectors, so the smallest two-sided
+exact raw $p$ value is $2/64=0.03125$.  This summarizes sign consistency within
+the fixed set and does not create function-superpopulation inference.
+
+Auxiliary Holm families are fixed separately by RQ and endpoint.  RQ2 has one
+prespecified internal contrast, BBOB-validation milestone-only B3 versus T0; the three
+pairwise B3 candidate comparisons are selection diagnostics, not RQ2 family
+members.  RQ3 compares the proposed policy with
+Never/SBS, Always Query, matched-rate Random, pre-run AAS, milestone-only T0,
+and self-thresholded Behavior-only; RQ5 contains the six prespecified feature
+increments.  RQ4 does not treat the four suites as a four-contrast family:
+each suite and endpoint has a separate finite-set estimate, and any within-suite
+multiplicity scope must be fixed before that suite's first outcome.  Suites and
+endpoints are not pooled.  VBS, query-configuration and
+$\lambda_T$ robustness, matched-trigger $I_q$, and selector diagnostics are not
+members of these prespecified auxiliary Holm families.  Analytically identical
+Never Query/SBS outcomes
+enter each summary and multiplicity count once.
+
+On BBOB validation, the RQ3 and RQ5 Holm families each contain six contrasts.
+Their smallest possible adjusted $p$ value is therefore
+$6(2/64)=0.1875$.  Neither can reject at 0.05, regardless of the observed
+effect pattern.  We report raw and
+adjusted $p$ values only for transparency; function-specific effects, the fixed
+six-function mean, and its conditional interval are the primary evidence, and
+non-rejection is not interpreted as equivalence or absence of an effect.

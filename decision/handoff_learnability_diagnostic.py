@@ -23,7 +23,7 @@ from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_query_lamT_1"
+TARGET_COLUMN = "u_query_joint_lamT_1"
 DOMAIN_SPECS = {
     "all": None,
     "handoff_required=true": True,

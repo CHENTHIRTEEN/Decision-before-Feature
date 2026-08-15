@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from experiments.phase1_batch_common import (
+    REQUIRED_ENDPOINT_FIELDS,
     algorithms,
     as_int_list,
     count_runs,
@@ -47,7 +48,9 @@ def validate_batch_config(path: Path) -> dict:
         "algorithms": tuple(algorithm_names),
         "population_size": population_size,
         "sampling_protocol": sampling_protocol,
+        "function_family_protocol": str(config["function_family_protocol"]),
         "fe_total_by_dimension": tuple((dimension, fe_total_for_dimension(config, dimension)) for dimension in dimensions),
+        "endpoint_config": tuple((field, config[field]) for field in REQUIRED_ENDPOINT_FIELDS),
     }
 
 
@@ -70,7 +73,9 @@ def validate_config_pair(left: dict, right: dict) -> None:
         "algorithms",
         "population_size",
         "sampling_protocol",
+        "function_family_protocol",
         "fe_total_by_dimension",
+        "endpoint_config",
     ):
         if left[field] != right[field]:
             raise ValueError(f"train/validation {field} must match")

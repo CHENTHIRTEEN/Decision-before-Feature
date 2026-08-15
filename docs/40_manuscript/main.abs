@@ -1,0 +1,29 @@
+Landscape descriptors are widely used to support algorithm selection in
+black-box optimization, but acquiring them consumes function evaluations,
+runtime, and memory, while their value may vary across search states.  This
+paper formulates acquisition of a fixed landscape-descriptor query as a
+decision that precedes feature computation.  The proposed \DBF{} protocol
+reuses algorithm-agnostic,
+permutation-invariant behavior from complete native optimizer-update histories,
+constructs state-aligned joint, Behavior-only, and operational-increment labels
+through paired offline state-to-terminal future paths, and freezes a supervised decision rule
+under fully nested function out-of-fold evaluation.  The primary query is a
+predefined 14-dimensional low-cost descriptor configuration; two larger
+configurations are reserved for representation-and-cost robustness analyses.
+\TBD{TBD-ABS-RQ1}
+The prevalence and interval for non-beneficial primary-query states remain
+undetermined.
+\TBD{TBD-ABS-RQ2}
+The nested-OOF model comparison and B3-versus-T0 increment remain
+undetermined; BBOB validation is a previously inspected internal development
+set rather than an independent confirmation set.
+\TBD{TBD-ABS-RQ3}
+The end-to-end comparison with the prespecified baselines, including query
+use, final performance, and resource measures, remains undetermined.
+\TBD{TBD-ABS-RQ4}
+Performance on the inspected BBOB-validation and CEC2017 development sets and
+on the prospective CEC2022 and engineering evaluations remains undetermined;
+no transfer claim is made.
+\TBD{TBD-ABS-RQ5}
+The association between search behavior, search maturity, and query utility
+remains undetermined and has a descriptive, non-causal interpretation.

@@ -13,6 +13,7 @@ from selection_reference.model import (
     SELECTOR_TARGET_TRANSFORM,
     fit_selector_with_cross_family_predictions,
     measure_online_selection_runtime,
+    predict_with_main_prefix_cross_family_fits,
     prepare_state_matrix,
     read_action_loss_data,
     read_behavior_data,
@@ -33,17 +34,30 @@ def build_selection_reference(
     query_feature_paths: list[Path],
     output_path: Path,
     model_output_path: Path,
+    overwrite: bool,
 ) -> dict[str, int | str]:
+    existing_outputs = [path for path in (output_path, model_output_path) if path.exists()]
+    if existing_outputs and not overwrite:
+        raise FileExistsError(
+            "selection-reference output already exists; pass --overwrite: "
+            f"{existing_outputs[0]}"
+        )
     query_spec = get_query_spec(query_id)
     behavior = read_behavior_data(behavior_paths)
     query_features = read_query_feature_data(query_feature_paths)
     train_action_losses = read_action_loss_data(train_action_loss_paths)
-    train_states, portfolio = prepare_state_matrix(
+    all_train_states, portfolio = prepare_state_matrix(
         train_action_losses,
         behavior=behavior,
         query_features=query_features,
         query_spec=query_spec,
     )
+    main_prefix_mask = (
+        all_train_states["prefix_algorithm"].astype(str)
+        == all_train_states["default_algorithm"].astype(str)
+    )
+    train_states = all_train_states.loc[main_prefix_mask].reset_index(drop=True)
+    cross_probe_states = all_train_states.loc[~main_prefix_mask].reset_index(drop=True)
     _validate_training_scope(train_states)
     selector_model, cross_predictions, train_prediction_source = fit_selector_with_cross_family_predictions(
         train_states,
@@ -59,6 +73,25 @@ def build_selection_reference(
             runtime_selection=measure_online_selection_runtime(selector_model, train_states),
         )
     ]
+    if not cross_probe_states.empty:
+        cross_probe_predictions = predict_with_main_prefix_cross_family_fits(
+            training_states=train_states,
+            prediction_states=cross_probe_states,
+            portfolio=portfolio,
+            query_spec=query_spec,
+        )
+        outputs.append(
+            selection_rows(
+                states=cross_probe_states,
+                portfolio=portfolio,
+                predictions=cross_probe_predictions,
+                prediction_source="cross_family_main_prefix",
+                runtime_selection=measure_online_selection_runtime(
+                    selector_model,
+                    cross_probe_states,
+                ),
+            )
+        )
 
     if predict_action_loss_paths:
         predict_action_losses = read_action_loss_data(predict_action_loss_paths)
@@ -70,7 +103,7 @@ def build_selection_reference(
         )
         if predict_portfolio != portfolio:
             raise ValueError("training and prediction action-loss files use different algorithm portfolios")
-        _validate_no_training_overlap(train_states, predict_states)
+        _validate_no_training_overlap(all_train_states, predict_states)
         predictions = selector_model.predict_scores(predict_states)
         outputs.append(
             selection_rows(
@@ -82,7 +115,9 @@ def build_selection_reference(
             )
         )
 
-    reference = pd.concat(outputs, ignore_index=True)
+    reference = pd.concat(outputs, ignore_index=True).sort_values(
+        ["split", "problem_id", "dimension", "prefix_algorithm", "seed", "FE"]
+    ).reset_index(drop=True)
     _validate_reference(reference, portfolio)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pandas(reference, preserve_index=False), output_path)
@@ -93,6 +128,7 @@ def build_selection_reference(
     return {
         "rows": int(len(reference)),
         "training_rows": int(len(train_states)),
+        "cross_probe_training_rows": int(len(cross_probe_states)),
         "output": str(output_path),
         "model": str(model_output_path),
         "default_algorithm": selector_model.default_algorithm,
@@ -113,7 +149,10 @@ def _validate_training_scope(states: pd.DataFrame) -> None:
     if not bool((states["prefix_algorithm"].astype(str) == defaults).all()):
         raise ValueError("formal selector training must use only main-protocol prefix=default states")
     if states["family"].astype(str).nunique() < 2:
-        raise ValueError("formal selector training requires at least two function families for cross-family predictions")
+        raise ValueError(
+            "formal selector training requires at least two landscape families "
+            "for cross-family predictions"
+        )
 
 
 def _validate_no_training_overlap(train_states: pd.DataFrame, predict_states: pd.DataFrame) -> None:
@@ -123,15 +162,24 @@ def _validate_no_training_overlap(train_states: pd.DataFrame, predict_states: pd
         raise ValueError(
             "prediction action-loss inputs overlap the training split; omit them because training rows are already emitted"
         )
-    train_families = set(train_states["family"].astype(str))
-    predict_families = set(predict_states["family"].astype(str))
-    overlap = sorted(train_families.intersection(predict_families))
+    train_functions = set(train_states["function_id"].astype(str))
+    predict_functions = set(predict_states["function_id"].astype(str))
+    overlap = sorted(train_functions.intersection(predict_functions))
     if overlap:
-        raise ValueError(f"training and held-out prediction families overlap: {overlap}")
+        raise ValueError(f"training and held-out prediction function IDs overlap: {overlap}")
 
 
 def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> None:
-    key = ["split", "problem_id", "family", "dimension", "prefix_algorithm", "seed", "FE"]
+    key = [
+        "split",
+        "problem_id",
+        "function_id",
+        "family",
+        "dimension",
+        "prefix_algorithm",
+        "seed",
+        "FE",
+    ]
     if reference.empty:
         raise ValueError("selection reference contains no rows")
     if len(portfolio) != 4 or len(set(portfolio)) != 4:
@@ -200,8 +248,81 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         raise ValueError("selection reference protocol field is inconsistent")
     if not bool((reference["selector_target_transform"].astype(str) == SELECTOR_TARGET_TRANSFORM).all()):
         raise ValueError("selection reference target transform field is inconsistent")
+    selected_completed = reference["selected_action_path_completed"].to_numpy(
+        dtype=bool
+    )
+    selected_timed_out = reference["selected_action_timed_out"].to_numpy(dtype=bool)
+    if bool((selected_completed & selected_timed_out).any()):
+        raise ValueError("a timed-out selected action cannot be completed")
+    if not np.array_equal(
+        reference["query_path_completed"].to_numpy(dtype=bool),
+        selected_completed,
+    ):
+        raise ValueError("query_path_completed must match the selected continuation")
+    if not np.array_equal(
+        reference["query_path_timed_out"].to_numpy(dtype=bool),
+        selected_timed_out,
+    ):
+        raise ValueError("query_path_timed_out must match the selected continuation")
+    query_target_hit = reference["query_path_target_hit_observed"].to_numpy(
+        dtype=bool
+    )
+    query_first_hit_present = reference["query_path_first_hit_FE"].notna().to_numpy()
+    if not np.array_equal(query_target_hit, query_first_hit_present):
+        raise ValueError(
+            "query_path_target_hit_observed must equal query_path_first_hit_FE is not null"
+        )
+    if not np.array_equal(
+        reference["query_path_success"].to_numpy(dtype=bool),
+        query_target_hit,
+    ):
+        raise ValueError(
+            "query_path_success compatibility alias must equal query_path_target_hit_observed"
+        )
+    if not np.array_equal(
+        reference["query_path_target_hit_before_failure"].to_numpy(dtype=bool),
+        query_target_hit & ~selected_completed,
+    ):
+        raise ValueError(
+            "query_path_target_hit_before_failure must retain hits on incomplete paths"
+        )
+    if not np.array_equal(
+        reference["query_path_endpoint_success"].to_numpy(dtype=bool),
+        query_target_hit & selected_completed,
+    ):
+        raise ValueError(
+            "query_path_endpoint_success must require both an observed hit and path completion"
+        )
+    incomplete = ~selected_completed
+    if not np.allclose(
+        reference.loc[incomplete, "p_query"].to_numpy(dtype=float),
+        reference.loc[incomplete, "selected_action_loss"].to_numpy(dtype=float),
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise ValueError("an incomplete Stage-A Query path must retain the failure-capped action loss")
+    if bool(reference.loc[incomplete, "query_sample_improved_terminal"].astype(bool).any()):
+        raise ValueError("query sample best cannot overwrite an incomplete Stage-A path")
     if reference["query_id"].astype(str).nunique() != 1:
         raise ValueError("selection reference must contain exactly one query_id")
+    train = reference[reference["split"].astype(str) == "bbob_train"]
+    main_prefix = train[
+        train["prefix_algorithm"].astype(str) == train["default_algorithm"].astype(str)
+    ]
+    cross_probe = train[
+        train["prefix_algorithm"].astype(str) != train["default_algorithm"].astype(str)
+    ]
+    held_out = reference[reference["split"].astype(str) != "bbob_train"]
+    if main_prefix.empty or set(main_prefix["selector_prediction_source"].astype(str)) != {"cross_family"}:
+        raise ValueError("BBOB-train main-prefix rows must use cross-family selector predictions")
+    if not cross_probe.empty and set(cross_probe["selector_prediction_source"].astype(str)) != {
+        "cross_family_main_prefix"
+    }:
+        raise ValueError(
+            "BBOB-train cross-probe rows must use main-prefix fits that exclude their landscape family"
+        )
+    if not held_out.empty and set(held_out["selector_prediction_source"].astype(str)) != {"train_fit"}:
+        raise ValueError("held-out selector rows must use the complete BBOB-train fit")
 
 
 def main() -> None:
@@ -215,6 +336,7 @@ def main() -> None:
     parser.add_argument("--query-features", type=Path, action="append", required=True)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--model-output", type=Path, default=None)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     output = args.output or Path("results/selection_reference") / args.query_id / "selection_reference.parquet"
     model_output = args.model_output or Path("results/selection_reference") / args.query_id / "statewise_selector.joblib"
@@ -226,6 +348,7 @@ def main() -> None:
         query_feature_paths=args.query_features,
         output_path=output,
         model_output_path=model_output,
+        overwrite=args.overwrite,
     )
 
 

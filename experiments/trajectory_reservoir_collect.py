@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from benchmarks import make_problem
 from optimizers import OptimizerSettings, run_optimizer
 from trajectory.writer import write_query_parquet
+from trajectory.validation import validate_trajectory_query_file
 from experiments.phase1_batch_common import (
     algorithms,
     as_int_list,
@@ -47,6 +48,13 @@ def _run_one(
             seed=seed,
             fe_total=fe_total_for_dimension(config, dimension),
             settings=settings,
+            log10_gap_floor=float(config["log10_gap_floor"]),
+            log10_gap_cap=float(config["log10_gap_cap"]),
+            success_gap_target=float(config["success_gap_target"]),
+            failure_loss_cap=float(config["failure_loss_cap"]),
+            trajectory_query_split=str(
+                config.get("split", Path(str(config["output"])).name)
+            ),
         )
         return result.trajectory_query_records
     finally:
@@ -77,6 +85,7 @@ def _write_output(records: list[dict], output_path: Path) -> Path:
         write_query_parquet(records, temp_path)
         output.unlink(missing_ok=True)
         temp_path.replace(output)
+    validate_trajectory_query_file(output)
     return output
 
 

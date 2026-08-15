@@ -23,8 +23,7 @@ def calculate_descriptor_cheap(
     if x.ndim != 2 or y.shape[0] != x.shape[0] or x.shape[1] != lower.size:
         raise ValueError("descriptor sample, values, and bounds have inconsistent shapes")
 
-    x_scaled = _scale_to_unit_cube(x, lower, upper)
-    y_scaled = _scale_target_values(y)
+    x_scaled, y_scaled = preprocess_query_sample(x, y, lower, upper)
 
     y_std = float(np.std(y_scaled))
     centered = y_scaled - float(np.mean(y_scaled))
@@ -41,8 +40,6 @@ def calculate_descriptor_cheap(
         "descriptor_y_max": float(np.max(y_scaled)),
         "descriptor_y_mean": float(np.mean(y_scaled)),
         "descriptor_y_std": y_std,
-        "descriptor_y_median": float(np.median(y_scaled)),
-        "descriptor_y_iqr": float(np.percentile(y_scaled, 75) - np.percentile(y_scaled, 25)),
         "descriptor_y_skew": skew,
         "descriptor_y_kurtosis": kurtosis,
         "descriptor_x_mean_pairwise": float(np.mean(distances)) if distances.size else float("nan"),
@@ -57,6 +54,35 @@ def calculate_descriptor_cheap(
     if tuple(features) != DESCRIPTOR_CHEAP_COLUMNS:
         raise ValueError("descriptor_cheap output does not match the frozen feature whitelist")
     return features
+
+
+def preprocess_query_sample(
+    sample: np.ndarray,
+    values: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the query-level invariant preprocessing shared by all backends."""
+    x = np.asarray(sample, dtype=float)
+    y = np.asarray(values, dtype=float).reshape(-1)
+    lower = np.asarray(lower, dtype=float).reshape(-1)
+    upper = np.asarray(upper, dtype=float).reshape(-1)
+    if (
+        x.ndim != 2
+        or y.shape != (x.shape[0],)
+        or lower.shape != (x.shape[1],)
+        or upper.shape != (x.shape[1],)
+    ):
+        raise ValueError("query sample, values, and bounds have inconsistent shapes")
+    if (
+        not np.isfinite(x).all()
+        or not np.isfinite(y).all()
+        or not np.isfinite(lower).all()
+        or not np.isfinite(upper).all()
+        or np.any(lower >= upper)
+    ):
+        raise ValueError("query preprocessing requires finite samples and valid bounds")
+    return _scale_to_unit_cube(x, lower, upper), _scale_target_values(y)
 
 
 def _scale_to_unit_cube(x: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> np.ndarray:

@@ -21,19 +21,29 @@ from decision.sampling_opportunities import (
 )
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
-from utility_labels.fields import NEED_QUERY_COLUMNS, UTILITY_VALUE_COLUMNS
+from utility_labels.fields import (
+    BEHAVIOR_UTILITY_VALUE_COLUMNS,
+    NEED_BEHAVIOR_ONLY_COLUMNS,
+    NEED_QUERY_COLUMNS,
+    UTILITY_VALUE_COLUMNS,
+)
 
 
-DEFAULT_FEATURE_GROUPS = ("T0", "B1", "B2", "B3")
-DEFAULT_TARGET_COLUMN = "u_query_lamT_1"
-DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+DEFAULT_FEATURE_GROUPS = ("T0", "B1", "B2", "B2+Motion", "B2+Maturity", "B3")
+ACTIVE_OPPORTUNITY_SCOPE = "all_accepted"
+DEFAULT_TARGET_COLUMN = "u_query_joint_lamT_1"
+DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_joint_lamT_1"
 TARGET_COLUMN = DEFAULT_TARGET_COLUMN
 AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
+BEHAVIOR_THRESHOLD_MODE = "oof_behavior_utility_first_trigger"
+ACTIVE_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
+ACTIVE_PREDICTION_PREFIX = ""
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
 RUN_KEY_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "prefix_algorithm",
@@ -45,6 +55,7 @@ REQUIRED_BASE_COLUMNS = {
     "model_family",
     "split",
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "prefix_algorithm",
@@ -65,10 +76,6 @@ REQUIRED_BASE_COLUMNS = {
     "query_transition_mode",
     "handoff_type",
     "decision_score",
-    "decision_run_query_zero",
-    "decision_utility_zero",
-    f"decision_run_query_{FROZEN_THRESHOLD_MODE}",
-    f"decision_utility_{FROZEN_THRESHOLD_MODE}",
 }
 GROUP_LAYERS = {
     "all": [],
@@ -104,7 +111,7 @@ def run_threshold_sweep(
     _check_args(threshold_min, threshold_max, threshold_step)
     if tuple(feature_groups) != DEFAULT_FEATURE_GROUPS:
         raise ValueError(
-            "formal threshold comparison must use canonical T0/B1/B2/B3 exactly once and in order"
+            "formal feature-ablation threshold comparison must use the six canonical all-accepted feature groups exactly once and in order"
         )
     _check_output_paths(output_dir, overwrite)
     group_payloads = [
@@ -157,7 +164,7 @@ def run_threshold_sweep(
                     "uses_validation_utility_for_threshold": False,
                 },
                 {
-                    "threshold_policy": "frozen_oof_utility",
+                    "threshold_policy": "frozen_train_oof_first_trigger",
                     "threshold": existing_threshold,
                     "threshold_source_split": "train_oof",
                     "deployable_policy": True,
@@ -179,6 +186,8 @@ def run_threshold_sweep(
                         "feature_group": feature_group,
                         "model_name": str(model_name),
                         "model_family": str(model_family),
+                        "policy_target": _active_policy_target(),
+                        "threshold_mode": ACTIVE_THRESHOLD_MODE,
                         **policy,
                     }
                 )
@@ -230,7 +239,14 @@ def run_threshold_sweep(
         "feature_groups": feature_groups,
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
-        "decision_opportunity_set": "all accepted dynamic budget-milestone and causal-event rows",
+        "policy_target": _active_policy_target(),
+        "threshold_mode": ACTIVE_THRESHOLD_MODE,
+        "prediction_artifacts": {
+            "train_oof": _active_prediction_filename("train_oof"),
+            "validation": _active_prediction_filename("validation"),
+        },
+        "decision_opportunity_set": "all accepted dynamic budget-milestone and state-event rows",
+        "opportunity_scope": ACTIVE_OPPORTUNITY_SCOPE,
         "threshold_grid": {
             "min": threshold_min,
             "max": threshold_max,
@@ -239,8 +255,10 @@ def run_threshold_sweep(
             "validation_threshold_grid_evaluated": False,
         },
         "threshold_policies": {
-            "zero": "Run the fixed query when decision_score > 0 under the run-level first-trigger rule.",
-            "frozen_oof_utility": "Use the run-level first-trigger threshold fitted from full BBOB-train family-OOF scores.",
+            "zero": "Trigger the active policy when decision_score > 0 under the run-level first-trigger rule.",
+            "frozen_train_oof_first_trigger": (
+                "Use the active policy's run-level first-trigger threshold fitted from full BBOB-train landscape-family OOF scores."
+            ),
             "train_oof_sweep_best_check": (
                 "Recompute the best run-level first-trigger threshold on the same train-OOF scores as an implementation consistency check."
             ),
@@ -318,22 +336,47 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 
 def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: str) -> None:
-    if target_column not in UTILITY_VALUE_COLUMNS:
-        raise ValueError(f"target_column must be one of {list(UTILITY_VALUE_COLUMNS)}")
-    if auxiliary_label_column not in NEED_QUERY_COLUMNS:
-        raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
-    expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+    all_targets = (*UTILITY_VALUE_COLUMNS, *BEHAVIOR_UTILITY_VALUE_COLUMNS)
+    all_labels = (*NEED_QUERY_COLUMNS, *NEED_BEHAVIOR_ONLY_COLUMNS)
+    if target_column not in all_targets:
+        raise ValueError(f"target_column must be one of {list(all_targets)}")
+    if auxiliary_label_column not in all_labels:
+        raise ValueError(f"auxiliary_label_column must be one of {list(all_labels)}")
+    if target_column in UTILITY_VALUE_COLUMNS:
+        expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+        threshold_mode = FROZEN_THRESHOLD_MODE
+        prediction_prefix = ""
+    else:
+        expected_label = NEED_BEHAVIOR_ONLY_COLUMNS[
+            BEHAVIOR_UTILITY_VALUE_COLUMNS.index(target_column)
+        ]
+        threshold_mode = BEHAVIOR_THRESHOLD_MODE
+        prediction_prefix = "behavior_only_"
     if auxiliary_label_column != expected_label:
         raise ValueError(f"{target_column} must use corresponding auxiliary label {expected_label}")
-    global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN
+    global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN, ACTIVE_THRESHOLD_MODE, ACTIVE_PREDICTION_PREFIX
     TARGET_COLUMN = target_column
     AUXILIARY_LABEL_COLUMN = auxiliary_label_column
+    ACTIVE_THRESHOLD_MODE = threshold_mode
+    ACTIVE_PREDICTION_PREFIX = prediction_prefix
+
+
+def _active_policy_target() -> str:
+    return "behavior_only_full_budget" if ACTIVE_PREDICTION_PREFIX else "query_joint"
+
+
+def _active_prediction_filename(split_name: str) -> str:
+    if split_name not in {"train_oof", "validation"}:
+        raise ValueError(f"unsupported prediction split: {split_name}")
+    if ACTIVE_PREDICTION_PREFIX:
+        return f"{split_name}_behavior_only_predictions.parquet"
+    return f"{split_name}_predictions.parquet"
 
 
 def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> dict[str, Any]:
-    group_dir = input_root / feature_group
-    train_path = group_dir / "train_oof_predictions.parquet"
-    validation_path = group_dir / "validation_predictions.parquet"
+    group_dir = input_root / feature_group / ACTIVE_OPPORTUNITY_SCOPE
+    train_path = group_dir / _active_prediction_filename("train_oof")
+    validation_path = group_dir / _active_prediction_filename("validation")
     threshold_path = group_dir / "decision_thresholds.parquet"
     summary_path = group_dir / "full_decision_model_training_summary.json"
     for path in (train_path, validation_path, threshold_path, summary_path):
@@ -352,14 +395,31 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
     validate_query_payload(summary, query_id=query_id, artifact=f"{feature_group} training summary")
     if summary.get("feature_group") != feature_group:
         raise ValueError(f"training summary feature_group mismatch for {feature_group}")
-    if summary.get("target_column") != TARGET_COLUMN:
+    if summary.get("opportunity_scope") != ACTIVE_OPPORTUNITY_SCOPE:
         raise ValueError(
-            f"{feature_group} training summary target_column must be {TARGET_COLUMN}, got {summary.get('target_column')}"
+            f"training summary opportunity_scope mismatch for {feature_group}: "
+            f"expected {ACTIVE_OPPORTUNITY_SCOPE}, got {summary.get('opportunity_scope')}"
         )
-    if summary.get("auxiliary_label_column") != AUXILIARY_LABEL_COLUMN:
+    target_key = "behavior_only_target_column" if ACTIVE_PREDICTION_PREFIX else "target_column"
+    auxiliary_key = (
+        "behavior_only_auxiliary_label_column"
+        if ACTIVE_PREDICTION_PREFIX
+        else "auxiliary_label_column"
+    )
+    if summary.get(target_key) != TARGET_COLUMN:
         raise ValueError(
-            f"{feature_group} training summary auxiliary_label_column must be {AUXILIARY_LABEL_COLUMN}, "
-            f"got {summary.get('auxiliary_label_column')}"
+            f"{feature_group} training summary {target_key} must be {TARGET_COLUMN}, "
+            f"got {summary.get(target_key)}"
+        )
+    if summary.get(auxiliary_key) != AUXILIARY_LABEL_COLUMN:
+        raise ValueError(
+            f"{feature_group} training summary {auxiliary_key} must be {AUXILIARY_LABEL_COLUMN}, "
+            f"got {summary.get(auxiliary_key)}"
+        )
+    if ACTIVE_PREDICTION_PREFIX and summary.get("behavior_only_threshold_mode") != ACTIVE_THRESHOLD_MODE:
+        raise ValueError(
+            f"{feature_group} training summary behavior_only_threshold_mode must be "
+            f"{ACTIVE_THRESHOLD_MODE}, got {summary.get('behavior_only_threshold_mode')}"
         )
     return {
         "feature_group": feature_group,
@@ -371,7 +431,14 @@ def _read_feature_group(input_root: Path, feature_group: str, query_id: str) -> 
 
 
 def _check_prediction_frame(frame: pd.DataFrame, *, expected_data_split: str, feature_group: str) -> None:
-    required_columns = set(REQUIRED_BASE_COLUMNS) | {TARGET_COLUMN, AUXILIARY_LABEL_COLUMN}
+    required_columns = set(REQUIRED_BASE_COLUMNS) | {
+        TARGET_COLUMN,
+        AUXILIARY_LABEL_COLUMN,
+        "decision_run_query_zero",
+        "decision_utility_zero",
+        f"decision_run_query_{ACTIVE_THRESHOLD_MODE}",
+        f"decision_utility_{ACTIVE_THRESHOLD_MODE}",
+    }
     missing = sorted(required_columns.difference(frame.columns))
     if missing:
         raise ValueError(f"{feature_group} predictions missing required columns: {missing}")
@@ -390,11 +457,13 @@ def _check_prediction_frame(frame: pd.DataFrame, *, expected_data_split: str, fe
 
 def _check_family_split(group_payloads: list[dict[str, Any]]) -> None:
     for payload in group_payloads:
-        train_families = set(payload["train_oof"]["family"].astype(str))
-        validation_families = set(payload["validation"]["family"].astype(str))
-        overlap = sorted(train_families.intersection(validation_families))
+        train_functions = set(payload["train_oof"]["function_id"].astype(str))
+        validation_functions = set(payload["validation"]["function_id"].astype(str))
+        overlap = sorted(train_functions.intersection(validation_functions))
         if overlap:
-            raise ValueError(f"{payload['feature_group']} train and validation families overlap: {overlap}")
+            raise ValueError(
+                f"{payload['feature_group']} train and validation function IDs overlap: {overlap}"
+            )
 
 
 def _check_decision_opportunity_alignment(group_payloads: list[dict[str, Any]]) -> None:
@@ -434,7 +503,7 @@ def _read_existing_thresholds(path: Path) -> dict[str, float]:
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"decision threshold file missing columns: {missing}")
-    rows = frame[frame["threshold_mode"].astype(str) == FROZEN_THRESHOLD_MODE].copy()
+    rows = frame[frame["threshold_mode"].astype(str) == ACTIVE_THRESHOLD_MODE].copy()
     return {str(row["model_name"]): float(row["threshold"]) for _, row in rows.iterrows()}
 
 
@@ -462,7 +531,7 @@ def _threshold_candidates(thresholds: np.ndarray) -> np.ndarray:
 
 
 def _deployable_policy_name(threshold_policy: str) -> bool:
-    return threshold_policy in {"zero", "frozen_oof_utility"}
+    return threshold_policy in {"zero", "frozen_train_oof_first_trigger"}
 
 
 def _run_group_key_columns(frame: pd.DataFrame) -> tuple[str, ...]:
@@ -552,19 +621,10 @@ def _run_best_available_positive_utility(
     utility_column: str | None = None,
 ) -> float:
     utility_column = utility_column or TARGET_COLUMN
-    scores = ordered_run_frame[score_column].to_numpy(dtype=float)
     utilities = ordered_run_frame[utility_column].to_numpy(dtype=float)
-    if len(scores) == 0:
+    if len(utilities) == 0:
         return 0.0
-
-    best = 0.0
-    max_score_so_far = -np.inf
-    for score, utility in zip(scores, utilities, strict=True):
-        if score > max_score_so_far:
-            if utility > best:
-                best = float(utility)
-            max_score_so_far = float(score)
-    return float(max(0.0, best))
+    return float(max(0.0, float(np.max(utilities))))
 
 
 def _sweep_metrics(
@@ -604,8 +664,13 @@ def _sweep_metrics(
         raise ValueError("sweep_metrics requires at least one run")
 
     candidate_thresholds = _threshold_candidates(thresholds)
-    oracle_positive_run_count = sum(best_available_positive_utility > 0.0 for _, best_available_positive_utility in prepared_runs)
-    oracle_positive_utility_sum = float(sum(best_available_positive_utility for _, best_available_positive_utility in prepared_runs))
+    best_available_positive_run_count = sum(
+        best_available_positive_utility > 0.0
+        for _, best_available_positive_utility in prepared_runs
+    )
+    best_available_positive_utility_sum = float(
+        sum(best_available_positive_utility for _, best_available_positive_utility in prepared_runs)
+    )
 
     rows: list[dict[str, Any]] = []
     for threshold in candidate_thresholds:
@@ -644,7 +709,7 @@ def _sweep_metrics(
                 if best_available_positive_utility > 0.0:
                     no_call_missed_positive_runs += 1
 
-        query_call_rate = _safe_ratio(call_runs, run_count)
+        trigger_rate = _safe_ratio(call_runs, run_count)
         decision_mean_utility = _safe_ratio(decision_utility_sum, run_count)
 
         rows.append(
@@ -664,29 +729,40 @@ def _sweep_metrics(
                 "prefix_algorithm": group.get("prefix_algorithm"),
                 "family": group.get("family"),
                 "threshold_policy": threshold_policy,
+                "policy_target": _active_policy_target(),
+                "threshold_mode": ACTIVE_THRESHOLD_MODE,
                 "threshold": float(threshold),
                 "deployable_policy": _deployable_policy_name(threshold_policy),
                 "uses_validation_utility_for_threshold": bool(uses_validation_utility_for_threshold),
                 "runs": run_count,
-                "oracle_u_gt_zero_runs": oracle_positive_run_count,
-                "oracle_u_gt_zero_rate": _safe_ratio(oracle_positive_run_count, run_count),
-                "oracle_positive_utility_sum": oracle_positive_utility_sum,
-                "decision_query_call_runs": call_runs,
-                "query_call_rate": query_call_rate,
-                "helpful_call_runs": helpful_call_runs,
-                "unhelpful_call_runs": unhelpful_call_runs,
-                "precision_u_gt_zero_under_calls": _safe_ratio(helpful_call_runs, call_runs),
-                "recall_positive_opportunity_runs": _safe_ratio(helpful_call_runs, oracle_positive_run_count),
-                "recall_u_gt_zero": _safe_ratio(helpful_call_runs, oracle_positive_run_count),
+                "best_available_u_gt_zero_runs": best_available_positive_run_count,
+                "best_available_u_gt_zero_rate": _safe_ratio(
+                    best_available_positive_run_count, run_count
+                ),
+                "best_available_positive_utility_sum": best_available_positive_utility_sum,
+                "decision_trigger_runs": call_runs,
+                "trigger_rate": trigger_rate,
+                "utility_gt_zero_trigger_runs": helpful_call_runs,
+                "utility_le_zero_trigger_runs": unhelpful_call_runs,
+                "precision_u_gt_zero_under_triggers": _safe_ratio(helpful_call_runs, call_runs),
+                "recall_positive_opportunity_runs": _safe_ratio(
+                    helpful_call_runs, best_available_positive_run_count
+                ),
+                "recall_u_gt_zero": _safe_ratio(
+                    helpful_call_runs, best_available_positive_run_count
+                ),
                 "selected_positive_utility_sum": selected_positive_utility_sum,
-                "utility_capture_rate": _safe_ratio(selected_positive_utility_sum, oracle_positive_utility_sum),
+                "utility_capture_rate": _safe_ratio(
+                    selected_positive_utility_sum,
+                    best_available_positive_utility_sum,
+                ),
                 "decision_utility_sum": decision_utility_sum,
                 "decision_mean_utility": decision_mean_utility,
                 "average_selected_utility": decision_mean_utility,
-                "mean_utility_under_calls": _safe_ratio(decision_utility_sum, call_runs),
-                "unhelpful_call_cost_sum": unhelpful_call_cost_sum,
-                "harmful_early_trigger_miss_runs": harmful_early_trigger_miss_runs,
-                "no_call_missed_positive_runs": no_call_missed_positive_runs,
+                "mean_utility_under_triggers": _safe_ratio(decision_utility_sum, call_runs),
+                "utility_le_zero_loss_sum": unhelpful_call_cost_sum,
+                "early_trigger_missed_later_u_gt_zero_runs": harmful_early_trigger_miss_runs,
+                "no_trigger_with_available_u_gt_zero_runs": no_call_missed_positive_runs,
                 "mean_trigger_FE_ratio": float(np.mean(trigger_fe_ratios)) if trigger_fe_ratios else float("nan"),
                 "median_trigger_FE_ratio": float(np.median(trigger_fe_ratios)) if trigger_fe_ratios else float("nan"),
             }
@@ -708,7 +784,7 @@ def _safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
 
 def _best_threshold(sweep: pd.DataFrame) -> float:
     ordered = sweep.sort_values(
-        ["decision_utility_sum", "query_call_rate", "threshold"],
+        ["decision_utility_sum", "trigger_rate", "threshold"],
         ascending=[False, True, False],
     )
     return float(ordered.iloc[0]["threshold"])
@@ -853,6 +929,8 @@ def _distribution_row(
         "feature_group": feature_group,
         "model_name": model_name,
         "model_family": model_family,
+        "policy_target": _active_policy_target(),
+        "threshold_mode": ACTIVE_THRESHOLD_MODE,
         "eval_split": eval_split,
         "layer": layer,
         "group": _group_label(group),
@@ -898,8 +976,8 @@ def _draw_plots(*, sweep_summary: pd.DataFrame, output_dir: Path) -> dict[str, l
         train_oof,
         output_dir=output_dir,
         stem="threshold_vs_call_rate",
-        y_column="query_call_rate",
-        y_label="Run-level query call rate",
+        y_column="trigger_rate",
+        y_label="Run-level policy trigger rate",
     )
     plot_paths["utility_precision_call_curve"] = _plot_utility_precision_call(train_oof, output_dir=output_dir)
     return plot_paths
@@ -920,7 +998,7 @@ def _plot_threshold_metric(
     ax.axvline(0.0, color="black", linewidth=0.8, linestyle="--")
     ax.set_xlabel("Threshold")
     ax.set_ylabel(y_label)
-    ax.set_title(y_label + " across BBOB-train family-OOF thresholds under the run-level first-trigger rule")
+    ax.set_title(y_label + " across BBOB-train landscape-family OOF thresholds under the run-level first-trigger rule")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=7, ncol=2)
     fig.tight_layout()
@@ -930,19 +1008,19 @@ def _plot_threshold_metric(
 def _plot_utility_precision_call(frame: pd.DataFrame, *, output_dir: Path) -> list[str]:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
     for (feature_group, model_name), group in frame.groupby(["feature_group", "model_name"], sort=True):
-        group = group.sort_values("query_call_rate")
+        group = group.sort_values("trigger_rate")
         label = f"{feature_group}/{model_name}"
         axes[0].plot(
-            group["precision_u_gt_zero_under_calls"],
+            group["precision_u_gt_zero_under_triggers"],
             group["utility_capture_rate"],
             linewidth=1.2,
             label=label,
         )
-        axes[1].plot(group["query_call_rate"], group["utility_capture_rate"], linewidth=1.2, label=label)
-    axes[0].set_xlabel("Precision under Query calls")
+        axes[1].plot(group["trigger_rate"], group["utility_capture_rate"], linewidth=1.2, label=label)
+    axes[0].set_xlabel("Precision under policy triggers")
     axes[0].set_ylabel("Utility capture rate")
     axes[0].set_title("Run-level utility capture vs precision")
-    axes[1].set_xlabel("Run-level query call rate")
+    axes[1].set_xlabel("Run-level policy trigger rate")
     axes[1].set_ylabel("Utility capture rate")
     axes[1].set_title("Run-level utility capture vs call rate")
     for ax in axes:
@@ -997,13 +1075,13 @@ def _markdown_report(
         "model_name",
         "threshold_policy",
         "threshold",
-        "query_call_rate",
-        "precision_u_gt_zero_under_calls",
+        "trigger_rate",
+        "precision_u_gt_zero_under_triggers",
         "recall_u_gt_zero",
         "utility_capture_rate",
         "decision_utility_sum",
         "average_selected_utility",
-        "unhelpful_call_cost_sum",
+        "utility_le_zero_loss_sum",
     ]
     return "\n".join(
         [
@@ -1013,7 +1091,7 @@ def _markdown_report(
             "",
             "- Existing Decision predictions are reused; no model is retrained.",
             "- Utility labels are not regenerated or modified.",
-            "- Threshold candidates are selected from BBOB-train family-OOF predictions only under the run-level first-trigger rule.",
+            "- Threshold candidates are selected from BBOB-train landscape-family OOF predictions only under the run-level first-trigger rule.",
             "- BBOB-validation Utility is evaluated only at thresholds frozen before validation under the same run-level first-trigger rule.",
             "- Metadata layers are used only for stratified reporting under the run-level first-trigger rule.",
             "",
@@ -1082,7 +1160,10 @@ def _group_label(group: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Check frozen run-level first-trigger Decision thresholds against BBOB-train family-OOF score sweeps."
+        description=(
+            "Check frozen Query-joint or Behavior-only run-level first-trigger Decision thresholds "
+            "against BBOB-train landscape-family OOF score sweeps."
+        )
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--input-root", type=Path, default=None)
@@ -1091,19 +1172,35 @@ def main() -> None:
     parser.add_argument("--threshold-min", type=float, default=-0.5)
     parser.add_argument("--threshold-max", type=float, default=0.5)
     parser.add_argument("--threshold-step", type=float, default=0.005)
-    parser.add_argument("--target-column", choices=UTILITY_VALUE_COLUMNS, default=DEFAULT_TARGET_COLUMN)
-    parser.add_argument("--auxiliary-label-column", choices=NEED_QUERY_COLUMNS, default=None)
+    parser.add_argument(
+        "--target-column",
+        choices=(*UTILITY_VALUE_COLUMNS, *BEHAVIOR_UTILITY_VALUE_COLUMNS),
+        default=DEFAULT_TARGET_COLUMN,
+    )
+    parser.add_argument(
+        "--auxiliary-label-column",
+        choices=(*NEED_QUERY_COLUMNS, *NEED_BEHAVIOR_ONLY_COLUMNS),
+        default=None,
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    auxiliary_label_column = args.auxiliary_label_column or NEED_QUERY_COLUMNS[
-        UTILITY_VALUE_COLUMNS.index(args.target_column)
-    ]
+    if args.target_column in UTILITY_VALUE_COLUMNS:
+        default_auxiliary_label = NEED_QUERY_COLUMNS[
+            UTILITY_VALUE_COLUMNS.index(args.target_column)
+        ]
+        default_output_name = "threshold_sweep"
+    else:
+        default_auxiliary_label = NEED_BEHAVIOR_ONLY_COLUMNS[
+            BEHAVIOR_UTILITY_VALUE_COLUMNS.index(args.target_column)
+        ]
+        default_output_name = "threshold_sweep_behavior_only"
+    auxiliary_label_column = args.auxiliary_label_column or default_auxiliary_label
     query_root = decision_query_root(args.query_id)
     run_threshold_sweep(
         query_id=args.query_id,
         input_root=args.input_root or query_root / "feature_group_ablation",
         feature_groups=list(args.feature_groups),
-        output_dir=args.output_dir or query_root / "threshold_sweep",
+        output_dir=args.output_dir or query_root / default_output_name,
         threshold_min=args.threshold_min,
         threshold_max=args.threshold_max,
         threshold_step=args.threshold_step,

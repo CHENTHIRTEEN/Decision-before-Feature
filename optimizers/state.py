@@ -188,7 +188,14 @@ def initialize_optimizer_state(
     if population_size < 4:
         raise ValueError("population_size must be at least 4")
     key = _algorithm_key(algorithm)
-    rng = make_rng(seed, NATIVE_STREAMS[key])
+    rng = make_rng(
+        seed,
+        NATIVE_STREAMS[key],
+        suite_code=problem.suite_code,
+        function=problem.function_number,
+        instance=problem.instance_number,
+        dimension=problem.dimension,
+    )
     if key == "cmaes":
         state = _empty_cmaes_state(problem, population_size, rng)
         _advance_cmaes(state, problem, population_size, None)
@@ -265,6 +272,8 @@ def initialize_transferred_optimizer_state(
 ) -> OptimizerState:
     """Initialize a different optimizer once from an algorithm-independent checkpoint state."""
     key = _algorithm_key(algorithm)
+    if int(function) != problem.function_number or int(instance) != problem.instance_number:
+        raise ValueError("transfer seed coordinates must match the benchmark problem")
     if key == source_state.algorithm:
         raise ValueError("same-algorithm paths must clone and continue the native state")
     population = np.asarray(source_state.population, dtype=float).copy()
@@ -273,6 +282,7 @@ def initialize_transferred_optimizer_state(
     rng = make_event_rng(
         seed=seed,
         stream_code=TRANSFER_STREAMS[key],
+        suite_code=problem.suite_code,
         function=function,
         instance=instance,
         dimension=problem.dimension,
@@ -394,12 +404,12 @@ def _advance_de(
         state.pending_fitness[start:stop] = values
         for offset, value in enumerate(values):
             _update_best(state, float(value), state.pending_population[start + offset])
-        state.pending_index = stop
-        state.evaluations += batch
-        completed += batch
         if on_evaluation is not None:
             for point, value in zip(state.pending_population[start:stop], values, strict=True):
                 on_evaluation(np.asarray(point, dtype=float), float(value))
+        state.pending_index = stop
+        state.evaluations += batch
+        completed += batch
         if state.pending_index == len(state.population):
             improved = state.pending_fitness < state.fitness
             state.population[improved] = state.pending_population[improved]
@@ -618,6 +628,9 @@ def _advance_shade(
         state.pending_fitness[start:stop] = values
         for offset, value in enumerate(values):
             _update_best(state, float(value), state.pending_population[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_population[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
         state.pending_index = stop
         state.evaluations += batch
         completed += batch

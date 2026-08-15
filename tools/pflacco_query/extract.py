@@ -28,6 +28,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from landscape_queries.batch_features import feature_schema  # noqa: E402
+from landscape_queries.cheap import preprocess_query_sample  # noqa: E402
 from landscape_queries.specs import (  # noqa: E402
     PFLACCO_GROUP_COLUMNS,
     get_query_spec,
@@ -71,9 +72,15 @@ def extract_pflacco_features(
             raise ValueError(f"{query_id} requires sample design {spec.sample_design_id}")
         if str(row["sampling_protocol"]) != spec.sample_design.protocol:
             raise ValueError(f"{query_id} requires sampling protocol {spec.sample_design.protocol}")
-        x = pd.DataFrame(np.asarray(row["X"], dtype=float))
-        y = pd.Series(np.asarray(row["y"], dtype=float))
         started = perf_counter()
+        x_scaled, y_scaled = preprocess_query_sample(
+            np.asarray(row["X"], dtype=float),
+            np.asarray(row["y"], dtype=float),
+            np.asarray(row["lower_bounds"], dtype=float),
+            np.asarray(row["upper_bounds"], dtype=float),
+        )
+        x = pd.DataFrame(x_scaled)
+        y = pd.Series(y_scaled)
         values: dict[str, float | None] = {}
         group_status: dict[str, dict[str, object]] = {}
         failures: list[dict[str, str]] = []
@@ -131,6 +138,7 @@ def extract_pflacco_features(
                     for name in (
                         "split",
                         "problem_id",
+                        "function_id",
                         "family",
                         "function",
                         "instance",
@@ -144,6 +152,11 @@ def extract_pflacco_features(
                         "runtime_query_sampling",
                         "runtime_query_evaluation",
                         "runtime_sampling_evaluation",
+                        "benchmark_reference_value",
+                        "success_gap_target",
+                        "query_success",
+                        "query_first_hit_offset",
+                        "query_best_gap",
                     )
                 },
                 "query_id": spec.query_id,

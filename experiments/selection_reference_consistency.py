@@ -19,7 +19,14 @@ from landscape_queries.cheap import calculate_descriptor_cheap
 from landscape_queries.consistency import _check_action_losses
 from landscape_queries.sampling import sample_problem
 from landscape_queries.specs import get_query_spec, get_sample_design_spec
-from optimizers import OptimizerSettings, advance_optimizer_state, clone_optimizer_state, initialize_optimizer_state
+from optimizers import (
+    NO_QUERY_TRANSFER_EVENT,
+    OptimizerSettings,
+    advance_optimizer_state,
+    clone_optimizer_state,
+    initialize_optimizer_state,
+    initialize_transferred_optimizer_state,
+)
 from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, evaluate_candidate_actions
 from selection_reference.build import build_selection_reference
 from selection_reference.model import (
@@ -28,6 +35,7 @@ from selection_reference.model import (
     fit_selector_with_cross_family_predictions,
     load_selector_model,
     measure_online_selection_runtime,
+    predict_with_main_prefix_cross_family_fits,
     prepare_state_matrix,
     save_selector_model,
     selection_rows,
@@ -38,8 +46,6 @@ from trajectory.sampling import (
     budget_milestone_metadata,
 )
 from trajectory.window_statistics import NativeUpdateWindowRecorder
-from utility_labels.generation import _utility_row, utility_schema
-from utility_labels.validation import validate_utility_label_file
 
 
 def check_state_action_continuations(*, config_path: Path) -> dict[str, int | str]:
@@ -82,9 +88,18 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
                 seed=seed,
                 function=function,
                 instance=instance,
+                checkpoint_fe=int(state.evaluations),
+                action_budget_mode="query_adjusted",
+                failure_loss_cap=float(config["failure_loss_cap"]),
             )
             native = [row for row in outcomes if row["action"] == "continue_current"]
-            if len(native) != 1 or float(native[0]["action_loss"]) != float(expected_native.best_fitness):
+            reference_value = float(problem.reference_value)
+            expected_native_gap = max(float(expected_native.best_fitness) - reference_value, 0.0)
+            if (
+                len(native) != 1
+                or float(native[0]["action_loss_raw"]) != float(expected_native.best_fitness)
+                or float(native[0]["action_loss"]) != expected_native_gap
+            ):
                 raise ValueError("continue_current does not reproduce native optimizer continuation")
             expected_actions = {"continue_current", *set(portfolio).difference({prefix_algorithm})}
             if {str(row["action"]) for row in outcomes} != expected_actions:
@@ -127,9 +142,10 @@ def _check_query_specific_regression(
     portfolio: tuple[str, ...],
     settings: OptimizerSettings,
 ) -> None:
-    spec = get_query_spec("descriptor_cheap")
+    spec = get_query_spec("descriptor_cheap_invariant")
     sample_design = spec.sample_design
-    prefix_algorithm = portfolio[0]
+    default_algorithm = portfolio[0]
+    prefix_algorithms = portfolio[:2]
     seed = int(config["seeds"][0])
     dimension = int(config["dimensions"][0])
     action_rows = []
@@ -142,76 +158,14 @@ def _check_query_specific_regression(
             {"suite": "bbob", "function": function, "instance": instance, "dimension": dimension}
         )
         try:
-            state = initialize_optimizer_state(
-                algorithm=prefix_algorithm,
-                problem=problem,
-                seed=seed,
-                settings=settings,
-            )
-            trajectory_rows = []
-            window_recorder = NativeUpdateWindowRecorder()
-            window_recorder.observe(
-                fe=int(state.evaluations),
-                native_updates=int(state.generation),
-                population=state.population,
-                fitness=state.fitness,
-                best_fitness=state.best_fitness,
-            )
-            target_fes = tuple(
-                int(ceil(ratio * fe_total / settings.population_size) * settings.population_size)
-                for ratio in (0.20, 0.22, 0.24)
-            )
-            for target_fe in target_fes:
-                advance_optimizer_state(
-                    state=state,
-                    problem=problem,
-                    fe_budget=target_fe - int(state.evaluations),
-                    on_native_update=lambda updated: window_recorder.observe(
-                        fe=int(updated.evaluations),
-                        native_updates=int(updated.generation),
-                        population=updated.population,
-                        fitness=updated.fitness,
-                        best_fitness=updated.best_fitness,
-                    ),
-                )
-                window_statistics, native_update_history = window_recorder.build(
-                    fe_total=fe_total,
-                    problem_id=problem.problem_id,
-                    algorithm=prefix_algorithm,
-                )
-                trajectory_rows.append(
-                    TrajectoryRecord.from_arrays(
-                        problem_id=problem.problem_id,
-                        family=problem.family,
-                        dimension=dimension,
-                        algorithm=prefix_algorithm,
-                        seed=seed,
-                        fe=int(state.evaluations),
-                        fe_total=fe_total,
-                        native_updates=int(state.generation),
-                        window_statistics=window_statistics,
-                        native_update_history=native_update_history,
-                        population=state.population,
-                        fitness=state.fitness,
-                        best_fitness=state.best_fitness,
-                        sampling_metadata=_milestone_sampling_metadata(
-                            actual_fe=int(state.evaluations),
-                            fe_total=fe_total,
-                            monitor_target_ratio=float(target_fe / fe_total),
-                        ),
-                    ).__dict__
-                )
-            behavior_rows.append({"split": "bbob_train", **extract_behavior_rows(trajectory_rows)[-1]})
-            sampling_metadata = {
-                column: trajectory_rows[-1][column]
-                for column in SAMPLING_METADATA_COLUMNS
-            }
             sample = sample_problem(
                 problem=problem,
                 sample_design=sample_design,
                 base_seed=0,
                 function=function,
                 instance=instance,
+                success_gap_target=float(config["success_gap_target"]),
+                failure_loss_cap=float(config["failure_loss_cap"]),
             )
             started = perf_counter()
             descriptor = calculate_descriptor_cheap(
@@ -226,6 +180,7 @@ def _check_query_specific_regression(
                     "dimension": dimension,
                     "query_id": spec.query_id,
                     "query_protocol": spec.protocol,
+                    "query_preprocessing_id": spec.preprocessing_id,
                     "sample_design_id": spec.sample_design_id,
                     "runtime_query_sampling": float(sample["runtime_query_sampling"]),
                     "runtime_query_evaluation": float(sample["runtime_query_evaluation"]),
@@ -251,48 +206,92 @@ def _check_query_specific_regression(
                     **descriptor,
                 }
             )
-            fe_query = sample_design.sample_size(dimension)
-            query_budget = fe_total - int(state.evaluations) - fe_query
-            skip = advance_optimizer_state(
-                state=clone_optimizer_state(state),
-                problem=problem,
-                fe_budget=fe_total - int(state.evaluations),
-            )
-            outcomes = evaluate_candidate_actions(
-                checkpoint_state=state,
-                problem=problem,
-                portfolio=portfolio,
-                fe_budget=query_budget,
-                seed=seed,
-                function=function,
-                instance=instance,
-            )
-            common = {
-                "split": "bbob_train",
-                "problem_id": problem.problem_id,
-                "family": problem.family,
-                "dimension": dimension,
-                "prefix_algorithm": prefix_algorithm,
-                "default_algorithm": prefix_algorithm,
-                "no_query_algorithm": prefix_algorithm,
-                "seed": seed,
-                "FE": int(state.evaluations),
-                "FE_ratio": float(state.evaluations / fe_total),
-                "FE_total": fe_total,
-                **sampling_metadata,
-                "sample_design_id": spec.sample_design_id,
-                "sample_design_protocol": sample_design.protocol,
-                "FE_query": fe_query,
-                "FE_no_query_optimization": fe_total - int(state.evaluations),
-                "FE_query_optimization": query_budget,
-                "remaining_budget_ratio": float(query_budget / fe_total),
-                "p_skip": float(skip.best_fitness),
-                "runtime_no_query_handoff": 0.0,
-                "runtime_no_query_optimization": float(skip.runtime_seconds),
-                "no_query_transition_mode": "native_optimizer_state",
-                "action_loss_protocol": ACTION_LOSS_PROTOCOL,
-            }
-            action_rows.extend({**common, **outcome} for outcome in outcomes)
+            for prefix_algorithm in prefix_algorithms:
+                state, trajectory_rows = _real_prefix_state(
+                    problem=problem,
+                    prefix_algorithm=prefix_algorithm,
+                    seed=seed,
+                    settings=settings,
+                    fe_total=fe_total,
+                )
+                behavior_rows.append(
+                    {"split": "bbob_train", **extract_behavior_rows(trajectory_rows)[-1]}
+                )
+                sampling_metadata = {
+                    column: trajectory_rows[-1][column]
+                    for column in SAMPLING_METADATA_COLUMNS
+                }
+                fe_query = sample_design.sample_size(dimension)
+                query_budget = fe_total - int(state.evaluations) - fe_query
+                skip_budget = fe_total - int(state.evaluations)
+                if prefix_algorithm == default_algorithm:
+                    skip_state = clone_optimizer_state(state)
+                    runtime_no_query_handoff = 0.0
+                    no_query_transition_mode = "native_optimizer_state"
+                else:
+                    handoff_started = perf_counter()
+                    skip_state = initialize_transferred_optimizer_state(
+                        algorithm=default_algorithm,
+                        source_state=state,
+                        problem=problem,
+                        seed=seed,
+                        function=function,
+                        instance=instance,
+                        event=NO_QUERY_TRANSFER_EVENT,
+                    )
+                    runtime_no_query_handoff = perf_counter() - handoff_started
+                    no_query_transition_mode = "population_transfer_initialization"
+                skip = advance_optimizer_state(
+                    state=skip_state,
+                    problem=problem,
+                    fe_budget=skip_budget,
+                )
+                outcomes = evaluate_candidate_actions(
+                    checkpoint_state=state,
+                    problem=problem,
+                    portfolio=portfolio,
+                    fe_budget=query_budget,
+                    seed=seed,
+                    function=function,
+                    instance=instance,
+                    checkpoint_fe=int(state.evaluations),
+                    action_budget_mode="query_adjusted",
+                    failure_loss_cap=float(config["failure_loss_cap"]),
+                )
+                reference_value = float(problem.reference_value)
+                skip_raw = float(skip.best_fitness)
+                skip_loss = max(skip_raw - reference_value, 0.0)
+                common = {
+                    "split": "bbob_train",
+                    "problem_id": problem.problem_id,
+                    "family": problem.family,
+                    "dimension": dimension,
+                    "prefix_algorithm": prefix_algorithm,
+                    "default_algorithm": default_algorithm,
+                    "no_query_algorithm": default_algorithm,
+                    "seed": seed,
+                    "FE": int(state.evaluations),
+                    "FE_ratio": float(state.evaluations / fe_total),
+                    "FE_total": fe_total,
+                    **sampling_metadata,
+                    "sample_design_id": spec.sample_design_id,
+                    "sample_design_protocol": sample_design.protocol,
+                    "FE_query": fe_query,
+                    "FE_no_query_optimization": skip_budget,
+                    "FE_query_optimization": query_budget,
+                    "remaining_budget_ratio": float(query_budget / fe_total),
+                    "performance_value_mode": "raw_objective",
+                    "performance_loss_mode": "known_optimum_gap",
+                    "benchmark_reference_value": reference_value,
+                    "p_skip": skip_loss,
+                    "p_skip_raw": skip_raw,
+                    "loss_skip": skip_loss,
+                    "runtime_no_query_handoff": float(runtime_no_query_handoff),
+                    "runtime_no_query_optimization": float(skip.runtime_seconds),
+                    "no_query_transition_mode": no_query_transition_mode,
+                    "action_loss_protocol": ACTION_LOSS_PROTOCOL,
+                }
+                action_rows.extend({**common, **outcome} for outcome in outcomes)
         finally:
             problem.close()
 
@@ -305,22 +304,50 @@ def _check_query_specific_regression(
         query_features=query_frame,
         query_spec=spec,
     )
-    selector, predictions, source = fit_selector_with_cross_family_predictions(states, observed_portfolio, spec)
-    reference = selection_rows(
-        states=states,
+    main_states = states[
+        states["prefix_algorithm"].astype(str) == states["default_algorithm"].astype(str)
+    ].reset_index(drop=True)
+    cross_probe_states = states[
+        states["prefix_algorithm"].astype(str) != states["default_algorithm"].astype(str)
+    ].reset_index(drop=True)
+    selector, predictions, source = fit_selector_with_cross_family_predictions(
+        main_states,
+        observed_portfolio,
+        spec,
+    )
+    main_reference = selection_rows(
+        states=main_states,
         portfolio=observed_portfolio,
         predictions=predictions,
         prediction_source=source,
-        runtime_selection=measure_online_selection_runtime(selector, states),
+        runtime_selection=measure_online_selection_runtime(selector, main_states),
     )
-    if len(reference) != 2 or source != "cross_family":
+    cross_probe_predictions = predict_with_main_prefix_cross_family_fits(
+        training_states=main_states,
+        prediction_states=cross_probe_states,
+        portfolio=observed_portfolio,
+        query_spec=spec,
+    )
+    cross_probe_reference = selection_rows(
+        states=cross_probe_states,
+        portfolio=observed_portfolio,
+        predictions=cross_probe_predictions,
+        prediction_source="cross_family_main_prefix",
+        runtime_selection=measure_online_selection_runtime(selector, cross_probe_states),
+    )
+    reference = pd.concat([main_reference, cross_probe_reference], ignore_index=True)
+    if len(reference) != 4 or source != "cross_family":
         raise ValueError("query-specific selector did not produce cross-family predictions")
+    if set(cross_probe_reference["selector_prediction_source"].astype(str)) != {
+        "cross_family_main_prefix"
+    }:
+        raise ValueError("cross-probe states did not use main-prefix cross-family fits")
     expected_handoff = ~reference["selected_equals_prefix"].astype(bool)
     if not np.array_equal(reference["handoff_required"].to_numpy(dtype=bool), expected_handoff.to_numpy()):
         raise ValueError("selection reference handoff_required is inconsistent")
     if set(reference["selector_target_transform"].astype(str)) != {SELECTOR_TARGET_TRANSFORM}:
         raise ValueError("selection reference did not freeze the action-loss target transform")
-    _check_explicit_action_relation_cases(states, observed_portfolio)
+    _check_explicit_action_relation_cases(main_states, observed_portfolio)
     with tempfile.TemporaryDirectory(prefix="decision-before-feature-query-check-") as directory:
         root = Path(directory)
         action_path = root / "action_losses.parquet"
@@ -353,19 +380,20 @@ def _check_query_specific_regression(
             query_feature_paths=[feature_path],
             output_path=reference_path,
             model_output_path=model_path,
+            overwrite=True,
         )
-        if int(summary["rows"]) != 2 or not model_path.exists():
+        if (
+            int(summary["rows"]) != 4
+            or int(summary["training_rows"]) != 2
+            or int(summary["cross_probe_training_rows"]) != 2
+            or not model_path.exists()
+        ):
             raise ValueError("query-specific selection-reference artifacts are inconsistent")
         loaded_selector = load_selector_model(model_path)
         if loaded_selector.sample_design_id != spec.sample_design_id:
             raise ValueError("saved selector model lost its query sample design")
         if loaded_selector.selector_target_transform != SELECTOR_TARGET_TRANSFORM:
             raise ValueError("saved selector model lost its action-loss target transform")
-        reference_row = pq.read_table(reference_path).to_pylist()[0]
-        label = _utility_row(row=reference_row, query_id=spec.query_id)
-        utility_path = root / "utility_labels.parquet"
-        pq.write_table(pa.Table.from_pylist([label], schema=utility_schema()), utility_path)
-        validate_utility_label_file(utility_path)
         legacy_model_path = root / "legacy_statewise_selector.joblib"
         loaded_selector.protocol = "query_specific_statewise_action_loss_regression_v2"
         save_selector_model(loaded_selector, legacy_model_path)
@@ -375,19 +403,80 @@ def _check_query_specific_regression(
             pass
         else:
             raise ValueError("legacy selector model protocol was not rejected")
-        legacy_reference_row = dict(reference_row)
-        legacy_reference_row["selection_reference_protocol"] = (
-            "query_specific_statewise_action_loss_regression_v2"
-        )
-        try:
-            _utility_row(row=legacy_reference_row, query_id=spec.query_id)
-        except ValueError:
-            pass
-        else:
-            raise ValueError("legacy Selection Reference label protocol was not rejected")
         if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v6":
             raise ValueError("Selection Reference protocol version is not frozen at v6")
     print("query-specific action-loss regression and utility consistency passed on 2 BBOB families")
+
+
+def _real_prefix_state(
+    *,
+    problem,
+    prefix_algorithm: str,
+    seed: int,
+    settings: OptimizerSettings,
+    fe_total: int,
+):
+    state = initialize_optimizer_state(
+        algorithm=prefix_algorithm,
+        problem=problem,
+        seed=seed,
+        settings=settings,
+    )
+    trajectory_rows = []
+    window_recorder = NativeUpdateWindowRecorder()
+    window_recorder.observe(
+        fe=int(state.evaluations),
+        native_updates=int(state.generation),
+        population=state.population,
+        fitness=state.fitness,
+        best_fitness=state.best_fitness,
+    )
+    target_fes = tuple(
+        int(ceil(ratio * fe_total / settings.population_size) * settings.population_size)
+        for ratio in (0.20, 0.22, 0.24)
+    )
+    for target_fe in target_fes:
+        advance_optimizer_state(
+            state=state,
+            problem=problem,
+            fe_budget=target_fe - int(state.evaluations),
+            on_native_update=lambda updated: window_recorder.observe(
+                fe=int(updated.evaluations),
+                native_updates=int(updated.generation),
+                population=updated.population,
+                fitness=updated.fitness,
+                best_fitness=updated.best_fitness,
+            ),
+        )
+        window_statistics, native_update_history = window_recorder.build(
+            fe_total=fe_total,
+            problem_id=problem.problem_id,
+            algorithm=prefix_algorithm,
+        )
+        trajectory_rows.append(
+            TrajectoryRecord.from_arrays(
+                problem_id=problem.problem_id,
+                function_id=problem.function_id,
+                family=problem.family,
+                dimension=problem.dimension,
+                algorithm=prefix_algorithm,
+                seed=seed,
+                fe=int(state.evaluations),
+                fe_total=fe_total,
+                native_updates=int(state.generation),
+                window_statistics=window_statistics,
+                native_update_history=native_update_history,
+                population=state.population,
+                fitness=state.fitness,
+                best_fitness=state.best_fitness,
+                sampling_metadata=_milestone_sampling_metadata(
+                    actual_fe=int(state.evaluations),
+                    fe_total=fe_total,
+                    monitor_target_ratio=float(target_fe / fe_total),
+                ),
+            ).__dict__
+        )
+    return state, trajectory_rows
 
 
 def _check_explicit_action_relation_cases(
@@ -486,7 +575,13 @@ def _check_action_loss_budget_separation(
                 seed=seed,
                 function=function,
                 instance=instance,
+                checkpoint_fe=int(state.evaluations),
+                action_budget_mode="query_adjusted",
+                failure_loss_cap=float(config["failure_loss_cap"]),
             )
+            reference_value = float(problem.reference_value)
+            skip_raw = float(skip.best_fitness)
+            skip_loss = max(skip_raw - reference_value, 0.0)
             common = {
                 "split": "bbob_train",
                 "problem_id": problem.problem_id,
@@ -506,7 +601,12 @@ def _check_action_loss_budget_separation(
                 "FE_no_query_optimization": fe_total - int(state.evaluations),
                 "FE_query_optimization": query_budget,
                 "remaining_budget_ratio": float(query_budget / fe_total),
-                "p_skip": float(skip.best_fitness),
+                "performance_value_mode": "raw_objective",
+                "performance_loss_mode": "known_optimum_gap",
+                "benchmark_reference_value": reference_value,
+                "p_skip": skip_loss,
+                "p_skip_raw": skip_raw,
+                "loss_skip": skip_loss,
                 "runtime_no_query_handoff": 0.0,
                 "runtime_no_query_optimization": float(skip.runtime_seconds),
                 "no_query_transition_mode": "native_optimizer_state",
@@ -520,7 +620,7 @@ def _check_action_loss_budget_separation(
     _check_action_losses(combined)
     if set(combined.groupby("sample_design_id")["FE_query"].first().astype(int)) != {500, 1000}:
         raise ValueError("real 10D action-loss consistency run did not preserve 5% and 10% query budgets")
-    for query_id in ("descriptor_cheap", "pflacco_broad"):
+    for query_id in ("descriptor_cheap_invariant", "pflacco_broad_invariant"):
         try:
             prepare_state_matrix(
                 combined,

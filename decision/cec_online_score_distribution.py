@@ -72,7 +72,7 @@ def diagnose_online_score_distribution(
         atol=0.0,
     ):
         raise ValueError(
-            "online threshold-neighborhood width is frozen by BBOB-train family-OOF; "
+            "online threshold-neighborhood width is fixed by BBOB-train landscape-family OOF; "
             "external overrides are not allowed"
         )
     near_zero_threshold = frozen_neighborhood_width
@@ -173,7 +173,7 @@ def diagnose_online_score_distribution(
         "scope_notes": [
             "This diagnostic scores online default-probe dynamic decision states only.",
             "It does not run the fixed query, selection reference, or post-decision query continuation.",
-            "Threshold-neighborhood rows use the frozen Q10 absolute margin fitted only on BBOB-train family-OOF scores.",
+            "Threshold-neighborhood rows use the fixed Q10 absolute margin fitted only on BBOB-train landscape-family OOF scores.",
         ],
     }
     summary_path = output_dir / "online_score_distribution_summary.json"
@@ -286,6 +286,7 @@ def _score_one_run(
         )
         behavior_stream = StreamingBehaviorState(
             problem_id=problem.problem_id,
+            function_id=problem.function_id,
             family=problem.family,
             dimension=problem.dimension,
             algorithm=default_algorithm,
@@ -586,7 +587,7 @@ def main() -> None:
         train_config_path=args.train_config,
         training_summary_path=args.training_summary
         or query_root
-        / "feature_group_ablation/B3/full_decision_model_training_summary.json",
+        / "feature_group_ablation/B3/all_accepted/full_decision_model_training_summary.json",
         output_dir=args.output_dir or query_root / split / "online_score_distribution",
         model_name=args.model_name,
         sampling_protocol=args.sampling_protocol,

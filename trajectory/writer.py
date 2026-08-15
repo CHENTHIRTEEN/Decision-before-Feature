@@ -57,6 +57,7 @@ NATIVE_UPDATE_STATISTIC_TYPE = pa.struct(
 TRAJECTORY_SCHEMA = pa.schema(
     [
         ("problem_id", pa.string()),
+        ("function_id", pa.string()),
         ("family", pa.string()),
         ("dimension", pa.int32()),
         ("algorithm", pa.string()),

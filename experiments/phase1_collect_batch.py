@@ -9,10 +9,13 @@ from tempfile import TemporaryDirectory
 from benchmarks import make_problem
 from optimizers import OptimizerRunResult, OptimizerSettings, run_optimizer
 from trajectory import write_final_performance_parquet, write_parquet
+from trajectory.final_performance import FinalPerformanceRecord
 from experiments.phase1_batch_common import (
     algorithms,
     as_int_list,
     fe_total_for_dimension,
+    function_id_name,
+    landscape_family_name,
     load_config,
     make_shards,
     selected_dimensions,
@@ -40,17 +43,55 @@ def _run_one(
         population_size=int(config["population_size"]),
         sampling_protocol=str(config["sampling_protocol"]),
     )
-    problem = make_problem(problem_config)
+    problem = None
     try:
+        problem = make_problem(problem_config)
         return run_optimizer(
             algorithm=algorithm,
             problem=problem,
             seed=seed,
             fe_total=fe_total_for_dimension(config, dimension),
             settings=settings,
+            log10_gap_floor=float(config["log10_gap_floor"]),
+            log10_gap_cap=float(config["log10_gap_cap"]),
+            success_gap_target=float(config["success_gap_target"]),
+            failure_loss_cap=float(config["failure_loss_cap"]),
+        )
+    except Exception as exc:
+        suite = str(config["suite"]).lower()
+        problem_id = (
+            f"bbob_f{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
+            if suite == "bbob"
+            else f"{suite}_f{int(function):02d}_d{int(dimension)}"
+        )
+        failure = FinalPerformanceRecord.from_failure(
+            problem_id=problem_id,
+            function_id=function_id_name(suite, function),
+            family=landscape_family_name(suite, function),
+            dimension=dimension,
+            algorithm=algorithm,
+            seed=seed,
+            fe_total=fe_total_for_dimension(config, dimension),
+            effective_fe=0,
+            native_updates=0,
+            best_fitness=None,
+            benchmark_reference_value=None,
+            failure_loss_cap=float(config["failure_loss_cap"]),
+            log10_gap_floor=float(config["log10_gap_floor"]),
+            log10_gap_cap=float(config["log10_gap_cap"]),
+            success_gap_target=float(config["success_gap_target"]),
+            first_hit_fe=None,
+            failure_type=type(exc).__name__,
+            failure_message=str(exc),
+        )
+        return OptimizerRunResult(
+            trajectory_records=[],
+            final_performance=failure,
+            trajectory_query_records=[],
         )
     finally:
-        problem.close()
+        if problem is not None:
+            problem.close()
 
 
 def _collect_records(

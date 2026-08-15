@@ -9,19 +9,23 @@ import pyarrow.parquet as pq
 from benchmarks import make_problem
 from experiments.phase1_batch_common import (
     as_int_list,
+    function_id_name,
+    landscape_family_name,
     fe_total_for_dimension,
     load_config,
     selected_dimensions,
     selected_functions,
     split_name,
+    validate_dynamic_collection_config,
 )
-from landscape_queries.sampling import sample_problem
+from landscape_queries.sampling import make_query_sample_seed, sample_problem
 from landscape_queries.specs import SAMPLE_DESIGN_SPECS, get_sample_design_spec
 
 
 SAMPLE_KEY_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "function",
     "instance",
@@ -45,6 +49,7 @@ def generate_query_samples(
     overwrite: bool,
 ) -> dict[str, int | str]:
     config = load_config(config_path)
+    validate_dynamic_collection_config(config)
     suite = str(config["suite"]).lower()
     if suite not in {"bbob", "cec2017", "cec2022"}:
         raise ValueError("query-sample-batch supports bbob, cec2017, and cec2022")
@@ -66,26 +71,30 @@ def generate_query_samples(
                     f"{sample_design_id} requires FE_total={fe_total} to be at least FE_query={expected_fe}"
                 )
             for instance in as_int_list(config, "instances"):
-                problem = make_problem(
-                    {
-                        "suite": suite,
-                        "function": function,
-                        "instance": instance,
-                        "dimension": dimension,
-                    }
-                )
+                problem = None
                 try:
+                    problem = make_problem(
+                        {
+                            "suite": suite,
+                            "function": function,
+                            "instance": instance,
+                            "dimension": dimension,
+                        }
+                    )
                     sample = sample_problem(
                         problem=problem,
                         sample_design=design,
                         base_seed=base_seed,
                         function=function,
                         instance=instance,
+                        success_gap_target=float(config["success_gap_target"]),
+                        failure_loss_cap=float(config["failure_loss_cap"]),
                     )
                     rows.append(
                         {
                             "split": split,
                             "problem_id": problem.problem_id,
+                            "function_id": problem.function_id,
                             "family": problem.family,
                             "function": int(function),
                             "instance": int(instance),
@@ -94,12 +103,67 @@ def generate_query_samples(
                             "sample_design_id": design.sample_design_id,
                             "sampling_protocol": design.protocol,
                             **sample,
-                            "sample_status": "ok",
-                            "sample_failure": "",
+                        }
+                    )
+                except Exception as exc:
+                    problem_id = (
+                        f"bbob_f{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
+                        if suite == "bbob"
+                        else f"{suite}_f{int(function):02d}_d{int(dimension)}"
+                    )
+                    failure_type = type(exc).__name__
+                    failure_message = str(exc)[:500]
+                    rows.append(
+                        {
+                            "split": split,
+                            "problem_id": problem_id,
+                            "function_id": function_id_name(suite, function),
+                            "family": landscape_family_name(suite, function),
+                            "function": int(function),
+                            "instance": int(instance),
+                            "dimension": int(dimension),
+                            "FE_total": int(fe_total),
+                            "sample_design_id": design.sample_design_id,
+                            "sampling_protocol": design.protocol,
+                            "sample_seed": make_query_sample_seed(
+                                base_seed=base_seed,
+                                function=function,
+                                instance=instance,
+                                dimension=dimension,
+                                sample_design=design,
+                            ),
+                            "sample_size": int(expected_fe),
+                            "FE_query": 0,
+                            "FE_query_planned": int(expected_fe),
+                            "runtime_query_sampling": 0.0,
+                            "runtime_query_evaluation": 0.0,
+                            "runtime_sampling_evaluation": 0.0,
+                            "benchmark_reference_value": None,
+                            "success_gap_target": float(config["success_gap_target"]),
+                            "query_success": False,
+                            "query_first_hit_offset": None,
+                            "query_best_gap": float(config["failure_loss_cap"]),
+                            "lower_bounds": [],
+                            "upper_bounds": [],
+                            "X": [],
+                            "y": [],
+                            "sample_status": "failed",
+                            "sample_path_completed": False,
+                            "sample_planned_FE": int(expected_fe),
+                            "sample_effective_FE": 0,
+                            "sample_observed_first_hit_FE": None,
+                            "sample_target_hit_observed": False,
+                            "sample_target_hit_before_failure": False,
+                            "sample_endpoint_success": False,
+                            "sample_timed_out": False,
+                            "sample_failure_type": failure_type,
+                            "sample_failure_message": failure_message,
+                            "sample_failure": f"{failure_type}: {failure_message}"[:500],
                         }
                     )
                 finally:
-                    problem.close()
+                    if problem is not None:
+                        problem.close()
 
     if not rows:
         raise ValueError("query sampling produced no rows")
@@ -114,6 +178,7 @@ def sample_schema() -> pa.Schema:
         [
             ("split", pa.string()),
             ("problem_id", pa.string()),
+            ("function_id", pa.string()),
             ("family", pa.string()),
             ("function", pa.int32()),
             ("instance", pa.int32()),
@@ -124,14 +189,30 @@ def sample_schema() -> pa.Schema:
             ("sample_seed", pa.int64()),
             ("sample_size", pa.int64()),
             ("FE_query", pa.int64()),
+            ("FE_query_planned", pa.int64()),
             ("runtime_query_sampling", pa.float64()),
             ("runtime_query_evaluation", pa.float64()),
             ("runtime_sampling_evaluation", pa.float64()),
+            ("benchmark_reference_value", pa.float64()),
+            ("success_gap_target", pa.float64()),
+            ("query_success", pa.bool_()),
+            ("query_first_hit_offset", pa.int64()),
+            ("query_best_gap", pa.float64()),
             ("lower_bounds", pa.list_(pa.float64())),
             ("upper_bounds", pa.list_(pa.float64())),
             ("X", pa.list_(pa.list_(pa.float64()))),
             ("y", pa.list_(pa.float64())),
             ("sample_status", pa.string()),
+            ("sample_path_completed", pa.bool_()),
+            ("sample_planned_FE", pa.int64()),
+            ("sample_effective_FE", pa.int64()),
+            ("sample_observed_first_hit_FE", pa.int64()),
+            ("sample_target_hit_observed", pa.bool_()),
+            ("sample_target_hit_before_failure", pa.bool_()),
+            ("sample_endpoint_success", pa.bool_()),
+            ("sample_timed_out", pa.bool_()),
+            ("sample_failure_type", pa.string()),
+            ("sample_failure_message", pa.string()),
             ("sample_failure", pa.string()),
         ]
     )

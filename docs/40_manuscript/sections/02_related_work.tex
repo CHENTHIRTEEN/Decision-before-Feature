@@ -76,7 +76,7 @@ a possible explanation.  Both internal evaluations retain the same BBOB
 functions across training and test partitions: the CEC study groups
 five-dimensional observations by instance identifier, while the PPSN study uses
 run- and instance-level partitions in five and ten dimensions.  These protocols
-answer different questions from the present function-family OOF design; they are
+answer different questions from the present grouped-by-function OOF design; they are
 antecedents for representation and warm-starting, not precedents for the present
 evaluation design.
 
@@ -234,15 +234,18 @@ not outperform SBS under the most demanding problem-oriented splits
 \cite{cenikjLandscapeFeaturesSingleobjective2025}.  A recent representation
 survey likewise highlights inconsistent sampling and split protocols, heavy
 dependence on BBOB, and limited cross-benchmark evidence
-\cite{cenikjSurveyFeaturesUsed2026}.  These observations motivate function-
-family out-of-fold selection and a held-out evaluation; they do not guarantee
-that the resulting gate transfers.
+\cite{cenikjSurveyFeaturesUsed2026}.  These observations motivate
+function-ID-grouped out-of-fold selection and function-held-out evaluation;
+they do not guarantee that the resulting gate transfers.  In the present
+study, the BBOB-validation outcomes were inspected during earlier development,
+so that split supplies an internal finite-set estimate rather than an
+independent confirmation.
 Benchmarking work further shows that leave-one-instance-out evaluation can
 reward representations that recover a problem class shared by related training
 and test instances without learning to rank algorithms on unseen problems, and
 that scale-sensitive prediction errors need not measure selection quality
 \cite{petelinPitfallsBenchmarkingAlgorithm2025}.  The present study therefore
-uses function-family partitions and selects the Decision Model by policy utility
+uses function-ID-grouped partitions and selects the Decision Model by policy utility
 rather than raw action-loss regression error.  This design addresses those two
 failure modes without establishing generalization in advance.
 
@@ -253,6 +256,6 @@ predict whether the query's downstream performance difference justifies its FE
 and computational cost.  Decision-before-Feature addresses this corpus-scoped
 gap with matched-state offline labels, an explicit separation between the query
 gate and the downstream selector, a time-only comparator, and nested
-function-family evaluation.  The literature supports this formulation and its
+nested function-level evaluation.  The literature supports this formulation and its
 design constraints; it does not supply evidence for the pending RQ1--RQ5
-outcomes or for held-out and cross-benchmark generalization.
+outcomes or for generalization across function IDs or benchmark suites.

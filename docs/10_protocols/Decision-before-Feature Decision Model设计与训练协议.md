@@ -1,520 +1,184 @@
-# Decision-before-Feature Decision Model设计与训练协议
+# Decision-before-Feature Decision Model 设计与训练协议
 
-> 实现同步（2026-08-11）：旧 18 模型比较依赖重建式 continuation 标签，已撤回正式证据资格。活动候选现固定为 LDA、Logistic Regression 与 Ridge；完整状态 trajectory 与 utility labels 重生成后，按 nested function-family OOF decision utility 重新选择，不预设任一候选胜出。BBOB-validation 只作冻结评价。
+> 唯一活动协议（2026-08-15 修订）。旧 18 模型搜索、预制完整-train Utility 上的伪 outer OOF、逐状态 threshold、四组 T0/B1/B2/B3 消融和 validation 参与比较的口径全部退出。本文件定义待实现与待运行的设计，不声称模型或正式结果已经生成。BBOB-validation 已被历史开发读取，只是已见内部评价集；CEC2017 已有历史在线诊断，只是已见外部开发集。
 
-## 1. 文档定位
+## 1. 研究对象与信息时序
 
-本文档定义 Decision-before-Feature 框架中的 `decision model`。
+Decision Model 在 query 获取之前工作。给定一条由 fold-specific SBS 产生的完整 native trajectory，它在有序 decision opportunities 上判断是否第一次执行当前固定 query。一个 run 最多触发一次；query 触发后后续机会在该 policy 下不可达。
 
-### 1.1 术语约定
+当前 query sampling 是固定整数 `sample_seed` 定义的确定性算子：base seed、stream code、function number、instance、dimension 与 sample-design code 一起进入 `numpy.random.SeedSequence`。每个 static problem × sample design 只产生一个 problem-keyed LHS realization，optimizer seed、decision state 与 action 共用它。本轮不增加 LHS replicates，也不新增 action losses；所有 query 结论严格条件于这组固定 realizations，不估计对重复 query sampling randomness 的期望。
 
-为与 `Behavior Feature Taxonomy` 和 `实验数据生成` 两份协议保持一致，本文统一采用以下术语：
+令 Stage-A 预指定单次科学 outcome 的每条路径非负 benchmark-reference raw gap 先按 suite 配置在
+`[1e-12, 1e20]` 截断，再记其十进制对数为
+`ell_skip`、`ell_q` 与 `ell_b`。令 `T_skip`、`T_q`、`T_b` 为同一
+complete state 和 RNG 起点到 terminal 的 Stage-B 三次真实 timing-only replay 的 censored future-path wall-clock 中位数：completed repetition 取 raw observed time，timed-out/failed repetition 取 `max(raw observed time, role timeout)`；共享 prefix 视为 sunk cost。Stage-B 逐次保存 raw/censored time、status/effective FE/timeout/completion；Stage-A completed 时完成项复现其 gap、`observed_first_hit_FE`、`target_hit_observed` 与 `endpoint_success`，Stage-A 未完成时完成项只检查彼此一致且不得覆盖失败端点；状态混合保留为 instability，且不得选择性补跑。raw observed median 只作诊断。FE=0→terminal policy wall-clock 另报且不进入 Utility。主预测目标是：
 
-- `search trajectory`：单次优化运行中的状态序列；
-- `behavior state`：从 `search trajectory` 聚合得到的低成本输入表示；
-- `query utility`：固定 query 在当前状态下的效用值，记为 $U_{query}$；
-- `decision model`：基于 `behavior state` 预测 `query utility` 的模型；
-- `decision controller`：输出是否执行 query 的控制器；
-- `online evaluation`：在流式状态接口上进行推理、阈值判定与切换评估；
-- `decision score`：用于 query 决策的连续分数，记为 $s(x)$。
+\[
+U_{query}^{joint}(s_t)=
+(\ell_{skip}-\ell_q)
+-\lambda_T(\log_{10}T_q-\log_{10}T_{skip}),
+\]
 
-目标：
+即 Query + full Selector 联合路径相对 native SBS continuation 的效用。该量含 query acquisition、Selector error、action transition、remaining-budget 和 continuation effects，不是 query descriptors 的独立边际价值。
 
-根据低成本 `behavior state`，在执行固定 query 之前预测：
+另保留：
 
-$$ U_{query} $$
+- `U_behavior_only_full_budget`：Behavior-only Selector 相对 Skip 的 full-budget 效用；
+- `query_operational_increment`：Query path 相对 full-budget Behavior-only path 的净增量；必须分别在全 eligible states 与同一 Proposed first-trigger states 报告；
+- query-adjusted state-only/query-only/full Selector：只作信息来源诊断。
 
-从而决定：
+主操作性情景固定为 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 是完整 sensitivity，不得按 train、validation 或 external result 改选。旧 raw-gap max-scale、相对时间差或一次计时 Utility 全部失效。
 
-是否执行所评估的固定 landscape-analysis query。
+`I_q` 同时包含 query FE/runtime、sample best、较短 continuation budget 与 Selector 差异，不是纯信息效应或因果 estimand。若同一分析范围 `U_query_joint>0` 但 `I_q<=0`，只能支持联合路径优于 SBS，不能支持 query acquisition 优于 Behavior-only。正式五路径用 `query_matched_state_only` 与 `sampling_only_continue_current` 进一步分解 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量，并要求逐行加法一致；`query_feature_predictive_increment_log10_gap` 另保留为排除 sample best 的预测诊断。
 
-核心：
+## 2. Decision 输入
 
-`decision model` 不是优化器，而是：
+允许输入仅为 query 前可得、对 population 行排列不变的 Behavior：
 
-`decision controller`。
+- improvement rate/frequency；
+- diversity 与分布变化；
+- set-motion summaries；
+- fitness-distribution change；
+- stagnation、distance decay、convergence；
+- Search Maturity 的确定性派生基函数。
 
-## 1.2 术语对齐规则
+禁止进入 Decision X：
 
-- 文中优先使用 `decision model` 指代监督学习组件；
-- 使用 `decision controller` 指代上线后的决策执行模块；
-- 使用 `behavior state` 指代面向模型输入的行为表示；
-- 使用 `search trajectory` 指代行为表示的原始来源；
-- 使用 `online evaluation` 指代部署态评估过程。
+- query features 或 query sample values；
+- function ID、BBOB function number、benchmark suite；
+- dimension；
+- prefix/default/selected algorithm ID；
+- optimizer-specific parameter、internal state 或 RNG state；
+- benchmark reference value、known optimum、任何 gap；
+- observed action losses、best observed action、Selector prediction/regret；
+- nominal milestone/event label、window metadata。
 
-------------------------------------------------------------------------
+`FE_ratio` 通过 `bf_fe_ratio` 进入；后者必须逐行等于实际整数 `FE/FE_total`。算法身份可作为 metadata 分层，但“algorithm-identity-free”不等于行为分布对 prefix optimizer 不敏感，结论限定于主 SBS prefixes。
 
-# 2. Decision Model总体流程
+## 3. 冻结输入组与 Search Maturity
 
-    Search Behavior State
+| 组 | 输入 | 字段数 |
+|---|---|---:|
+| T0 | `bf_fe_ratio` | 1 |
+| B1 | core permutation-invariant Behavior | 19 |
+| B2 | B1 + longitudinal set dynamics | 25 |
+| B2+Motion | B2 + 3 set-motion fields | 28 |
+| B2+Maturity | B2 + 3 deterministic maturity fields | 28 |
+| B3 | B2 + Motion + Maturity | 31 |
 
-            |
+`B2+Motion` 和 `B2+Maturity` 是兄弟组，分别识别 set-motion 与确定性 Maturity 变换的预测增量；B3 同时包含二者。Search Maturity 不增加原始信息，不称为 latent state、因果中介或已验证阶段。`all_candidates` 只是 B3 兼容别名，不是第七组；3 个 diagnostic-only 字段不进入任一组。
 
-            v
+T0 主比较只用 12 个预算 milestones，称为 `milestone_only_T0`。B3 与 T0 的直接对比也在同一 milestone rows 上重算。event-only opportunity 的出现依赖 Behavior，因此完整动态 schedule 上的 `schedule_conditioned_T0` 只能作 sensitivity。
 
-    Feature Representation
+T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性静态上下文诊断 `dimension_stratified_T0`：在 BBOB 的 10D、20D、40D 内分别执行同一 grouped-by-function OOF/threshold 链，每层模型仍只输入 `bf_fe_ratio`。当前 `FE_total=1000d`，所以 `log(dimension)` 与 `log(FE_total)` 完全共线；主 cheap query 的 planned query-cost ratio 恒为 0.05，也不能形成可识别输入。只有 B3 相对 `milestone_only_T0` 与 `dimension_stratified_T0` 的有限集效应方向均一致时，才可写“Behavior 的预测信息超过单纯调用阶段，且该观察不能仅由已评估维度层解释”；该诊断不进入主 Decision X，也不外推到未训练维度。
 
-            |
+## 4. 活动模型
 
-            v
+活动候选只包括：
 
-    Decision Model
+1. LDA classification：拟合 `1[U_query_joint_lamT_1 > 0]`；
+2. Logistic Regression classification：`C=1`、balanced class weights、L-BFGS，拟合同一标签；
+3. Ridge regression：`alpha=1`，拟合连续 `u_query_joint_lamT_1`。
 
-            |
+三个候选都使用 Pipeline 内的 train-fold median imputation 与 standard scaling。Random Forest、XGBoost、LightGBM、MLP、SVM、kernel approximation 或额外 feature engineering 不进入活动 Decision Model 搜索。Selection Reference 的固定多输出 Random Forest 是不同组件。
 
-            v
+同名模型家族另拟合 `U_behavior_only_full_budget`，用于 `self_thresholded_behavior_only`；不重新选择模型家族。LDA/Logistic score 只表示分类判别分数，不解释为 Utility magnitude；连续 Utility RMSE 只对 Ridge 定义。
 
-    Query Utility Prediction
+## 5. 完整 outer-fold-specific 嵌套
 
-            |
+模型选择的证据单位是 BBOB-train outer holdout function。每个 outer fold 必须独立执行整条学习链：
 
-            v
+1. 从 outer-fit functions 的 `FE=FE_total` outcomes 计算 `SBS_outer`；
+2. 仅使用 `SBS_outer` prefixes 形成 outer-fit/outer-holdout 主 population；
+3. 在 outer-fit functions 内部 cross-fit Query Selector 与 Behavior-only Selector，生成不含同 function in-sample Selector prediction 的 outer-fit Decision labels；
+4. 由两套 Stage-A action matrices、selected replay plan、Stage-B 三次 state-to-terminal timing-only replay 和 Stage-A 截断 `log10_gap` 生成三类 Utility；
+5. 对每个活动 Decision candidate，在 outer-fit functions 内做 inner function folds；每个 inner fold 必须只用 inner-fit functions 重新计算 `SBS_inner`，在 inner-fit 内 cross-fit 并重拟合两类 Selector，生成 inner-fit Decision labels，再拟合 preprocessing 与 Decision；
+6. inner-holdout Utility 与 score 只能由 `SBS_inner` 和 inner-fit 上游组件生成。拼接这些端到端 inner OOF rows，分别按 Query-joint 与 Behavior-only run-level first-trigger objective 冻结 outer threshold；T0 只读 milestones；
+7. 用 `SBS_outer` 在全部 outer-fit functions 上重建 outer-fit labels，并拟合两类 Selector、Decision 与 preprocessing；
+8. 只在组件冻结后，对 outer holdout function 生成 Utility、score、first-trigger policy outcome 与所有 baseline 指标。
 
-    Decision
+outer 或 inner holdout 均不得参与其评价链中的 SBS、Selector、Utility label、imputation、scaling、model、threshold、Random calibration、score-neighborhood 或 feature-group decision。不得先用完整 BBOB-train 生成 Utility labels 再仅对 Decision Model 分 folds，并把所得分数称为端到端 nested OOF。
 
-输出是连续 Utility 预测或 `U_query>0` 分类分数，统一记为 decision score $s(x)$。部署规则固定为 $s(x)>\theta_{OOF}$ 时执行 query，其中 $\theta_{OOF}$ 只由 BBOB-train family-OOF 分数拟合。
+外层 fold 数和内层 fold 数只由 BBOB-train function-ID groups 与预设 GroupKFold 规则确定；同一 transformed instance 或 seed 不得跨 function group 作为独立 holdout。该设计统一称为 `grouped-by-function` 或 function-level split。代码中历史字段名 `family=bbob_fNNN` 只表示 BBOB function grouping key，不表示经典 landscape family taxonomy，也不支持跨 landscape-family 泛化表述。
 
-------------------------------------------------------------------------
+## 6. First-trigger threshold 与模型选择
 
-# 3. 输入设计
+对 run `r` 的有序机会 `s_{r1},...,s_{rK}`，score 为 `z_{rj}`。给定 threshold `tau`：
 
-## 3.1 输入来源
+\[
+J_r(\tau)=\min\{j:z_{rj}>\tau\}.
+\]
 
-输入来自：
+集合为空时 run Utility 为 0；否则只使用 `U(s_{rJ_r})`。threshold objective 是所有 outer-fit inner-OOF runs 经 run → static problem → fixed dimension stratum → function 聚合后的 mean first-trigger Utility。若并列，先选调用 runs 更少的 threshold；仍并列选数值更大的 threshold。
 
-Optimization Trajectory。
+三候选主选择只看 B3 上拼接 outer holdouts 后的 function-balanced mean first-trigger `u_query_joint_lamT_1`。并列顺序固定 LDA → Logistic Regression → Ridge。AUROC、Average Precision、Spearman、Ridge RMSE、T0、validation 或 external result 不改写选择。
 
-不允许：
+拼接 train outer OOF 只用于预设候选选择与开发期诊断。选择最大 OOF 候选后，同一 OOF 不能称为 selected procedure 的无偏 estimate。BBOB-validation 已被历史模型比较、调参、消融和采样设计读取，只能给 selected procedure 与 milestone-only B3--T0 的已见内部有限集估计；删除或撤回旧产物不能恢复“未见”状态。CEC2017 同样只作已见外部开发集估计。确认性外部证据只能来自本次协议冻结后才生成并首次运行的 CEC2022 与工程集合；三候选两两 outer-OOF 对比仍只是选模诊断。
 
--   query feature（只允许来自已冻结 query contract 的特征表）
--   Function ID
--   Algorithm parameter
+选择模型名后，同一名字用于 T0、B1、B2、B2+Motion、B2+Maturity、B3 和 Behavior-only fit；每组仍按自身 train-only OOF scores 冻结 threshold，但不重新选模型或主 feature group。
 
-原因：
+最终部署使用完整 BBOB-train 重新执行相同 function-OOF 链，冻结：
 
-避免信息泄漏。
+- full-train SBS；
+- Query Selector 与 Behavior-only Selector；
+- selected B3 Decision model；
+- `oof_utility_first_trigger` threshold；
+- `oof_behavior_utility_first_trigger` threshold；
+- Proposed OOF run-level call rate及 first-trigger `FE_ratio` 经验分布，供 `matched_rate_random` 使用。
 
-------------------------------------------------------------------------
+BBOB-validation、CEC2017、CEC2022 与工程问题均只加载这些 BBOB-train frozen components。证据角色不同：BBOB-validation 是已见内部评价集，CEC2017 是已见外部开发集；CEC2022 与工程集合只有在函数/问题范围、维度、预算、重复、reference/constraint rule、失败端点、runner/factory 与分析 contrasts 全部冻结且未查看任何 outcome 后，才是确认性外部评价。当前 CEC2022 缺少冻结配置，工程集合还缺少配置、factory 与 constraint endpoint，二者均是正式确认性运行 blocker。
 
-# 3.2 Feature Vector
+主训练改为 `cluster_balanced_fit`。在每个 fit fold 内，先使 functions 等权，再使每个 function 内的固定 dimension strata 等权、每个 function × dimension 内的 static problems 等权、每个 static problem 内的 optimizer runs 等权，最后把每个 run 的权重等分到其合格 states；row weights 只在该 fit fold 内计算并归一化为均值 1。`sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动修正训练权重；在 imputation/scaling/三候选 estimator 尚未对同一 cluster-balanced fit population 完成兼容实现前，不得冻结正式模型。
 
-定义：
+## 7. Policy 指标
 
-$$ x_t $$
+模型选择、threshold、validation、baseline 和主策略指标全部使用 trajectory first-trigger。主指标包括：
 
-包括：
+- run-level mean joint Utility；
+- matched-trigger query operational increment；
+- run-level call/trigger/handoff rates；
+- first-call precision 与 non-beneficial first-call Utility；
+- first-trigger utility capture；
+- final `log10_gap`、target-hit rate、endpoint-success rate、ERT；
+- decision-state future-path ratio、FE=0→terminal policy wall-clock 与 peak memory；
+- coverage 与失败敏感性。
 
-fitness 相关输入采用 shift-invariant 稳健尺度，以优化器初始化后、任何原生 update 前的已评估 population fitness IQR 归一化。`bf_fitness_diversity_rel` 是唯一的当前 IQR 相对初始化 IQR 字段；另一旧字段在文档定义上与其重复，代码却错误地以当前 IQR 自归一化为近常数，现已删除。DynamoRep-lite 的其余 6 项为 fitness-spread slope、population/elite centroid shift、covariance trace ratio、covariance effective rank 与 diversity recovery。当前行为输出/正式输入/诊断字段计数冻结为 34/31/3，`T0/B1/B2/B3=1/19/25/31`；T0 严格只含 `bf_fe_ratio`。
+utility capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(0,U_t)`。策略分子只取其 first-trigger state 的 `max(0,U)`，未触发为 0。该分母不随策略触发时点改变，也不是可部署 policy；聚合时报告加权分子、分母和二者比值，并单报 `H_r=0` 的 run 比例。逐状态 AUROC/AP/Spearman 与 state-level capture 只能标为 auxiliary score diagnostics。
 
-## Progress
+## 8. 统计规则
 
--   FE ratio
--   improvement rate
--   improvement frequency
+function 是最高聚合层。BBOB-validation 的 F5/F9/F13/F14/F19/F24、固定 dimensions 与 instances 1/2/3 是已见固定有限集合，不是 function 或 transformed-instance 超总体样本；其 estimand 是这些固定单元的等权有限集均值。10,000 次条件配对 bootstrap 始终保留全部 6 functions、全部 fixed dimensions 与全部 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。RQ1 对每个抽中 seed/run 保留完整有序 state 簇。function-resampling 只作函数组成敏感性，不进入主 95% CI，也不能恢复确认性或产生超总体区间。CEC2017 按同样原则只给已见外部开发集有限集估计。
 
-## Diversity
+ERT 不进入通用“run-level 数值先求差再取算术均值”的 bootstrap。每个 policy 在每个 `function × dimension` stratum 内以 `ERT=N_FE/N_hit` 重算：每个 bootstrap replicate 固定全部 static problems，只在每个 problem 内联合配对重抽 optimizer runs，分别重算 treatment/reference 的 FE numerator 与 hit count，再形成 `log10(ERT_treatment/ERT_reference)`；随后对固定 dimensions 等权得到 function effect，最后对固定 functions 等权。单方 `N_hit=0` 的 stratum 保留为有符号无穷，双方 `N_hit=0` 记为显式 undefined mass；不得静默删除 stratum 或 replicate。区间使用扩展实数分位数，将 undefined mass 保守分配到两侧尾部，并分开保存 finite/unbounded/undefined-observed 状态、undefined mass 与各类零命中计数。`interval_established` 只表示 observed contrast 和扩展实数边界是否有定义，不得因为一个偶发 bootstrap replicate 出现零命中就改变。绝对 ERT 逐 `function × dimension` 报告；不同维度的 raw FE 不得先池化成一个总体 ERT。若另报总体绝对量，只允许使用预先定义的 budget-normalized ERT 有限集汇总，且不能替代主 log-ratio。
 
--   population diversity
--   diversity change
+Utility ±0.01、`log10_gap` ±0.05、runtime ratio `[0.95,1.05]`、call/target-hit-rate 差 ±0.05 只称为“项目内预设 operational tolerance”，没有独立领域依据时不得称 confirmatory equivalence。BBOB-validation 与 CEC2017 只用 95% 条件区间逐项描述相对 tolerance 的位置；差异不显著不表示等价，Utility 中的 endpoint 抵消也不能建立任一端点等价。若未来 untouched external suite 预先声明 simultaneous intervals，其 family、interval level 与解释必须在首次 outcome 前冻结，但当前第一篇论文不据这些项目内 tolerance 作确认性等价声明。
 
-## Exploration
+RQ2 的主要科学 contrast 仍是冻结模型家族的 milestone-only B3--T0；其 BBOB-validation 数值只是已见内部有限集估计，确认性证据等待 untouched CEC2022 与工程集合。RQ3--RQ5 均改为估计性分析，以逐 function/problem effects、固定有限集均值和条件 95% CI 为主。双侧 sign-flip/Holm 仅可作为明确依赖“固定 function effects 的 signs 可交换”假设的辅助敏感性：六函数 exact raw p 最小 0.03125，RQ3 与 RQ5 各自六 contrasts 的最小 Holm-adjusted p 均为 0.1875，不能作为 RQ 成败判据。RQ4 按 suite 与 endpoint 分开，不把四个 suites 组成一个 Holm family；某 suite 内若有多个 contrasts，必须在首次 outcome 前单独冻结 family。未拒绝不表示无效或等价，任何 raw/adjusted p 都不支持函数超总体推断。前瞻外部评价同样以预设有限 suite 的效应量、区间、coverage 与失败敏感性为主。
 
--   population Wasserstein change rate
--   centroid shift coherence
--   covariance spectral concentration
+## 9. 失败与产物资格
 
-## Fitness Distribution
+Decision score 缺失或非有限时，该机会按 No-query；若 run 尚未触发，可在下一可达机会重新检查。query 触发后的 query/Selector failure 保留 FE 和 wall-clock，fallback 为 query-adjusted native `continue_current`。所有计划 run 进入 coverage denominator。BBOB train/validation 与 CEC2017 固定 raw-gap floor/cap `1e-12/1e20`、success target `1e-8`、单 state-action path timeout `3600 s`，并在 Stage-A 每次 objective evaluation 记录 first hit；Stage-A timeout 计科学失败且保留，ERT 失败项计完整 planned budget。Stage-B timeout/failure 只进入 timing 状态、instability 与 failure sensitivity，不重定义科学 endpoint。
 
--   quantile improvement fraction
--   mean distribution improvement rate
--   fitness Wasserstein rate
+每个 suite × endpoint 同时报 attempted denominator/coverage、complete-pair estimate 与双向极端 failure sensitivity。未闭合 pair 的 favorable/adverse 赋值为 gap floor/cap、`target_hit_observed` 1/0、ERT 未命中项的 full planned budget、runtime 取该 suite complete pairs 最小正值/timeout；Utility 从同一组极端 endpoint 重算。`endpoint_success` 若作为单独 endpoint，也按 1/0 分配但不得替代 ERT 的 target-hit 定义。已按 cap/timeout 保留的科学 path failure 是观测，不当作 missing pair。效应方向、区间相对 operational tolerance 的位置任一改变，或 coverage<95%，对应结论未建立。
 
-## Exploitation
+`experiments/hierarchical_inference.py::paired_run_effects` 中的缺失配对删除只定义 complete-pair estimate，不是 attempted-population result。任何 consumer 必须另接计划 denominator、coverage 与上述双向 failure sensitivity；该 consumer 未闭合前，通用 paired interval 不能单独进入 suite 结论。
 
--   distance decay
--   stagnation
--   convergence rate
+`paired_ert_strata` 与 `paired_hierarchical_ert_log10_ratio_interval` 当前也只是专用 ERT 计算核，尚无 suite 汇总 caller 将 ratio、attempted denominator/coverage、双向 failure sensitivity 与正式报告表接在同一分析链中。该 consumer 未实现前，专用 ERT 输出同样不得进入 suite 结论。
 
-## Optional
+旧重建式 trajectory、旧 Selection Reference、旧 Utility 数值、完整-train 预制 Utility 上的 Decision-only OOF、逐状态 threshold、旧 `oof_utility`、四组消融和 validation 参与的产物均无正式证据资格。只有通过第 5 节完整 outer/inner 上游链、整数 FE state coverage、Stage-A/Stage-B 字段分离、三次预定计时及 endpoint consistency/instability 检查和 first-trigger policy reconstruction 的新产物可进入模型选择或论文结果。
 
-Search Maturity。
+## 10. 生成顺序
 
-------------------------------------------------------------------------
-
-# 4. 模型目标设计
-
-## 4.1 Regression形式
-
-预测：
-
-$$ \hat U=f_\theta(x) $$
-
-训练目标：
-
-$$ L= (U_{query}-\hat U)^2 $$
-
-优势：
-
-保留收益大小。
-
-------------------------------------------------------------------------
-
-## 4.2 Classification形式
-
-标签：
-
-$$ y=
-\begin{cases}
-1,&U_{query}>0\\
-0,&otherwise
-\end{cases}
-$$
-
-输出：
-
-$$ P(U>0) $$
-
-分类目标不直接拟合 Utility 大小，成本差异由 OOF decision-utility threshold 选择体现。分类分数不得直接与连续 Utility 计算 RMSE。
-
-------------------------------------------------------------------------
-
-# 5. 固定模型体系
-
-活动候选严格为：
-
-1. LDA classifier：`LinearDiscriminantAnalysis()`；
-2. Logistic Regression classifier：`C=1.0`、`class_weight="balanced"`；
-3. Ridge regression：`alpha=1.0`。
-
-三个候选均使用 Pipeline 内的 BBOB-train median imputation 与 standard scaling；每个 OOF fit fold 独立拟合 preprocessing。Random Forest、XGBoost、LightGBM、MLP、SVM、核近似和额外特征工程不进入活动 Decision 候选或超参数搜索。Selection Reference 的 Random Forest action-loss regression 是固定下游组件，不属于 Decision Model 候选。
-
-------------------------------------------------------------------------
-
-# 6. 是否加入Search Maturity
-
-设计两个版本。
-
-------------------------------------------------------------------------
-
-## Model A: Direct Utility Prediction
-
-    Behavior Features
-
-            ↓
-
-    Decision Model
-
-            ↓
-
-    U_query
-
-------------------------------------------------------------------------
-
-## Model B: Maturity-aware Model
-
-    Behavior Features
-
-            ↓
-
-    Search Maturity
-
-            ↓
-
-    Decision Model
-
-            ↓
-
-    U_query
-
-比较：
-
-验证Search Maturity价值。
-
-------------------------------------------------------------------------
-
-# 7. 训练数据构造
-
-每个样本：
-
-对应一个搜索状态。
-
-格式：
-
-    (problem,
-    algorithm,
-    dimension,
-    FE_ratio,
-    behavior_state,
-    U_query)
-
-其中：
-
-algorithm只用于分析。
-
-不进入模型。
-
-第一篇论文主训练表只保留 `prefix_algorithm == default_algorithm ==` 训练集 SBS 且 `skip_switches_from_prefix == false` 的状态。完整多 prefix 表单独用于 cross-probe robustness、leave-one-probe-out 和 algorithm-agnostic 泛化，不进入主模型拟合、主 threshold 选择或主结果汇总。
-
-`selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `skip_switches_from_prefix` 只用于数据范围检查和分层报告，同样不进入模型输入。活动 Decision 数据和报告不生成 selected-vs-default 字符串别名。
-
-------------------------------------------------------------------------
-
-# 8. 数据划分
-
-## 训练集
-
-BBOB：
-
-不同function family。
-
-------------------------------------------------------------------------
-
-## 验证集
-
-只用于冻结后的内部性能评价，不参与：
-
-- preprocessing 拟合；
-- 模型或候选选择；
-- threshold 拟合；
-- feature-group、checkpoint 或 query 配置改选。
-
-------------------------------------------------------------------------
-
-## 测试集
-
-严格OOD：
-
--   unseen function family
--   CEC benchmark
--   unseen dimension
-
-------------------------------------------------------------------------
-
-# 9. 防止模型学习shortcut
-
-## 禁止输入
-
-### Function identity
-
-否则：
-
-记忆函数。
-
-### Dimension
-
-否则：
-
-学习复杂度。
-
-### Algorithm ID
-
-否则：
-
-学习算法。
-
-### Query Feature
-
-否则：
-
-循环。
-
-------------------------------------------------------------------------
-
-# 10. 模型选择与 Threshold 设计
-
-## 10.1 嵌套 function-family OOF 模型选择
-
-- 外层：BBOB-train families 的 5-fold GroupKFold，用于评价每个候选的 decision utility；
-- 内层：每个外层 fit 部分再做 4-fold family OOF，只用内层 OOF score 与 Utility 拟合该外层 threshold；
-- 主选择指标：拼接全部外层 holdout 决策后的 mean decision utility；
-- 指标相同时按预先固定候选顺序 LDA、Logistic Regression、Ridge 决定，不读取 validation。
-
-## 10.2 冻结部署 threshold
-
-选模之外，对完整 BBOB-train 做 5-fold family OOF，使用每行仅由其他 train families 拟合的 score 选择：
-
-$$
-\theta_{OOF}=\arg\max_{\theta}\sum_i \mathbf{1}[s_i^{OOF}>\theta]U_i.
-$$
-
-Utility 和相同时选择调用行更少的 threshold。随后在完整 BBOB-train 上重拟合估计器，冻结 $\theta_{OOF}$，再评价 BBOB-validation 与外部 benchmark。`theta=0` 只作为固定参考，不参与主选择。
-
-分阶段 threshold 只能从 BBOB-train OOF 信息拟合并作为预先定义的稳健性分析；不得在 validation threshold grid 上选择。
-
-------------------------------------------------------------------------
-
-# 11. 评价指标
-
-## 主选择
-
-- nested function-family OOF decision mean utility。
-
-## 辅助分数指标
-
-- AUROC；
-- Average Precision；
-- Spearman。
-
-## 连续 Utility 回归
-
-- Ridge RMSE。
-
-LDA 与 Logistic Regression 的分类分数不报告连续 Utility RMSE。
-
-## 决策策略
-
-- query call rate；
-- utility capture；
-- precision under calls；
-- mean decision utility。
-
-------------------------------------------------------------------------
-
-## End-to-end
-
-比较：
-
--   final optimization performance
--   total FE
--   runtime
-
-------------------------------------------------------------------------
-
-# 12. Ablation设计
-
-## Time-only baseline（必须报告）
-
-定义：
-
-$$
-X_{time}=\{FE\_ratio\}.
-$$
-
-实现列固定为 `bf_fe_ratio`。behavior 数据质量检查与 Decision materialization 必须保证：
-
-$$
-bf\_fe\_ratio = FE\_ratio
-$$
-
-逐行成立。使用 `bf_fe_ratio` 是为了保持活动模型输入来自 `BEHAVIOR_FEATURE_GROUPS`，不表示额外引入行为信息。
-
-正式 feature-group 消融只比较 `T0/B1/B2/B3`（兼容代码入口分别为 `time_only`、`primary`/对应 B1 入口、`primary_with_dynamorep_lite`、`primary_with_maturity`）。`all_candidates` 严格等于 B3，只是兼容别名，不含诊断字段，也不单列为第五组。四组必须使用：
-
-- 完全相同的 materialized Decision dataset；
-- 完全相同的 BBOB train 与 held-out function-family validation；
-- 完全相同的三个固定模型候选和随机 seed；
-- 完全相同的 nested family-OOF 过程；
-- B3 选择出的同名模型；
-- 仅由 train family-OOF 分数拟合的 decision threshold；
-- 完全相同的 Utility prediction、调用率、效用捕获和最终性能指标。
-
-该 baseline 回答：
-
-> Controller 是否只是学会在哪个优化阶段调用固定 landscape-analysis query？
-
-解释规则：
-
-- 若完整行为模型在 held-out families 和外部 benchmark 上没有稳定优于 `time_only`，不能声称搜索行为提供了超出阶段信息的预测价值；
-- 若完整行为模型优于 `time_only`，只能说明所测行为变量提供了阶段之外的增量预测信息，仍需报告配对效应量与区间；
-- 不得依据 validation 上 `time_only` 的结果改变 `phase1_dynamic_budget_event_v1` 采样参数、主 query 或调用预算。
-
-首轮离线 Decision 样本只来自冻结的预算里程碑与状态事件，不由模型分数决定，每行 `sample_weight=1`。冻结模型后的 online 附加复查可使用阈值邻近带，其带宽为完整 BBOB-train family-OOF 上 `abs(score-threshold)` 的第 10 百分位数。BBOB-validation 与外部测试不拟合带宽，controller 与全部 baselines 必须共享同一附加机会集合。
-
-------------------------------------------------------------------------
-
-正式结果按 T0、B1、B2、B3 四个嵌套输入组报告，字段数分别为 1、19、25、31。T0 检验阶段信息；B1 到 B3 依次检验冻结行为集合提供的增量信息。`all_candidates` 与 `primary_with_maturity` 均映射到 B3，不重复报告；`diagnostic_only` 与算法特定参数不进入正式模型输入。若后续单独移除某个构念或引入算法身份信息，应作为预先定义的扩展实验，不得替代本冻结四组。
-
-------------------------------------------------------------------------
-
-# 13. 可解释性分析
-
-推荐：
-
-SHAP。
-
-分析：
-
-哪些行为指标影响：
-
-$$ \hat U_{query} $$
-
-例如：
-
-发现：
-
--   高停滞
--   较低population Wasserstein变化率
--   较高covariance spectral concentration
--   稳定下降diversity
-
-更可能值得执行固定 query。
-
-------------------------------------------------------------------------
-
-# 14. 训练流程
-
-    Offline Dataset
-
-            |
-
-            v
-
-    Feature Normalization
-
-            |
-
-            v
-
-    Train Decision Model
-
-            |
-
-            v
-
-    Nested Train-family OOF Model Selection
-
-            |
-
-            v
-
-    Full-train OOF Threshold Freeze
-
-            |
-
-            v
-
-    OOD Test
-
-            |
-
-            v
-
-    End-to-end Evaluation
-
-------------------------------------------------------------------------
-
-# 15. 最终冻结方案
-
-第一篇论文冻结：
-
-模型候选：LDA、Logistic Regression、Ridge。
-
-任务：分类 `U_query>0` 或回归连续 Query Utility，由 nested family-OOF decision utility 统一选择。
-
-输入：
-
-Algorithm-agnostic Behavior。
-
-输出：
-
-Decision score；Ridge 分数解释为预测 Utility，分类分数解释为正 Utility 排序分数。
-
-决策：
-
-完整 BBOB-train family-OOF 冻结的 `oof_utility` threshold。
-
-目标：
-
-证明：
-
-算法无关搜索行为可以支持是否执行所评估固定 landscape-analysis query 的资源决策。
+```text
+outer-fit complete-budget outcomes -> SBS_outer
+-> two action-loss matrices once
+-> cross-fitted Query/Behavior-only Selectors -> fold-role selected replay plan
+-> Stage-B three-repeat decision-state future-path timing only
+-> Stage-A log-gap + Stage-B median log-runtime joint/behavior/operational-increment Utility
+-> inner-fold-specific SBS/Selectors/Utility/Decision OOF + first-trigger thresholds
+-> outer-fit final components
+-> one outer-holdout evaluation
+-> concatenated outer OOF model selection
+-> full-train OOF threshold and final refit
+-> frozen seen-set estimation + untouched external confirmation after suite closure
+```

@@ -20,6 +20,7 @@ class TrajectoryRecorder:
         sampling_protocol: str,
         trajectory_query_enabled: bool = False,
         trajectory_query_reservoir_size: int | None = None,
+        trajectory_query_split: str | None = None,
     ) -> None:
         self._sampling_policy = DynamicSamplingPolicy(sampling_protocol)
         self.records: list[TrajectoryRecord] = []
@@ -29,6 +30,11 @@ class TrajectoryRecorder:
         self._query_reservoir: TrajectoryQueryReservoir | None = None
         self._trajectory_query_enabled = bool(trajectory_query_enabled)
         self._trajectory_query_reservoir_size = trajectory_query_reservoir_size
+        self._trajectory_query_split = (
+            None if trajectory_query_split is None else str(trajectory_query_split)
+        )
+        if self._trajectory_query_enabled and not self._trajectory_query_split:
+            raise ValueError("enabled trajectory queries require an explicit non-empty split")
 
     def observe(
         self,
@@ -70,10 +76,13 @@ class TrajectoryRecorder:
         if self._query_reservoir is None:
             self._query_reservoir = TrajectoryQueryReservoir(
                 problem_id=problem.problem_id,
+                function_id=problem.function_id,
                 family=problem.family,
                 dimension=problem.dimension,
                 algorithm=algorithm,
                 seed=seed,
+                lower_bounds=problem.lower_bounds,
+                upper_bounds=problem.upper_bounds,
                 reservoir_size=self._trajectory_query_reservoir_size,
             )
         self._query_reservoir.observe(point, value)
@@ -81,19 +90,28 @@ class TrajectoryRecorder:
     def build_trajectory_query_snapshot(
         self,
         *,
-        split: str,
         problem: Problem,
         algorithm: str,
         seed: int,
         fe: int,
         fe_total: int,
+        native_updates: int,
     ) -> dict | None:
         if self._query_reservoir is None:
             return None
+        if not self._trajectory_query_split:
+            raise RuntimeError("trajectory query split was not configured")
+        if not self.records or int(self.records[-1].FE) != int(fe):
+            raise ValueError("trajectory query snapshots must attach to the latest emitted trajectory state")
+        if int(self.records[-1].native_updates) != int(native_updates):
+            raise ValueError("trajectory query native_updates must match the latest emitted trajectory state")
+        if self.trajectory_query_records and int(self.trajectory_query_records[-1]["FE"]) >= int(fe):
+            raise ValueError("trajectory query snapshot FE values must be strictly increasing")
         function, instance = parse_problem_id(problem.problem_id)
         snapshot = self._query_reservoir.snapshot(
-            split=split,
+            split=self._trajectory_query_split,
             problem_id=problem.problem_id,
+            function_id=problem.function_id,
             family=problem.family,
             function=function,
             instance=instance,
@@ -101,6 +119,7 @@ class TrajectoryRecorder:
             seed=seed,
             fe=fe,
             fe_total=fe_total,
+            native_updates=native_updates,
         )
         self.trajectory_query_records.append(snapshot)
         return snapshot
@@ -159,6 +178,7 @@ class TrajectoryRecorder:
         self.records.append(
             TrajectoryRecord.from_arrays(
                 problem_id=problem.problem_id,
+                function_id=problem.function_id,
                 family=problem.family,
                 dimension=problem.dimension,
                 algorithm=algorithm,
@@ -175,3 +195,12 @@ class TrajectoryRecorder:
             )
         )
         self._last_recorded_fe = int(fe)
+        if self._trajectory_query_enabled:
+            self.build_trajectory_query_snapshot(
+                problem=problem,
+                algorithm=algorithm,
+                seed=seed,
+                fe=fe,
+                fe_total=fe_total,
+                native_updates=native_updates,
+            )

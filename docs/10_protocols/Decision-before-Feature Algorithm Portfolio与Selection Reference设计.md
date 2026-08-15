@@ -1,657 +1,136 @@
-# Decision-before-Feature Algorithm Portfolio与Selection Reference设计
+# Decision-before-Feature Algorithm Portfolio 与 Selection Reference 设计
 
-> 协议修订（2026-08-11）：正式 Selection Reference 已从 problem 级静态分类与 nearest performance bucket 改为逐共享状态 action-loss regression。旧分类器只保留为被替代方法对照，不再生成正式 Utility 标签。详细裁决见 `Decision-before-Feature_逐状态动作损失Selection Reference修订.md`。
+> 唯一活动协议（2026-08-14）。Selection Reference 是固定下游性能回归组件，不是本文提出的新算法。旧 problem-level classifier、remaining-budget bucket 与从重建 state 续跑的标签全部退出。
 
-> 实现同步（2026-08-11）：逐状态 Selection Reference 的生成、拟合和接口检查已实现，但现存 BBOB trajectory 不具备完整 optimizer-state continuation 字段，因此正式 action losses、Selection Reference 和下游标签尚未重生成。它只用于离线标签与外部运行中的固定算法选择路径，不进入 Decision 输入，也不作为本文算法贡献。当前结果边界见 `../30_results/phase1_current_results.md`。
+## 1. Portfolio
 
-## 1. 文档定位
-
-本文档定义 Decision-before-Feature 框架中的 Algorithm Portfolio 与
-Selection Reference。
-
-核心目标：
-
-构建稳定、公平、可复现的 Offline Utility Label。
-
-Selection Reference 的作用：
-
-不是提出新的算法选择方法，而是提供一个可靠的离线参考：
-
-> 如果执行所评估的固定 landscape-analysis query，在当前逐状态动作选择协议下可以获得多少性能差。
-
-因此，Selection Reference 的质量直接影响 Decision Model 的训练标签质量。
-
-------------------------------------------------------------------------
-
-# 2. 整体流程
-
-传统流程：
-
-    Problem
-
-    ↓
-
-    Query Feature Extraction
-
-    ↓
-
-    Algorithm Selection Model
-
-    ↓
-
-    Optimizer
-
-Decision-before-Feature：
-
-    Problem
-
-    ↓
-
-    Decision Module
-
-    ↓
-
-          ----------------
-
-          |              |
-
-       No-query       Run Query
-
-          |              |
-
-    Default       Query + Selection Reference
-
-    Optimizer          |
-
-                       v
-
-                 Selected Optimizer
-
-其中：
-
-完整 state-action loss 表只用于离线生成标签。部署式评价中，如果 gate 调用 query，则仍需执行已冻结的 Selector model；外部 benchmark 不参与该模型拟合。
-
-------------------------------------------------------------------------
-
-# 3. Algorithm Portfolio设计原则
-
-## 3.1 为什么需要Portfolio
-
-固定 query 的效用可能来自：
-
-> Feature是否能够帮助选择更合适的优化算法。
-
-因此：
-
-如果Portfolio过小：
-
-例如：
-
-只有DE。
-
-那么：
-
-query feature 几乎没有可影响的选择空间。
-
-Utility被低估。
-
-如果Portfolio过大：
-
-包含大量相似算法。
-
-会导致：
-
--   Selection难度增加
--   Selection Reference不稳定
--   计算成本增加
-
-因此需要：
-
-性能覆盖 + 稳定性之间平衡。
-
-------------------------------------------------------------------------
-
-# 4. 推荐Algorithm Portfolio
-
-第一阶段建议：
-
-连续单目标黑盒优化。
-
-包含：
-
-## Differential Evolution (DE)
-
-特点：
-
--   全局探索能力强
--   参数稳定
--   常用于black-box optimization
-
-------------------------------------------------------------------------
-
-## CMA-ES
-
-特点：
-
--   强局部搜索能力
--   适合连续变量
--   对旋转问题鲁棒
-
-------------------------------------------------------------------------
-
-## PSO
-
-特点：
-
--   群体智能代表算法
--   行为分析方便
-
-------------------------------------------------------------------------
-
-## SHADE / L-SHADE
-
-特点：
-
--   参数自适应
--   CEC竞赛常用强baseline
-
-------------------------------------------------------------------------
-
-最终Portfolio：
-
-    A =
-    {
-    DE,
-    CMA-ES,
-    PSO,
-    L-SHADE
-    }
-
-------------------------------------------------------------------------
-
-# 5. Algorithm Selection Reference定义
-
-给定当前共享 checkpoint state：
-
-$$s_t=(X_t,y_t,H_t,B_t),$$
-
-唯一动作集合为：
-
-$$
-\mathcal A(s_t)=\{\text{continue-current}\}\cup(A\setminus\{a_t\}),
-$$
-
-其中 `continue-current` 对 prefix algorithm 使用完整状态原生 continuation，其余动作使用一次 Population Transfer。对每个动作真实运行：
-
-$$L(s_t,a),\qquad a\in\mathcal A(s_t).$$
-
-Selector 预测连续动作损失：
-
-$$
-\widehat{\boldsymbol L}(s_t)
-=S\!\left(\phi(p),\operatorname{behavior}(s_t),B_t/FE_{total}\right),
-$$
-
-并选择：
-
-$$
-\hat a_t=\arg\min_a\widehat L(s_t,a).
-$$
-
-逐状态真实最小值称为 `best observed action`：
-
-$$
-a_t^{best\ observed}=\arg\min_a L(s_t,a).
-$$
-
-它只作离线诊断参照，不是现实可部署方法。
-
-------------------------------------------------------------------------
-
-# 6. Selection Model设计
-
-## 6.0 文献依据与本文定位
-
-ELA-based algorithm selection 已有明确文献依据。
-
-Bischl et al. (2012) 将 Exploratory Landscape Analysis 与成本敏感学习结合，用 ELA 特征训练按实例选择算法的模型。Kerschke and Trautmann (2019) 进一步在连续黑盒优化中系统使用 ELA 特征与机器学习构建 algorithm selection model，并与 Single Best Solver 和 Virtual Best Solver 比较。Kerschke et al. (2019) 对 Automated Algorithm Selection 进行了综述，明确了 per-instance algorithm selection 的标准形式：
-
-    problem instance features
-            |
-            v
-    supervised selection model
-            |
-            v
-    selected algorithm from a portfolio
-
-因此，本项目可以采用：
-
-    query features -> supervised selector -> selected_algorithm
-
-作为下游 Algorithm Selection Reference。
-
-但是：
-
-Selection Reference 不是本文提出的新算法选择方法。
-
-本文创新点是：
-
-    是否应该在当前搜索状态下执行所评估的固定 query
-
-而不是：
-
-    执行固定 query 后如何重新发明 algorithm selector
-
-写作时应使用如下定位：
-
-> We use a query-specific supervised selector as a fixed downstream selection reference, following established feature-based per-instance algorithm selection studies. The contribution is the preceding analysis-selection problem: deciding whether the evaluated fixed landscape-analysis query should be executed before invoking such a selector.
-
-引用建议：
-
-- Bischl et al. (2012), *Algorithm Selection Based on Exploratory Landscape Analysis and Cost-Sensitive Learning*；
-- Kerschke and Trautmann (2019), *Automated Algorithm Selection on Continuous Black-Box Problems by Combining Exploratory Landscape Analysis and Machine Learning*；
-- Kerschke et al. (2019), *Automated Algorithm Selection: Survey and Perspectives*。
-
-### 6.0.1 ELA-based selector 方法谱系
-
-已有 ELA-based algorithm selection 文献不只包含单一的
-`features -> classifier -> algorithm label` 形式。为了避免把当前
-`selection_reference` 误写成本文创新点，本文档将相关方法分为以下几类。
-
-| 类别 | 代表工作 | 训练目标 | 输出 | 与当前项目关系 |
-|---|---|---|---|---|
-| cost-sensitive classification | Bischl et al. (2012) | 以候选算法的 expected runtime 定义 example-specific label cost，用 one-sided support vector regression 学习低成本选择 | portfolio algorithm | 这是 ELA-based selection reference 的早期直接出处，强调 wrong selection 的成本不应等同处理。 |
-| direct classification | Kerschke and Trautmann (2019) | 直接预测 best-performing optimizer；文中比较 classification、regression、paired regression 三类策略，并使用 rpart、SVM、Random Forest、XGBoost、MARS 等模型 | portfolio algorithm label | 原静态 `RandomForestClassifier` 属于这一类；现仅作被替代方法对照。 |
-| performance regression | Kerschke and Trautmann (2019); Jankovic and Doerr (2020); Jankovic et al. (2021) | 对每个候选算法预测 performance，例如 fixed-target 或 fixed-budget performance，再选择预测性能最好的算法 | predicted best algorithm, plus predicted performance | 当前正式 `selection_reference` 属于这一类，但监督单位改为共享 state，目标为真实 continuation action loss。 |
-| pairwise regression | Kerschke and Trautmann (2019) | 对每对算法预测 performance difference，再聚合 pairwise 胜负关系 | portfolio algorithm | 可减少直接 multiclass label 对小 performance gap 的敏感性；适合作为后续诊断而非本文主创新。 |
-| algorithm configuration | Belkhir et al. (2017); Prager et al. (2020) | 用 query features 选择同一算法框架下的参数、模块或配置，例如 modular CMA-ES 的 classifier chains | algorithm configuration | 说明 ELA 不仅能做 algorithm selection，也能做 per-instance configuration；当前项目仍限定在 portfolio algorithm selection。 |
-| Deep-ELA / learned landscape representation | van Stein et al. (2023); Seiler et al. (2025) | 用 VAE、transformer 等学习 landscape representation，替代或补充手工 query features | features for AS/AAC or downstream meta-learning | 属于近期表示学习扩展。当前项目不采用 Deep-ELA，以保持固定下游 selector 简洁和可解释。 |
-| MO-ELA | Preuss et al. (2026) | 为连续多目标优化构造 non-dominated sorting、descriptive statistics、PCA、graph、gradient information 等 feature groups | features for multi-objective AAS | 当前项目是单目标黑盒优化；该方向只用于 related work 边界说明。 |
-| benchmarking risks | Tanabe (2022); Kerschke and Trautmann (2019); Jankovic et al. (2021) | 分析 algorithm portfolio、dimension、cross-validation、pre-solver、performance measure、hyperparameter tuning 对 AS 系统评价的影响 | evaluation methodology | 支持本文把 `selection_reference` 质量作为 data condition 和 diagnostic risk，而不是无条件假设 selector 稳定泛化。 |
-
-因此，当前项目的正式定位是：
-
-    query features + algorithm-agnostic state behavior + continuous remaining budget
-    -> multi-output action-loss regression
-    -> selected_algorithm
-
-当前模型为 `RandomForestRegressor`。分类器版本只用于说明被修订构念失配的来源，不再生成正式标签。
-
-这一路线有明确文献依据，但不是本文贡献。本文贡献仍然是：
-
-    search behavior -> decide whether to execute the fixed query
-
-而不是：
-
-    propose a new query-specific algorithm selector
-
-论文写作中应避免以下表述：
-
-- “本文提出一种新的 query selector”；
-- “RandomForestClassifier selector 是本文主要方法贡献”；
-- “selection_reference 的 `selected=VBS` 提升等价于 `U_query` 提升”。
-
-更合适的表述是：
-
-> The selection reference follows the established performance-regression
-> paradigm for feature-based algorithm selection, with supervision defined by
-> candidate continuations from each shared search state. It is used as a fixed downstream
-> component for constructing offline query-utility labels. The proposed
-> Decision-before-Feature model addresses a preceding decision problem:
-> whether the evaluated query and its downstream selector should be invoked
-> at the current search state.
-
-补充引用建议：
-
-- Jankovic and Doerr (2020), *Landscape-Aware Fixed-Budget Performance Regression and Algorithm Selection for Modular CMA-ES Variants*；
-- Jankovic et al. (2021), *The Impact of Hyper-Parameter Tuning for Landscape-Aware Performance Regression and Algorithm Selection*；
-- Kostovska et al. (2023), *Comparing Algorithm Selection Approaches on Black-Box Optimization Problems*；
-- Tanabe (2022), *Benchmarking Feature-based Algorithm Selection Systems for Black-box Numerical Optimization*；
-- Belkhir et al. (2017), *Per Instance Algorithm Configuration of CMA-ES with Limited Budget*；
-- Prager et al. (2020), *Per-Instance Configuration of the Modularized CMA-ES by Means of Classifier Chains and Exploratory Landscape Analysis*；
-- van Stein et al. (2023), *DoE2Vec: Deep-learning Based Features for Exploratory Landscape Analysis*；
-- Seiler et al. (2025), *Deep-ELA: Deep Exploratory Landscape Analysis with Self-Supervised Pretrained Transformers for Single- and Multi-Objective Continuous Optimization Problems*；
-- Preuss et al. (2026), *MO-ELA: Rigorously Expanding Exploratory Landscape Features for Automated Algorithm Selection in Continuous Multi-Objective Optimisation*。
-
-可核对的引用入口：
-
-- Bischl et al. (2012), GECCO 2012, DOI `10.1145/2330163.2330209`；
-- Kerschke and Trautmann (2019), *Evolutionary Computation*, DOI `10.1162/evco_a_00236`；
-- Kerschke et al. (2019), *Evolutionary Computation*, DOI `10.1162/evco_a_00242`；
-- Jankovic and Doerr (2020), GECCO 2020, DOI `10.1145/3377930.3390183`；
-- Jankovic et al. (2021), GECCO 2021, DOI `10.1145/3449639.3459406`；
-- Kostovska et al. (2023), GECCO Companion 2023, DOI `10.1145/3583133.3590697`；
-- Tanabe (2022), *IEEE Transactions on Evolutionary Computation*, DOI `10.1109/TEVC.2022.3169770`；
-- Belkhir et al. (2017), GECCO 2017, DOI `10.1145/3071178.3071343`；
-- Prager et al. (2020), IEEE SSCI 2020, DOI `10.1109/SSCI47803.2020.9308510`；
-- van Stein et al. (2023), GECCO 2023, DOI `10.1145/3583133.3590609`；
-- Seiler et al. (2025), *Evolutionary Computation*, DOI `10.1162/evco_a_00367`；
-- Preuss et al. (2026), arXiv `2602.00098`。
-
-------------------------------------------------------------------------
-
-## 6.1 基础方案
-
-使用逐状态 multi-output performance regression。
-
-输入：
+活动算法池固定为：
 
 ```text
-query features
-+ permutation-invariant algorithm-agnostic behavior
-+ continuous remaining_budget_ratio
+DE
+PSO
+CMA-ES
+SHADE
 ```
 
-输出：
+本轮不得增加、删除或以 L-SHADE 替换 SHADE。四种算法使用项目内统一 complete-state optimizer interface。算法参数和内部状态不进入 Decision 或 Selector features；algorithm identity 只定义动作列和 metadata。
 
-每个候选算法动作的 predicted normalized action loss。
+## 2. SBS、prefix 与 VBS
 
-当前正式 `selection_reference` 的模型口径：
+SBS 只由相应 fit functions 的完整预算 `final_performance.parquet` 计算：对每个算法按 run → static problem（function × dimension × instance）→ fixed dimension stratum → function 等权聚合配置截断后的 `log10_gap`，选取均值最低者；并列按 `de,pso,cmaes,shade`。该定义与主性能端点和 function 顶层权重一致，不使用平均 rank 丢弃效应量。
 
-- `RandomForestRegressor`
-- 200 trees
-- `min_samples_leaf=2`
-- 一个输出头对应一个 portfolio algorithm
-- BBOB train 行使用 function-family grouped cross-fitting predictions
-- held-out rows 使用全体 BBOB train families 拟合的最终模型
-- 模型产物与 Selection Reference 行固定记录 `selector_target_transform=statewise_minmax_observed_action_loss`
+外层评价用 `SBS_outer`，内层评价用 `SBS_inner`，二者只由各自 fit functions 计算。完整 BBOB-train SBS 仅用于最终重拟合和已见 BBOB-validation/external deployment；BBOB-validation 不再具有未查看确认集资格。主行 `prefix_algorithm == default_algorithm == fold-specific SBS`。
 
-可作为后续 sensitivity 或 robustness baseline 的模型：
+静态 VBS 是不可部署的 problem-level hindsight reference。对每个 `problem = function × instance × dimension`，先对四算法各自的完整预算 clipped `log10_gap` 跨 optimizer seeds 取算术均值，选择均值最低算法（并列按 `de,pso,cmaes,shade`），再用该算法的逐 seed paired outcomes 进入后续汇总。不得逐 seed 选择最小算法。共享 state 上已运行 continuation actions 的最小 loss 称 `best observed action`；它不是 VBS，也不称 oracle。
 
--   linear / ridge performance regression
--   XGBoost
--   LightGBM
--   per-action Random Forest regression
--   pairwise regression selector
+## 3. 共享 state 与动作集合
 
-原因：
+每个 state 保存 population、fitness、best-so-far、generation/native-update index、optimizer-specific dynamics 与 RNG。动作集合固定为：
 
--   保留选错动作的严重程度
--   连续处理 remaining budget
--   避免 nearest bucket 造成的离散跳变
--   与 feature-based algorithm selection 研究传统一致
--   便于与 SBS、VBS、best observed action 和 state-only ablation 比较
+\[
+\mathcal A(s_t)=\{\texttt{continue_current}\}\cup
+(\{DE,PSO,CMA\mbox{-}ES,SHADE\}\setminus\{a_t\}).
+\]
 
-------------------------------------------------------------------------
+因此始终是四个互不重复动作：
 
-## 6.2 训练数据生成
+- `continue_current` 保留完整当前算法 state 与 RNG，原生推进；
+- 其余三个动作转移 checkpoint population、fitness 与 best-so-far，初始化新算法内部状态一次；
+- 跨算法 transition 记为 `population_transfer_initialization`；
+- query sample 不并入 optimizer population。
 
-对于每个 eligible shared state，运行 `continue_current` 和其余三个算法动作，形成 `state × action` loss matrix。每个动作使用相同 query-adjusted remaining FE budget；同算法原生续跑，跨算法 Population Transfer。
+不得把“当前算法动作”和 `continue_current` 同时列为两个动作。
 
-为消除不同 BBOB problem 的 objective offset 与尺度对回归损失的支配，训练目标为逐状态归一化 action loss：
+## 4. 两套预算矩阵
 
-$$
-\widetilde L(s_t,a)=
-\frac{L(s_t,a)-\min_bL(s_t,b)}
-{\max(\max_bL(s_t,b)-\min_bL(s_t,b),10^{-12})}.
-$$
+令总预算为 (B)、prefix 已用 FE 为 (e_t)、query FE 为 (FE_q)。每个共享 state 生成：
 
-该变换保持同一 state 内的 argmin。raw action loss 同时保留，用于最终性能、潜在性能差和 selector regret 计算。
+1. Query-adjusted matrix：四动作均使用 (B-e_t-FE_q)，终端 raw loss 为 (L_q(s_t,a))；
+2. Behavior-only full-budget matrix：四动作均使用 (B-e_t)，终端 raw loss 为 (L_b(s_t,a))。
 
-------------------------------------------------------------------------
+full-budget `continue_current` 与 Skip 语义相同，只计算一次。cheap/standard 共用 5% sample design 下语义相同的 action outcomes；broad 使用独立 10% outcomes。预算不同的动作结果不能复用。
 
-# 7. Selection Reference公平性要求
+动作矩阵的 Selector target 使用 continuation outcomes。主 operational Query path 虽不把 query sample 插入 optimizer population，但 terminal best、`observed_first_hit_FE` 与标准 ERT 必须计入 query sample 的真实 objective evaluations；`target_hit_observed`、`path_completed` 与 `endpoint_success` 分列。因此另保存 Query continuation-only outcome 与 query-sample-best contribution，不能把两者混为 Selector 改进。
 
-## 7.1 禁止使用测试信息
+所有动作从同一复制 state 和冻结的 action RNG stream 开始。失败动作不删除，按 suite 配置保留有限 target 与失败状态；缺失 pair 另执行运行前冻结的双向极端 sensitivity，已保留的科学 path failure 不当作 missing pair。
 
-Selection Reference训练：
+## 5. Selector target 与模型
 
-只能使用：
+每套矩阵使用 suite 预先固定的 $g_{\min},g_{\max}$ 变换 continuation-only raw observed action loss。令 $a_c$ 为 `continue_current`：
 
-training problems。
+\[
+Y_a=\log_{10}(\operatorname{clip}(L_a,g_{\min},g_{\max}))
+-\log_{10}(\operatorname{clip}(L_{a_c},g_{\min},g_{\max})).
+\]
 
-测试问题：
+固定模型为多输出 `RandomForestRegressor`，预测四个动作的 $Y_a$，部署选择预测最小动作；`continue_current` 的 target 恒为 0。主产物保存 `selector_target_transform=clipped_log10_gap_advantage_vs_continue_current`、raw action range、near ties 与 raw regret sensitivity。旧 `statewise_minmax_observed_action_loss` 只作预设 target sensitivity，不生成主 selected action 或 Utility。Utility 读取真实 selected-path endpoint，不直接使用 Selector target。
 
-只能用于最终评价。
+Query Selector 输入：
 
-------------------------------------------------------------------------
+```text
+B3 Behavior
+当前 query descriptors
+query-adjusted remaining_budget_ratio
+```
 
-## 7.2 固定Algorithm Budget
+Behavior-only full-budget Selector 输入：
 
-同一共享状态的所有候选动作：
+```text
+B3 Behavior
+full-budget remaining_budget_ratio
+```
 
-必须：
+function ID、dimension、prefix algorithm ID、seed、known optimum/gap、action losses 与 optimizer internal state 不进入 Selector features。
 
--   相同FE预算
--   相同 state 与 seed 口径
--   相同停止条件
+## 6. Query-feature predictive diagnostic
 
-否则：
+除主 Query Selector 与 full-budget Behavior-only Selector 外，另拟合第三个 `query_adjusted_state_only_selector`：输入 B3 Behavior 与 query-adjusted remaining ratio，不含 query descriptors；target 和动作矩阵与 Query Selector 完全相同。它不是主 full-budget Behavior-only Selector。两个 query-adjusted Selectors 都用 OOF predictions 在同一四动作 outcomes 上选择动作，不新增 action losses，定义：
 
-Selection Reference偏向某个算法。
+\[
+\Delta_{qfeat}^{pred}=\ell_{q,state\mbox{-}only}-\ell_{q,full},
+\]
 
-------------------------------------------------------------------------
+字段名为：
 
-## 7.3 Random Seed控制
+```text
+query_feature_predictive_increment_log10_gap
+```
 
-每个：
+正值表示在相同 query-adjusted budget 和 observed action outcomes 下，加入 query features 的 OOF Selector 选择获得更低的 `log10_gap`。该诊断不需要新增 action losses，只比较同一矩阵中两个 OOF Selector 的所选 outcome。它只称“query features 的 OOF 边际预测贡献”，不是纯信息价值、因果效应或主策略指标。
 
-problem × algorithm
+主 `query_operational_increment_lamT_*` 则比较 Query 路径与 full-budget Behavior-only 路径，包含 query FE、decision-state-to-terminal future-path 时间与不同剩余预算；共享 prefix 视为 sunk cost，FE=0 policy wall-clock 另报。二者不得混称。
 
-至少：
+## 7. Fold-specific 拟合
 
-30 independent runs。
+Decision outer holdout 的所有 Selector 必须只由 outer-fit functions 拟合；outer-fit Decision labels 使用 outer-fit 内 cross-fitted Selector predictions。每个 Decision inner holdout 还必须只读 inner-fit functions：重算 `SBS_inner`，在 inner-fit 内 cross-fit Selector 生成 Decision fit labels，再用 inner-fit 全量 Selector 生成 inner-holdout Utility。
 
-保存：
+完整 BBOB-train 的部署 threshold 和 Random calibration 同样使用端到端 function-OOF 上游链。不得由 full-train Selector 先生成整表 labels，再仅对 Decision 分 fold。
 
--   mean
--   median
--   std
--   best
+所有 Selector fit 在各 fit fold 内使用 function → fixed dimension stratum → static problem → optimizer run 等权，再把 run 权重均分给其 states；权重缩放到平均 row weight 为 1。旧 unweighted state-row fit 只作敏感性。当前 `selection_reference.model` 尚未把该权重接到 RandomForest pipeline，因此在实现前仍是正式运行 blocker。
 
-------------------------------------------------------------------------
+## 8. 诊断与字段
 
-# 8. Selection Reference性能评价
+Selection Reference、Utility、Decision dataset 与在线输出必须保存：
 
-Selection Reference本身需要验证。
+```text
+selected_equals_default
+selected_equals_prefix
+handoff_required
+handoff_type
+skip_switches_from_prefix
+no_query_algorithm
+```
 
-比较：
+并满足 `handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`。不得生成 `label_source` 或用模糊字符串代替。
 
-## Single Best Solver (SBS)
+Selector 评价至少报告 OOF selected observed `log10_gap`、best-observed regret、动作一致率、raw action range、near-tie rate、failure/coverage 和 query-feature predictive diagnostic。选择一致率不能替代实际 outcome。
 
-SBS 从与 decision trajectory 分离的 BBOB-train `final_performance.parquet` 计算。终值表对每个 `problem_id × algorithm × seed` 只保留 `FE=FE_total` 的一行。先在每个 `problem_id × algorithm` 上对全部 seeds 的终值取算术均值，再逐 problem 对算法按越小越好排名，最后跨 problem 平均排名；平均排名最小者为 SBS，最终并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。不得把 `0.20–0.60` trajectory 的最后一行当作完整预算性能。
+## 9. 失败与运行条件
 
-------------------------------------------------------------------------
+BBOB train/validation 与 CEC2017 固定 `failure_loss_cap=1e20`、取对数前 raw-gap floor/cap `1e-12/1e20`、`success_gap_target=1e-8`、单 state-action path timeout `3600 s`，并逐 objective evaluation 记录 `observed_first_hit_FE`。`target_hit_observed := observed_first_hit_FE != null`；`target_hit_before_failure := target_hit_observed and not path_completed`；`endpoint_success := target_hit_observed and path_completed`。timeout/failed path 的 final-gap endpoint按失败 cap 保留，但失败前命中的 first hit 不抹除；标准 ERT 使用 `target_hit_observed`，未命中项计完整 planned budget。CEC2022/工程问题必须先冻结同类字段与 constraint rule。
 
-## Virtual Best Solver (VBS)
+缺失共享 state、动作矩阵不完整、预算混用、fold source 不明或 population transfer 字段不一致时，相应 Selector/Utility 行失效并须从 action-loss 依赖位置重生成。
 
-理论上每个静态问题选择最优算法。
+## 10. 结果边界
 
-这是上限。
-
-共享 checkpoint state 上从已运行动作中取最小 loss 时，必须另称为 `best observed action`。它用于逐状态 selector regret，不与 VBS 混称。
-
-------------------------------------------------------------------------
-
-## Query-specific Selector
-
-实际Selection Reference。
-
-目标：
-
-在 held-out function families 上减小相对于 best observed action 的 selector regret，并改善实际 Query path loss。`selected_matches_best_observed` 只是辅助指标，不能替代 regret 与 end-to-end Utility。
-
-------------------------------------------------------------------------
-
-指标：
-
--   ERT
--   final error
--   regret
-
-------------------------------------------------------------------------
-
-# 9. 避免Selection Reference过强或过弱
-
-## 过弱情况
-
-如果：
-
-Query-specific Selector≈SBS
-
-说明：
-
-该固定 query 没有带来有效选择差异。
-
-------------------------------------------------------------------------
-
-## 过强情况
-
-如果：
-
-Query-specific Selector 接近 VBS
-
-但是：
-
-训练测试泄漏。
-
-需要检查：
-
-function family split。
-
-------------------------------------------------------------------------
-
-## 9.1 当前正式实验中的解释边界
-
-Selection Reference 的质量直接影响 $p_{query}$ 和 $U_{query}$，但它仍是固定下游实验组件，不是本文的算法贡献。
-
-第一篇论文主 probe/default 固定为训练集 SBS：No-query 原生继续当前 SBS，Query 后 statewise selector 从唯一动作集合中选择，选择 `continue_current` 时继续同一完整状态，选择其他算法时执行一次 population transfer。其他 prefix algorithm 只用于 cross-probe robustness、leave-one-probe-out 与 algorithm-agnostic 泛化，不得混入主结果。
-
-正式输出必须保存 `selected_equals_default`、`selected_equals_prefix`、`handoff_required`、`skip_switches_from_prefix`、`no_query_algorithm`、`handoff_type`、`best_observed_algorithm`、`best_observed_loss` 与 `selector_regret_raw`。`no_query_algorithm=default_algorithm`；`handoff_type=query_transition_mode`；`handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`。三个动作关系布尔字段分别分层，活动输出不再生成 selected-vs-default 字符串别名。正式报告同时给出 SBS、静态 VBS、逐状态 best observed action 与现实 selector 的性能差；选择一致率不能替代 observed utility。
-
-preliminary selector 的覆盖和 bucket 不连续问题已归入 `docs/archive/min_support/`，不得作为正式 phase1 数值来源。
-
-------------------------------------------------------------------------
-
-# 10. 与Query Utility的关系
-
-最终：
-
-No-query：
-
-$$ P_{skip} $$
-
-Run Query：
-
-$$ p_{query} $$
-
-其中 $p_{query}$ 来自固定 query + statewise Selection Reference 的真实 selected-action continuation。
-
-Utility：
-
-$$ U_{query} = (P_{skip}-p_{query}) - \lambda_T C_T-\lambda_M C_M. $$
-
-Query sampling FE 已通过减少 Query continuation budget 计入 $p_{query}$；Population Transfer 的影响也已进入 action loss，二者均不得重复扣除。
-
-诊断分解：
-
-$$
-P_{skip}-p_{query}
-=(P_{skip}-P_{best\ observed})-(p_{query}-P_{best\ observed}).
-$$
-
-------------------------------------------------------------------------
-
-# 11. Selection Reference实验
-
-## Experiment A
-
-验证Portfolio覆盖能力。
-
-分析：
-
-不同算法在哪些function family占优。
-
-------------------------------------------------------------------------
-
-## Experiment B
-
-验证 statewise query-specific Selector。
-
-比较：
-
--   SBS
--   Random Selection
--   Query-specific Selection
--   VBS
--   best observed action（逐状态诊断）
--   state-only selector（不含 query features）
--   query-only selector（不含 behavior）
-
-------------------------------------------------------------------------
-
-## Experiment C
-
-验证Utility稳定性。
-
-不同：
-
--   lambda
--   seed
--   portfolio
-
-------------------------------------------------------------------------
-
-# 12. 后续扩展
-
-## Multi-fidelity Portfolio
-
-不同预算选择不同算法。
-
-------------------------------------------------------------------------
-
-## Dynamic Algorithm Portfolio
-
-根据Search Behavior动态调整候选算法。
-
-------------------------------------------------------------------------
-
-## Joint Decision and Selection
-
-未来：
-
-联合学习：
-
-是否执行固定 query
-
-以及
-
-选择哪个算法。
-
-------------------------------------------------------------------------
-
-# 13. 实现建议
-
-当前代码模块：
-
-    selection_reference/
-
-    ├── action_losses.py
-
-    ├── model.py
-
-    └── build.py
-
-    utility_labels/
-
-    ├── generation.py
-
-    └── batch_generation.py
-
-------------------------------------------------------------------------
-
-# 14. 核心原则总结
-
-1.  Selection Reference不是论文创新点，而是可靠实验基础。
-
-2.  Portfolio必须覆盖不同搜索行为。
-
-3.  Selection Reference训练必须严格避免test leakage。
-
-4.  Selection Reference 的监督单位必须与在线共享状态动作匹配；不得用静态 problem label 或 nearest bucket 代替。
-
-5.  Query Utility的可信度依赖Selection Reference在 held-out function families 上的 selector regret 与 end-to-end performance。
-
-6.  Decision-before-Feature的创新重点仍然是：
-
-Analysis Selection，而不是Algorithm Selection。
+Selection Reference 只为固定 query downstream path 提供现实动作选择。它的性能不构成新算法贡献。`best observed action` 只诊断潜在动作差与 Selector regret；跨算法 transition 已包含在 observed loss 中，不能作为主 Utility 的额外性能罚项重复扣除。

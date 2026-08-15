@@ -11,14 +11,19 @@ query should be skipped or executed in any empirical regime.
 
 \TBD{TBD-DISC-01} The statewise utility distribution has not yet been
 estimated.  Its eventual interpretation is conditional on the evaluated query,
-utility definition, effect direction, interval, and state coverage, and cannot
-be extended from the fixed low-cost query to landscape analysis in general.
+utility definition, effect direction, interval, and state coverage.  The joint
+Query utility, full-budget Behavior-only utility, and their operational
+increment answer different questions and must be reported separately.  The
+continuation-only predictive increment further excludes the sample best and
+acquisition cost; it cannot replace the operational comparison.  None of these
+quantities can be extended from the fixed low-cost query to landscape analysis
+in general.
 
 \subsection{Information in algorithm-agnostic search behavior}
 
 \TBD{TBD-DISC-02} The RQ2 comparison between T0 and the behavior groups remains
-undetermined pending nested BBOB-train family-OOF estimates and frozen
-evaluation.  Decision utility, AUROC, Average Precision, Spearman correlation,
+undetermined pending nested BBOB-train grouped-by-function OOF estimates and
+suite-specific evaluation.  Decision utility, AUROC, Average Precision, Spearman correlation,
 and Ridge RMSE support different aspects of the comparison; disagreement among
 them precludes a single undifferentiated predictive claim.
 
@@ -26,16 +31,24 @@ them precludes a single undifferentiated predictive claim.
 
 \TBD{TBD-DISC-03} The practical resource--performance trade-off is
 undetermined.  Its interpretation requires joint evidence from equal-total-FE
-final performance, measured query and inference time, query-call rate, and the
-cost of calls with non-positive observed utility.  Fewer calls alone would not
-establish better resource-aware optimization.
+final performance, decision-state-to-terminal future-path time, complete
+FE-zero-to-terminal policy wall-clock, measured query and inference time,
+query-call rate, and the cost of calls with non-positive observed utility.
+The conditional future-path time treats the shared prefix as a sunk cost; the
+full-run endpoint includes that prefix.  They are not interchangeable.  Fewer
+calls alone would not establish better resource-aware optimization.
 
-\subsection{Held-out families and cross-benchmark scope}
+\subsection{Development sets and cross-benchmark scope}
 
-\TBD{TBD-DISC-04} Effects on held-out BBOB, CEC2017, CEC2022, and engineering
-problems remain unestimated and provide no current evidence of generalization.
+\TBD{TBD-DISC-04} Effects under the current protocol on previously inspected
+BBOB validation and CEC2017, and on prospective CEC2022 and engineering
+problems, remain unestimated and provide no current evidence of generalization.
 Any eventual interpretation is suite-specific; query-extraction failures,
 divergent effect directions, or incomplete coverage narrow its scope.
+The BBOB-validation estimand is specifically the equally weighted mean of its
+six fixed functions.  It is a post-development internal finite-set estimate,
+not an independent confirmation or a sample from a function superpopulation.
+Function-resampling results, if shown, are composition sensitivities only.
 
 \subsection{Search maturity and behavior interpretation}
 
@@ -48,16 +61,35 @@ prespecified fit, interval, and stability analysis.
 \subsection{Limitations and validity boundaries}
 
 The primary estimand is query-specific: it concerns
-\texttt{descriptor\_cheap}, a 16-dimensional custom low-cost descriptor query.
+\texttt{descriptor\_cheap\_invariant}, a 14-dimensional custom low-cost descriptor query.
+Two response summaries that become constants under the common median/IQR
+preprocessing are intentionally excluded; this changes neither the evaluated
+sample nor its FE cost.
 The prespecified standard and broad \texttt{pflacco} queries can assess
 configuration robustness but cannot justify claims
-about untested landscape representations. The Selection Reference is a fixed
+about untested landscape representations.  Each problem/sample design uses one
+fixed problem-keyed LHS realization, so inference is conditional on those
+realizations rather than averaged over sampling randomness.  Moreover,
+standard versus broad changes representation, sample size, sample realization,
+and budget together and cannot identify their separate contributions.  The
+absence of a matched-acquisition state-only operational path likewise prevents
+descriptor-only attribution of $I_q$.  The Selection Reference is a fixed
 downstream component rather than a claimed algorithm-selection contribution,
 and its selector regret must remain visible when interpreting query utility.
-The main Decision Model is trained offline on a BBOB function-family split; the
-study does not evaluate online controller training as a primary design.
+The static VBS is selected at the problem level after averaging each algorithm
+over optimizer seeds; it never selects a different algorithm for every seed and
+is distinct from the statewise best observed action.
+The main Decision Model is trained offline with a BBOB grouped-by-function
+split; the historical grouping key does not denote a classic landscape family.  The
+study does not evaluate online controller training as a primary design.  Its
+primary protocol uses function--dimension--static-problem--run-balanced weights
+and divides run weight across eligible states.  The estimator wiring is not yet
+implemented; nested first-trigger evaluation does not remove this fitting risk.
+Unweighted state-row fitting is retained only as a sensitivity analysis.
+All AAS and portfolio conclusions are conditional on the repository's frozen
+DE, PSO, CMA-ES, and SHADE implementations, parameters, and population size 40.
 
 \TBD{TBD-DISC-06} The empirical limitations remain to be quantified through
-trajectory and action-loss coverage, query-extraction failures, family-level
+trajectory and action-loss coverage, query-extraction failures, function-level
 dependence, population-transfer frequency, and sensitivity to the three
 prespecified query configurations and utility-cost settings.

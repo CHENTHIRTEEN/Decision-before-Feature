@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Sequence
 
 import joblib
 import numpy as np
@@ -22,8 +23,14 @@ from behavior.features import (
     BEHAVIOR_FEATURE_GROUPS,
     SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
 )
+from decision.cluster_weighting import (
+    CLUSTER_BALANCED_FIT,
+    cluster_balanced_row_weights,
+    fit_pipeline_with_weights,
+)
 from decision.model_protocol import (
     ACTIVE_MODEL_NAMES,
+    BEHAVIOR_FROZEN_THRESHOLD_MODE,
     FROZEN_THRESHOLD_MODE,
     FULL_TRAIN_OOF_FOLDS,
     INNER_OOF_FOLDS,
@@ -34,21 +41,45 @@ from decision.model_protocol import (
     active_model_specs,
     decision_scores,
 )
+from decision.nested_learning import (
+    TRAIN_SPLIT as NESTED_TRAIN_SPLIT,
+    VALIDATION_SPLIT as NESTED_VALIDATION_SPLIT,
+    PreparedNestedLearningInputs,
+    build_required_replay_plan,
+    build_fold_learning_views,
+    family_fold_partitions,
+    prepare_nested_learning_inputs,
+)
+from experiments.phase1_batch_common import load_config
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
-from selection_reference.model import SELECTION_REFERENCE_PROTOCOL, SELECTOR_TARGET_TRANSFORM
+from selection_reference.common import read_performance
+from selection_reference.model import (
+    SELECTION_REFERENCE_PROTOCOL,
+    SELECTOR_TARGET_TRANSFORM,
+    save_selector_model,
+)
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
-from utility_labels.fields import NEED_QUERY_COLUMNS, RUNTIME_COST_COLUMNS, UTILITY_VALUE_COLUMNS
+from utility_labels.fields import (
+    BEHAVIOR_UTILITY_VALUE_COLUMNS,
+    NEED_BEHAVIOR_ONLY_COLUMNS,
+    NEED_QUERY_COLUMNS,
+    RUNTIME_COST_COLUMNS,
+    UTILITY_VALUE_COLUMNS,
+)
 
 
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-DEFAULT_TARGET_COLUMN = "u_query_lamT_1"
-DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_lamT_1"
+DEFAULT_TARGET_COLUMN = "u_query_joint_lamT_1"
+DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_joint_lamT_1"
+DEFAULT_BEHAVIOR_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
+DEFAULT_BEHAVIOR_AUXILIARY_LABEL_COLUMN = "need_behavior_only_full_budget_lamT_1"
 TARGET_COLUMN = DEFAULT_TARGET_COLUMN
 AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
 METADATA_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "prefix_algorithm",
@@ -96,7 +127,7 @@ FORBIDDEN_X_COLUMNS = {
     "FE_prefix",
     "FE_query",
     "FE_no_query_optimization",
-    "FE_query_optimization",
+    "FE_action_optimization",
     "p_skip",
     "p_query",
     "performance_gain_raw",
@@ -140,10 +171,22 @@ EPS = 1e-12
 RUN_KEY_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "prefix_algorithm",
     "seed",
+)
+ALL_ACCEPTED_OPPORTUNITIES = "all_accepted"
+MILESTONE_ONLY_OPPORTUNITIES = "milestone_only"
+OPPORTUNITY_SCOPES = (ALL_ACCEPTED_OPPORTUNITIES, MILESTONE_ONLY_OPPORTUNITIES)
+FORMAL_FEATURE_GROUPS = (
+    "T0",
+    "B1",
+    "B2",
+    "B2+Motion",
+    "B2+Maturity",
+    "B3",
 )
 
 
@@ -151,7 +194,12 @@ class ConstantBinaryClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, positive_probability: float = 0.0):
         self.positive_probability = positive_probability
 
-    def fit(self, X: Any, y: Any) -> "ConstantBinaryClassifier":
+    def fit(
+        self,
+        X: Any,
+        y: Any,
+        sample_weight: np.ndarray | None = None,
+    ) -> "ConstantBinaryClassifier":
         probability = float(self.positive_probability)
         if not np.isfinite(probability) or probability < 0.0 or probability > 1.0:
             raise ValueError("constant positive probability must be finite and in [0, 1]")
@@ -184,35 +232,102 @@ def _threshold_candidates(thresholds: np.ndarray) -> np.ndarray:
 def train_full_decision_models(
     *,
     query_id: str,
-    dataset_path: Path,
-    schema_path: Path,
+    prepared_inputs: PreparedNestedLearningInputs,
     output_dir: Path,
     overwrite: bool,
     random_seed: int,
     feature_group: str,
+    opportunity_scope: str,
+    expected_dimensions: Sequence[int],
     target_column: str = DEFAULT_TARGET_COLUMN,
     auxiliary_label_column: str = DEFAULT_AUXILIARY_LABEL_COLUMN,
+    behavior_target_column: str = DEFAULT_BEHAVIOR_TARGET_COLUMN,
+    behavior_auxiliary_label_column: str = DEFAULT_BEHAVIOR_AUXILIARY_LABEL_COLUMN,
 ) -> dict[str, Any]:
+    if FULL_TRAIN_OOF_FOLDS != OUTER_OOF_FOLDS:
+        raise RuntimeError(
+            "full-train threshold OOF reuses outer-fold replay roles and therefore "
+            "requires FULL_TRAIN_OOF_FOLDS == OUTER_OOF_FOLDS"
+        )
     _set_utility_target_columns(
         target_column=target_column,
         auxiliary_label_column=auxiliary_label_column,
     )
-    _check_output_paths(output_dir, overwrite)
-    if feature_group not in {"T0", "B1", "B2", "B3"}:
+    if behavior_target_column not in BEHAVIOR_UTILITY_VALUE_COLUMNS:
         raise ValueError(
-            "formal Decision training outputs must use canonical feature groups T0/B1/B2/B3"
+            "behavior_target_column must be one of "
+            f"{list(BEHAVIOR_UTILITY_VALUE_COLUMNS)}"
         )
-    dataset = pq.read_table(dataset_path).to_pandas()
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    query_spec = get_query_spec(query_id)
-    if schema.get("query_id") != query_id or schema.get("query_protocol") != query_spec.protocol:
-        raise ValueError("Decision dataset schema does not match the requested query protocol")
-    feature_columns = _feature_columns(schema, feature_group)
-    _check_dataset(dataset, feature_columns)
-
-    train = dataset[dataset["split"] == TRAIN_SPLIT].copy()
-    validation = dataset[dataset["split"] == VALIDATION_SPLIT].copy()
-    _check_family_split(train, validation)
+    expected_behavior_label = NEED_BEHAVIOR_ONLY_COLUMNS[
+        BEHAVIOR_UTILITY_VALUE_COLUMNS.index(behavior_target_column)
+    ]
+    if behavior_auxiliary_label_column != expected_behavior_label:
+        raise ValueError(
+            f"{behavior_target_column} must use {expected_behavior_label}"
+        )
+    _check_output_paths(output_dir, overwrite)
+    if feature_group not in set(FORMAL_FEATURE_GROUPS):
+        raise ValueError(
+            "formal Decision training outputs must use one active six-group ablation condition"
+        )
+    if opportunity_scope not in OPPORTUNITY_SCOPES:
+        raise ValueError(f"unsupported opportunity_scope: {opportunity_scope}")
+    if prepared_inputs.query_spec.query_id != query_id:
+        raise ValueError("prepared nested inputs do not match query_id")
+    frozen_dimensions = _normalize_expected_dimensions(expected_dimensions)
+    query_spec = prepared_inputs.query_spec
+    feature_columns = _formal_feature_columns(feature_group)
+    selection_feature_columns = _formal_feature_columns("B3")
+    train_families = tuple(
+        sorted(
+            set(
+                prepared_inputs.query_adjusted_states.loc[
+                    prepared_inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
+                    "family",
+                ].astype(str)
+            )
+        )
+    )
+    validation_families = tuple(
+        sorted(
+            set(
+                prepared_inputs.query_adjusted_states.loc[
+                    prepared_inputs.query_adjusted_states["split"].astype(str).eq(VALIDATION_SPLIT),
+                    "family",
+                ].astype(str)
+            )
+        )
+    )
+    full_views = build_fold_learning_views(
+        inputs=prepared_inputs,
+        fit_families=train_families,
+        holdout_families=validation_families,
+        fit_split=NESTED_TRAIN_SPLIT,
+        holdout_split=NESTED_VALIDATION_SPLIT,
+        fold_role="full_train_final",
+    )
+    if (
+        full_views.pre_run_query_only_selector is None
+        or full_views.pre_run_fit_rows is None
+        or full_views.pre_run_holdout_rows is None
+    ):
+        raise ValueError(
+            "formal training requires fold-specific FE=0 pre-run Traditional-AAS outcomes"
+        )
+    train = _opportunity_view(full_views.fit_labels, opportunity_scope)
+    validation = _opportunity_view(full_views.holdout_labels, opportunity_scope)
+    _check_dataset(pd.concat([train, validation], ignore_index=True), feature_columns)
+    _check_function_split(train, validation)
+    _check_complete_dimension_coverage(
+        train,
+        expected_dimensions=frozen_dimensions,
+        context="BBOB-train Decision data",
+    )
+    _check_complete_dimension_coverage(
+        validation,
+        expected_dimensions=frozen_dimensions,
+        context="BBOB-validation Decision data",
+    )
 
     model_specs = active_model_specs(random_seed)
     model_rows: list[dict[str, Any]] = []
@@ -235,24 +350,31 @@ def train_full_decision_models(
     for spec in model_specs:
         nested_predictions, nested_fold_summary = _nested_family_oof_predictions(
             spec=spec,
-            train=train,
-            feature_columns=feature_columns,
+            inputs=prepared_inputs,
+            feature_columns=selection_feature_columns,
+            opportunity_scope=ALL_ACCEPTED_OPPORTUNITIES,
+            expected_dimensions=frozen_dimensions,
         )
         nested_oof_prediction_frames.append(nested_predictions)
         oof_fold_frames.append(nested_fold_summary)
 
-        train_oof_scores, train_oof_fold_summary = _family_oof_scores(
+        train_oof_frame, train_oof_scores, train_oof_fold_summary = _end_to_end_family_oof_scores(
             spec=spec,
-            frame=train,
+            inputs=prepared_inputs,
             feature_columns=feature_columns,
             requested_folds=FULL_TRAIN_OOF_FOLDS,
             fold_role="full_train_oof_threshold",
+            opportunity_scope=opportunity_scope,
+            target_column=TARGET_COLUMN,
+            auxiliary_label_column=AUXILIARY_LABEL_COLUMN,
+            expected_dimensions=frozen_dimensions,
         )
         oof_fold_frames.append(train_oof_fold_summary)
         frozen_threshold = _decision_threshold_from_scores(
-            frame=train,
+            frame=train_oof_frame,
             scores=train_oof_scores,
-            observed=train[TARGET_COLUMN].to_numpy(dtype=float),
+            observed=train_oof_frame[TARGET_COLUMN].to_numpy(dtype=float),
+            expected_dimensions=frozen_dimensions,
         )
         threshold_neighborhood_width = float(
             np.quantile(
@@ -323,6 +445,7 @@ def train_full_decision_models(
                 "model_family": spec.model_family,
                 "objective": spec.objective,
                 "estimator": spec.estimator_name,
+                "fit_weight_mode": CLUSTER_BALANCED_FIT,
                 "train_rows": int(len(train)),
                 "validation_rows": int(len(validation)),
                 "train_positive_utility_rows": int(fit_positive_rows),
@@ -347,7 +470,7 @@ def train_full_decision_models(
         )
         train_oof_prediction_frames.append(
             _prediction_frame(
-                frame=train,
+                frame=train_oof_frame,
                 scores=train_oof_scores,
                 thresholds=thresholds,
                 model_name=spec.model_name,
@@ -417,11 +540,139 @@ def train_full_decision_models(
         )
 
     nested_oof_predictions = pd.concat(nested_oof_prediction_frames, ignore_index=True)
-    model_selection_summary = _nested_model_selection_summary(nested_oof_predictions, model_specs)
+    model_selection_summary = _nested_model_selection_summary(
+        nested_oof_predictions,
+        model_specs,
+        expected_dimensions=frozen_dimensions,
+    )
     selected_rows = model_selection_summary[model_selection_summary["selected_model"]]
     if len(selected_rows) != 1:
         raise RuntimeError("nested OOF model selection must select exactly one active candidate")
     selected_model_name = str(selected_rows.iloc[0]["model_name"])
+    selected_spec = next(spec for spec in model_specs if spec.model_name == selected_model_name)
+
+    behavior_train = _opportunity_view(
+        full_views.fit_labels,
+        ALL_ACCEPTED_OPPORTUNITIES,
+    )
+    behavior_validation = _opportunity_view(
+        full_views.holdout_labels,
+        ALL_ACCEPTED_OPPORTUNITIES,
+    )
+    behavior_oof_frame, behavior_oof_scores, behavior_oof_folds = _end_to_end_family_oof_scores(
+        spec=selected_spec,
+        inputs=prepared_inputs,
+        feature_columns=selection_feature_columns,
+        requested_folds=FULL_TRAIN_OOF_FOLDS,
+        fold_role="full_train_behavior_oof_threshold",
+        opportunity_scope=ALL_ACCEPTED_OPPORTUNITIES,
+        target_column=behavior_target_column,
+        auxiliary_label_column=behavior_auxiliary_label_column,
+        expected_dimensions=frozen_dimensions,
+    )
+    oof_fold_frames.append(behavior_oof_folds)
+    behavior_frozen_threshold = _decision_threshold_from_scores(
+        frame=behavior_oof_frame,
+        scores=behavior_oof_scores,
+        observed=behavior_oof_frame[behavior_target_column].to_numpy(dtype=float),
+        expected_dimensions=frozen_dimensions,
+    )
+    behavior_model, behavior_constant, behavior_positive, behavior_negative = _fit_model_for_target(
+        clone(selected_spec.estimator),
+        behavior_train,
+        selection_feature_columns,
+        selected_spec.objective,
+        target_column=behavior_target_column,
+        auxiliary_label_column=behavior_auxiliary_label_column,
+    )
+    behavior_validation_scores = _predict_model(
+        behavior_model,
+        behavior_validation,
+        selection_feature_columns,
+    )
+    behavior_model_path = model_dir / f"{selected_model_name}__behavior_only.joblib"
+    joblib.dump(behavior_model, behavior_model_path, compress=3)
+    behavior_thresholds = {
+        "zero": 0.0,
+        BEHAVIOR_FROZEN_THRESHOLD_MODE: float(behavior_frozen_threshold),
+    }
+    threshold_rows.extend(
+        [
+            {
+                "model_name": selected_model_name,
+                "model_family": selected_spec.model_family,
+                "objective": selected_spec.objective,
+                "policy_target": "behavior_only_full_budget",
+                "threshold_mode": "zero",
+                "threshold": 0.0,
+                "threshold_source": "fixed_zero",
+                "fit_split": "fixed",
+                "oof_folds": 0,
+                "in_sample_train_rows_used_for_threshold_fit": 0,
+                "validation_rows_used_for_threshold_fit": 0,
+            },
+            {
+                "model_name": selected_model_name,
+                "model_family": selected_spec.model_family,
+                "objective": selected_spec.objective,
+                "policy_target": "behavior_only_full_budget",
+                "threshold_mode": BEHAVIOR_FROZEN_THRESHOLD_MODE,
+                "threshold": float(behavior_frozen_threshold),
+                "threshold_source": "fold_specific_upstream_full_train_family_oof",
+                "fit_split": TRAIN_SPLIT,
+                "oof_folds": FULL_TRAIN_OOF_FOLDS,
+                "in_sample_train_rows_used_for_threshold_fit": 0,
+                "validation_rows_used_for_threshold_fit": 0,
+            },
+        ]
+    )
+    train_oof_behavior_predictions = _target_prediction_frame(
+        frame=behavior_oof_frame,
+        scores=behavior_oof_scores,
+        thresholds=behavior_thresholds,
+        model_name=selected_model_name,
+        model_family=selected_spec.model_family,
+        objective=selected_spec.objective,
+        data_split="train_oof",
+        target_column=behavior_target_column,
+        auxiliary_label_column=behavior_auxiliary_label_column,
+        policy_target="behavior_only_full_budget",
+    )
+    validation_behavior_predictions = _target_prediction_frame(
+        frame=behavior_validation,
+        scores=behavior_validation_scores,
+        thresholds=behavior_thresholds,
+        model_name=selected_model_name,
+        model_family=selected_spec.model_family,
+        objective=selected_spec.objective,
+        data_split="validation",
+        target_column=behavior_target_column,
+        auxiliary_label_column=behavior_auxiliary_label_column,
+        policy_target="behavior_only_full_budget",
+    )
+    model_artifacts.append(
+        {
+            "model_name": selected_model_name,
+            "policy_target": "behavior_only_full_budget",
+            "model_path": str(behavior_model_path),
+        }
+    )
+
+    selector_models: list[tuple[str, Any]] = [
+        ("query_full", full_views.query_selector),
+        ("behavior_only_full_budget", full_views.behavior_only_selector),
+        ("query_adjusted_state_only", full_views.state_only_selector),
+        ("query_only", full_views.query_only_selector),
+    ]
+    if full_views.pre_run_query_only_selector is not None:
+        selector_models.append(
+            ("pre_run_query_only", full_views.pre_run_query_only_selector)
+        )
+    selector_artifacts: dict[str, str] = {}
+    for selector_name, selector_model in selector_models:
+        selector_path = model_dir / f"selector__{selector_name}.joblib"
+        save_selector_model(selector_model, selector_path)
+        selector_artifacts[selector_name] = str(selector_path)
 
     model_fit_summary = pd.DataFrame(model_rows)
     threshold_summary = pd.DataFrame(threshold_rows)
@@ -439,7 +690,13 @@ def train_full_decision_models(
     train_oof_predictions = pd.concat(train_oof_prediction_frames, ignore_index=True)
     validation_predictions = pd.concat(validation_prediction_frames, ignore_index=True)
     oof_fold_summary = pd.concat(oof_fold_frames, ignore_index=True)
-    for frame in (nested_oof_predictions, train_oof_predictions, validation_predictions):
+    for frame in (
+        nested_oof_predictions,
+        train_oof_predictions,
+        validation_predictions,
+        train_oof_behavior_predictions,
+        validation_behavior_predictions,
+    ):
         frame["selected_by_nested_oof"] = frame["model_name"].astype(str) == selected_model_name
     input_contract = _model_input_contract(feature_columns, train)
 
@@ -449,6 +706,7 @@ def train_full_decision_models(
     _write_frame(threshold_summary, output_dir / "decision_thresholds")
     _write_frame(model_selection_summary, output_dir / "model_selection_summary")
     _write_frame(oof_fold_summary, output_dir / "oof_fold_summary")
+    _write_frame(full_views.selector_summary, output_dir / "selector_performance_summary")
     _write_frame(validation_regression_summary, output_dir / "validation_regression_summary")
     _write_frame(validation_score_summary, output_dir / "validation_score_summary")
     _write_frame(validation_decision_summary, output_dir / "validation_decision_summary")
@@ -465,19 +723,40 @@ def train_full_decision_models(
         pa.Table.from_pandas(validation_predictions, preserve_index=False),
         output_dir / "validation_predictions.parquet",
     )
+    pq.write_table(
+        pa.Table.from_pandas(train_oof_behavior_predictions, preserve_index=False),
+        output_dir / "train_oof_behavior_only_predictions.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pandas(validation_behavior_predictions, preserve_index=False),
+        output_dir / "validation_behavior_only_predictions.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pandas(full_views.pre_run_fit_rows, preserve_index=False),
+        output_dir / "train_oof_pre_run_aas_selection.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pandas(full_views.pre_run_holdout_rows, preserve_index=False),
+        output_dir / "validation_pre_run_aas_selection.parquet",
+    )
 
     summary = {
         "experiment": "phase1_refined_sampling_full_decision_model_training",
-        "dataset": str(dataset_path),
-        "schema": str(schema_path),
+        "training_input_mode": "raw_fold_specific_upstream_inputs",
+        "materialized_single_utility_table_used": False,
         "query_id": query_id,
         "query_protocol": query_spec.protocol,
         "sample_design_id": query_spec.sample_design_id,
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
+        "behavior_only_target_column": behavior_target_column,
+        "behavior_only_auxiliary_label_column": behavior_auxiliary_label_column,
+        "behavior_only_threshold_mode": BEHAVIOR_FROZEN_THRESHOLD_MODE,
         "feature_group": feature_group,
         "feature_columns": feature_columns,
         "feature_count": len(feature_columns),
+        "opportunity_scope": opportunity_scope,
+        "expected_dimensions": list(frozen_dimensions),
         "random_seed": int(random_seed),
         "available_feature_groups": {name: list(columns) for name, columns in BEHAVIOR_FEATURE_GROUPS.items()},
         "train_split": TRAIN_SPLIT,
@@ -489,19 +768,47 @@ def train_full_decision_models(
         "models_trained": list(ACTIVE_MODEL_NAMES),
         "model_selection_metric": MODEL_SELECTION_METRIC,
         "selected_model_name": selected_model_name,
-        "selected_model_source": "nested_function_family_oof_on_bbob_train",
-        "model_selection_tie_break": "frozen_candidate_order",
+        "selected_model_source": "nested_landscape_family_oof_on_bbob_train",
+        "model_selection_tie_break": "function_balanced_utility_then_frozen_candidate_order",
         "threshold_modes": ["zero", FROZEN_THRESHOLD_MODE],
+        "behavior_only_policy": {
+            "target_column": behavior_target_column,
+            "auxiliary_label_column": behavior_auxiliary_label_column,
+            "feature_group": "B3",
+            "feature_columns": selection_feature_columns,
+            "opportunity_scope": ALL_ACCEPTED_OPPORTUNITIES,
+            "model_name": selected_model_name,
+            "uses_constant_classifier": bool(behavior_constant),
+            "train_positive_utility_rows": int(behavior_positive),
+            "train_negative_utility_rows": int(behavior_negative),
+            "threshold_modes": ["zero", BEHAVIOR_FROZEN_THRESHOLD_MODE],
+            "frozen_threshold": float(behavior_frozen_threshold),
+            "model_path": str(behavior_model_path),
+        },
         "oof_protocol": {
             "group_column": "family",
             "outer_folds": OUTER_OOF_FOLDS,
             "inner_folds": INNER_OOF_FOLDS,
             "full_train_threshold_folds": FULL_TRAIN_OOF_FOLDS,
-            "outer_role": "unbiased_train-side_model_selection_evaluation",
+            "outer_role": "train_side_candidate_selection_evaluation_only",
             "inner_role": "outer-fold_threshold_fit",
             "full_train_oof_role": "frozen_threshold_fit_before_validation",
+            "upstream_components_refit_per_fold": [
+                "function_balanced_SBS",
+                "query_full_selector",
+                "behavior_only_full_budget_selector",
+                "query_adjusted_state_only_selector",
+                "Utility_labels_from_measured_selected_complete_paths",
+                "Decision_preprocessing_and_model",
+            ],
+            "threshold_objective": (
+                "run_to_static_problem_to_fixed_dimension_to_function_balanced_"
+                "first_trigger_utility"
+            ),
+            "threshold_tie_break": "lower_hierarchically_weighted_call_rate_then_larger_threshold",
+            "fixed_dimension_coverage_required": True,
             "threshold_neighborhood": {
-                "definition": "Q10(abs(full-train family-OOF score - frozen oof_utility threshold))",
+                "definition": "Q10(abs(full-train landscape-family OOF score - fixed oof_utility threshold))",
                 "quantile": THRESHOLD_NEIGHBORHOOD_QUANTILE,
                 "role": "optional_post-training_online_review_only",
                 "validation_rows_used": 0,
@@ -509,15 +816,24 @@ def train_full_decision_models(
         },
         "top_k_fractions": list(TOP_K_FRACTIONS),
         "preprocessing_contract": {
-            "imputer": "SimpleImputer(strategy='median')",
+            "imputer": "WeightedMedianImputer(cluster-balanced fit-fold median)",
             "imputer_fit_split": TRAIN_SPLIT,
-            "scaler": "StandardScaler()",
+            "scaler": "StandardScaler(cluster-balanced fit-fold weights)",
             "scaler_fit_split": TRAIN_SPLIT,
+            "fit_weight_mode": CLUSTER_BALANCED_FIT,
             "validation_rows_used_for_fit": 0,
         },
         "excluded_from_decision_input": sorted(FORBIDDEN_X_COLUMNS),
         "metadata_usage": "metadata columns are retained in predictions and used only for stratified reporting",
         "model_artifacts": model_artifacts,
+        "selector_artifacts": selector_artifacts,
+        "complete_path_timing_contract": {
+            "source": "measured_complete_policy_path",
+            "origin": "decision_state_to_terminal",
+            "shared_prefix_cost_treatment": "sunk_before_decision_state",
+            "repetitions": 3,
+            "component_runtime_sum_accepted": False,
+        },
         "outputs": {
             "model_input_contract": str(output_dir / "model_input_contract.parquet"),
             "preprocessing_fit_summary": str(output_dir / "preprocessing_fit_summary.parquet"),
@@ -525,25 +841,43 @@ def train_full_decision_models(
             "decision_thresholds": str(output_dir / "decision_thresholds.parquet"),
             "model_selection_summary": str(output_dir / "model_selection_summary.parquet"),
             "oof_fold_summary": str(output_dir / "oof_fold_summary.parquet"),
+            "selector_performance_summary": str(
+                output_dir / "selector_performance_summary.parquet"
+            ),
             "nested_oof_predictions": str(output_dir / "nested_oof_predictions.parquet"),
             "train_oof_predictions": str(output_dir / "train_oof_predictions.parquet"),
+            "train_oof_behavior_only_predictions": str(
+                output_dir / "train_oof_behavior_only_predictions.parquet"
+            ),
             "validation_regression_summary": str(output_dir / "validation_regression_summary.parquet"),
             "validation_score_summary": str(output_dir / "validation_score_summary.parquet"),
             "validation_decision_summary": str(output_dir / "validation_decision_summary.parquet"),
             "validation_ranking_summary": str(output_dir / "validation_ranking_summary.parquet"),
             "validation_predictions": str(output_dir / "validation_predictions.parquet"),
+            "validation_behavior_only_predictions": str(
+                output_dir / "validation_behavior_only_predictions.parquet"
+            ),
+            "train_oof_pre_run_aas_selection": str(
+                output_dir / "train_oof_pre_run_aas_selection.parquet"
+            ),
+            "validation_pre_run_aas_selection": str(
+                output_dir / "validation_pre_run_aas_selection.parquet"
+            ),
             "report": str(output_dir / "full_decision_model_training_report.md"),
             "summary": str(output_dir / "full_decision_model_training_summary.json"),
         },
         "data_leakage_check": {
-            "family_split_overlap": [],
+            "function_id_split_overlap": [],
+            "landscape_family_overlap_is_expected": True,
             "decision_input_uses_only_behavior_features": True,
             "metadata_used_as_input": False,
             "algorithm_identifier_used_as_input": False,
-            "query_features_used_as_input": False,
+            "query_features_used_as_decision_model_input": False,
+            "query_features_used_by_query_selector": True,
             "model_selection_uses_validation_rows": False,
             "threshold_selection_uses_validation_rows": False,
             "oof_preprocessing_is_fit_within_each_family_fold": True,
+            "oof_sbs_selectors_and_utility_are_rebuilt_within_each_family_fold": True,
             "validation_rows_used_for_imputer_scaler_model_or_threshold_fit": 0,
         },
     }
@@ -588,6 +922,8 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "model_selection_summary.parquet",
         output_dir / "oof_fold_summary.csv",
         output_dir / "oof_fold_summary.parquet",
+        output_dir / "selector_performance_summary.csv",
+        output_dir / "selector_performance_summary.parquet",
         output_dir / "nested_oof_predictions.parquet",
         output_dir / "train_oof_predictions.parquet",
         output_dir / "validation_regression_summary.csv",
@@ -599,6 +935,10 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "validation_ranking_summary.csv",
         output_dir / "validation_ranking_summary.parquet",
         output_dir / "validation_predictions.parquet",
+        output_dir / "train_oof_behavior_only_predictions.parquet",
+        output_dir / "validation_behavior_only_predictions.parquet",
+        output_dir / "train_oof_pre_run_aas_selection.parquet",
+        output_dir / "validation_pre_run_aas_selection.parquet",
     )
     model_outputs = tuple((output_dir / "models").glob("*.joblib")) if (output_dir / "models").exists() else ()
     existing = [path for path in outputs if path.exists()] + list(model_outputs)
@@ -619,18 +959,15 @@ def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: s
     AUXILIARY_LABEL_COLUMN = auxiliary_label_column
 
 
-def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
-    schema_columns = list(schema.get("input_columns", []))
-    if schema_columns != list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
-        raise ValueError(
-            "schema input_columns must exactly equal SELECTOR_BEHAVIOR_FEATURE_COLUMNS"
-        )
+def _formal_feature_columns(feature_group: str) -> list[str]:
     if feature_group not in BEHAVIOR_FEATURE_GROUPS:
         raise ValueError(f"unknown feature group: {feature_group}")
     columns = list(BEHAVIOR_FEATURE_GROUPS[feature_group])
-    missing_from_schema = sorted(set(columns).difference(schema_columns))
-    if missing_from_schema:
-        raise ValueError(f"feature group columns missing from materialized schema: {missing_from_schema}")
+    missing_from_contract = sorted(set(columns).difference(SELECTOR_BEHAVIOR_FEATURE_COLUMNS))
+    if missing_from_contract:
+        raise ValueError(
+            f"feature group columns are outside the Decision behavior contract: {missing_from_contract}"
+        )
     exact_forbidden = sorted(set(columns).intersection(FORBIDDEN_X_COLUMNS))
     name_forbidden = [
         column
@@ -644,18 +981,45 @@ def _feature_columns(schema: dict[str, Any], feature_group: str) -> list[str]:
     return columns
 
 
+def _opportunity_view(frame: pd.DataFrame, opportunity_scope: str) -> pd.DataFrame:
+    if opportunity_scope == ALL_ACCEPTED_OPPORTUNITIES:
+        view = frame.copy()
+    elif opportunity_scope == MILESTONE_ONLY_OPPORTUNITIES:
+        if "is_budget_milestone" not in frame.columns:
+            raise ValueError("milestone-only Decision data require is_budget_milestone")
+        view = frame.loc[frame["is_budget_milestone"].astype(bool)].copy()
+        if view.empty:
+            raise ValueError("milestone-only Decision data contain no budget milestones")
+        if not view["is_budget_milestone"].astype(bool).all():
+            raise RuntimeError("milestone-only opportunity filtering failed")
+    else:
+        raise ValueError(f"unsupported opportunity_scope: {opportunity_scope}")
+    return view.reset_index(drop=True)
+
+
 def _validate_formal_feature_groups() -> None:
-    expected_counts = {"T0": 1, "B1": 19, "B2": 25, "B3": 31}
-    previous: tuple[str, ...] = ()
+    expected_counts = {
+        "T0": 1,
+        "B1": 19,
+        "B2": 25,
+        "B2+Motion": 28,
+        "B2+Maturity": 28,
+        "B3": 31,
+    }
     groups: list[frozenset[str]] = []
     for name, expected_count in expected_counts.items():
         columns = tuple(BEHAVIOR_FEATURE_GROUPS[name])
         if len(columns) != expected_count or len(set(columns)) != expected_count:
             raise RuntimeError(f"formal feature group {name} must have {expected_count} unique inputs")
-        if previous and columns[: len(previous)] != previous:
-            raise RuntimeError("formal feature groups T0/B1/B2/B3 must be ordered nested prefixes")
         groups.append(frozenset(columns))
-        previous = columns
+    if tuple(BEHAVIOR_FEATURE_GROUPS["B1"]) != tuple(BEHAVIOR_FEATURE_GROUPS["B2"][:19]):
+        raise RuntimeError("B2 must extend B1 in frozen column order")
+    if tuple(BEHAVIOR_FEATURE_GROUPS["B2"]) != tuple(BEHAVIOR_FEATURE_GROUPS["B3"][:25]):
+        raise RuntimeError("B3 must extend B2 in frozen column order")
+    if not set(BEHAVIOR_FEATURE_GROUPS["B2"]).issubset(BEHAVIOR_FEATURE_GROUPS["B2+Motion"]):
+        raise RuntimeError("B2+Motion must contain all B2 inputs")
+    if not set(BEHAVIOR_FEATURE_GROUPS["B2"]).issubset(BEHAVIOR_FEATURE_GROUPS["B2+Maturity"]):
+        raise RuntimeError("B2+Maturity must contain all B2 inputs")
     if len(set(groups)) != len(groups):
         raise RuntimeError("formal feature groups T0/B1/B2/B3 must be distinct")
 
@@ -709,18 +1073,90 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
             raise ValueError(f"non-null behavior feature values must be finite: {column}")
 
 
-def _check_family_split(train: pd.DataFrame, validation: pd.DataFrame) -> None:
-    overlap = sorted(set(train["family"].astype(str)).intersection(validation["family"].astype(str)))
+def _check_function_split(train: pd.DataFrame, validation: pd.DataFrame) -> None:
+    overlap = sorted(
+        set(train["function_id"].astype(str)).intersection(
+            validation["function_id"].astype(str)
+        )
+    )
     if overlap:
-        raise ValueError(f"train and validation families must be disjoint: {overlap}")
+        raise ValueError(f"train and validation function IDs must be disjoint: {overlap}")
+
+
+def _normalize_expected_dimensions(expected_dimensions: Sequence[int]) -> tuple[int, ...]:
+    dimensions = tuple(sorted(int(value) for value in expected_dimensions))
+    if not dimensions or len(dimensions) != len(set(dimensions)):
+        raise ValueError("expected_dimensions must be non-empty and unique")
+    if any(value <= 0 for value in dimensions):
+        raise ValueError("expected_dimensions must contain positive integers")
+    return dimensions
+
+
+def _check_complete_dimension_coverage(
+    frame: pd.DataFrame,
+    *,
+    expected_dimensions: Sequence[int],
+    context: str,
+) -> tuple[int, ...]:
+    required = {"function_id", "dimension"}
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{context} is missing dimension-coverage columns: {missing}")
+    expected = _normalize_expected_dimensions(expected_dimensions)
+    if frame.empty:
+        raise ValueError(f"{context} is empty")
+    dimensions = pd.to_numeric(frame["dimension"], errors="coerce")
+    dimension_values = dimensions.to_numpy(dtype=float)
+    if (
+        dimensions.isna().any()
+        or not np.isfinite(dimension_values).all()
+        or not np.equal(dimension_values, np.floor(dimension_values)).all()
+    ):
+        raise ValueError(f"{context} dimensions must be finite integers")
+    normalized = frame.assign(dimension=dimensions.astype(int))
+    observed_functions = tuple(sorted(normalized["function_id"].astype(str).unique()))
+    if not observed_functions:
+        raise ValueError(f"{context} contains no functions")
+    incomplete: dict[str, tuple[int, ...]] = {}
+    for function_id, function_frame in normalized.groupby(
+        "function_id", sort=True, dropna=False
+    ):
+        observed = tuple(sorted(function_frame["dimension"].astype(int).unique()))
+        if observed != expected:
+            incomplete[str(function_id)] = observed
+    if incomplete:
+        details = "; ".join(
+            f"{function_id}={list(observed)}"
+            for function_id, observed in incomplete.items()
+        )
+        raise ValueError(
+            f"{context} must cover exactly the frozen dimensions {list(expected)} "
+            f"for every function; observed {details}"
+        )
+    return expected
 
 
 def _target_for_objective(frame: pd.DataFrame, objective: str) -> np.ndarray:
+    return _target_for_columns(
+        frame,
+        objective,
+        target_column=TARGET_COLUMN,
+        auxiliary_label_column=AUXILIARY_LABEL_COLUMN,
+    )
+
+
+def _target_for_columns(
+    frame: pd.DataFrame,
+    objective: str,
+    *,
+    target_column: str,
+    auxiliary_label_column: str,
+) -> np.ndarray:
     if objective == "classification":
-        target = frame[AUXILIARY_LABEL_COLUMN].to_numpy(dtype=bool).astype(int)
+        target = frame[auxiliary_label_column].to_numpy(dtype=bool).astype(int)
         return target
     if objective == "regression":
-        return frame[TARGET_COLUMN].to_numpy(dtype=float)
+        return frame[target_column].to_numpy(dtype=float)
     raise ValueError(f"unknown Decision model objective: {objective}")
 
 
@@ -730,22 +1166,74 @@ def _fit_model(
     feature_columns: list[str],
     objective: str,
 ) -> tuple[Pipeline, bool, int, int]:
-    target = _target_for_objective(train, objective)
-    positive_rows = int(np.sum(target)) if objective == "classification" else int(np.sum(train[TARGET_COLUMN].to_numpy(dtype=float) > 0.0))
+    return _fit_model_for_target(
+        model,
+        train,
+        feature_columns,
+        objective,
+        target_column=TARGET_COLUMN,
+        auxiliary_label_column=AUXILIARY_LABEL_COLUMN,
+    )
+
+
+def _fit_model_for_target(
+    model: Pipeline,
+    train: pd.DataFrame,
+    feature_columns: list[str],
+    objective: str,
+    *,
+    target_column: str,
+    auxiliary_label_column: str,
+) -> tuple[Pipeline, bool, int, int]:
+    required = {target_column, auxiliary_label_column, *feature_columns}
+    missing = sorted(required.difference(train.columns))
+    if missing:
+        raise ValueError(f"Decision fit target view is missing columns: {missing}")
+    target_values = train[target_column].to_numpy(dtype=float)
+    labels = train[auxiliary_label_column].to_numpy(dtype=bool)
+    if not np.isfinite(target_values).all() or not np.array_equal(
+        labels,
+        target_values > 0.0,
+    ):
+        raise ValueError(
+            f"{auxiliary_label_column} must equal finite {target_column} > 0"
+        )
+    target = _target_for_columns(
+        train,
+        objective,
+        target_column=target_column,
+        auxiliary_label_column=auxiliary_label_column,
+    )
+    positive_rows = (
+        int(np.sum(target))
+        if objective == "classification"
+        else int(np.sum(target_values > 0.0))
+    )
     negative_rows = int(len(target) - positive_rows)
+    sample_weight = cluster_balanced_row_weights(train)
     uses_constant_classifier = False
     if objective == "classification" and len(np.unique(target)) < 2:
         model = Pipeline(
             [
                 ("imputer", clone(model.named_steps["imputer"])),
                 ("scaler", clone(model.named_steps["scaler"])),
-                ("classifier", ConstantBinaryClassifier(float(positive_rows / max(len(target), 1)))),
+                (
+                    "classifier",
+                    ConstantBinaryClassifier(
+                        float(np.average(target.astype(float), weights=sample_weight))
+                    ),
+                ),
             ]
         )
         uses_constant_classifier = True
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model.fit(train[feature_columns], target)
+        fit_pipeline_with_weights(
+            model,
+            train[feature_columns],
+            target,
+            sample_weight,
+        )
     return model, uses_constant_classifier, positive_rows, negative_rows
 
 
@@ -766,7 +1254,7 @@ def _family_oof_scores(
     unique_groups = np.unique(groups)
     n_splits = min(int(requested_folds), len(unique_groups))
     if n_splits < 2:
-        raise ValueError(f"{fold_role} requires at least two function families")
+        raise ValueError(f"{fold_role} requires at least two landscape families")
     scores = np.full(len(frame), np.nan, dtype=float)
     fold_rows: list[dict[str, Any]] = []
     splitter = GroupKFold(n_splits=n_splits)
@@ -777,7 +1265,7 @@ def _family_oof_scores(
         holdout_families = sorted(set(holdout_frame["family"].astype(str)))
         overlap = sorted(set(fit_families).intersection(holdout_families))
         if overlap:
-            raise RuntimeError(f"function-family OOF fold overlap: {overlap}")
+            raise RuntimeError(f"landscape-family OOF fold overlap: {overlap}")
         fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
             clone(spec.estimator),
             fit_frame,
@@ -853,83 +1341,325 @@ def _first_trigger_run_utility(
     return True, float(observed[int(hit[0])])
 
 
-def _run_best_available_positive_utility(
-    ordered_run_frame: pd.DataFrame,
+def _first_trigger_policy_arrays(
+    frame: pd.DataFrame,
     *,
     scores: np.ndarray,
     observed: np.ndarray,
-) -> float:
-    if len(scores) != len(ordered_run_frame) or len(observed) != len(ordered_run_frame):
-        raise ValueError("scores and observed arrays must match the ordered run frame")
-    best = 0.0
-    for threshold in _threshold_candidates(np.unique(scores)):
-        triggered, utility = _first_trigger_run_utility(
-            ordered_run_frame,
-            scores=scores,
-            observed=observed,
-            threshold=float(threshold),
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    scores = np.asarray(scores, dtype=float).reshape(-1)
+    observed = np.asarray(observed, dtype=float).reshape(-1)
+    if len(scores) != len(frame) or len(observed) != len(frame):
+        raise ValueError("first-trigger policy requires aligned frame, score, and Utility arrays")
+    if not frame.index.is_unique:
+        raise ValueError("first-trigger policy requires a unique frame index")
+    calls = np.zeros(len(frame), dtype=bool)
+    decision_utility = np.zeros(len(frame), dtype=float)
+    for _, run_frame in _iter_decision_run_groups(frame):
+        ordered = _ordered_decision_run_frame(run_frame)
+        positions = frame.index.get_indexer(ordered.index)
+        if (positions < 0).any():
+            raise RuntimeError("ordered run rows are not aligned with the first-trigger frame")
+        hit = np.flatnonzero(scores[positions] > float(threshold))
+        if hit.size == 0:
+            continue
+        trigger_position = int(positions[int(hit[0])])
+        calls[trigger_position] = True
+        decision_utility[trigger_position] = float(observed[trigger_position])
+    return calls, decision_utility
+
+
+def _first_trigger_run_summary(
+    frame: pd.DataFrame,
+    *,
+    call_column: str,
+    utility_column: str,
+) -> pd.DataFrame:
+    required = {call_column, utility_column, TARGET_COLUMN}
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"first-trigger run summary missing columns: {missing}")
+    rows: list[dict[str, Any]] = []
+    for run_key, run_frame in _iter_decision_run_groups(frame):
+        ordered = _ordered_decision_run_frame(run_frame)
+        calls = ordered[call_column].to_numpy(dtype=bool)
+        if int(np.sum(calls)) > 1:
+            raise ValueError("a first-trigger policy may call the query at most once per trajectory")
+        utilities = ordered[utility_column].to_numpy(dtype=float)
+        observed = ordered[TARGET_COLUMN].to_numpy(dtype=float)
+        if not np.isfinite(utilities).all() or not np.isfinite(observed).all():
+            raise ValueError("first-trigger run summaries require finite Utility values")
+        called = bool(np.any(calls))
+        call_utility = float(utilities[calls][0]) if called else 0.0
+        if called and not np.isclose(call_utility, float(observed[calls][0]), rtol=0.0, atol=EPS):
+            raise ValueError("first-trigger decision Utility must equal observed Utility at the called state")
+        if not np.allclose(utilities[~calls], 0.0, rtol=0.0, atol=EPS):
+            raise ValueError("states other than the first trigger must contribute zero policy Utility")
+        rows.append(
+            {
+                **dict(zip(RUN_KEY_COLUMNS, run_key, strict=True)),
+                "run_key": "|".join(str(value) for value in run_key),
+                "called": called,
+                "call_utility": call_utility,
+                "call_positive": bool(called and call_utility > 0.0),
+                "unhelpful_call": bool(called and call_utility <= 0.0),
+                "best_available_positive_utility": float(max(0.0, float(np.max(observed)))),
+                "has_positive_opportunity": bool(np.any(observed > 0.0)),
+                "first_opportunity_utility": float(observed[0]),
+            }
         )
-        if triggered and utility > best:
-            best = float(utility)
-    return float(max(0.0, best))
+    if not rows:
+        raise ValueError("first-trigger run summary requires at least one trajectory")
+    return pd.DataFrame(rows)
+
+
+def _function_balanced_run_mean(
+    run_summary: pd.DataFrame,
+    value_column: str,
+    *,
+    expected_dimensions: Sequence[int],
+) -> float:
+    required = {"function_id", "dimension", "problem_id", value_column}
+    missing = sorted(required.difference(run_summary.columns))
+    if missing:
+        raise ValueError(f"function-balanced run summary is missing columns: {missing}")
+    _check_complete_dimension_coverage(
+        run_summary,
+        expected_dimensions=expected_dimensions,
+        context="function-balanced run summary",
+    )
+    problem_means = run_summary.groupby(
+        ["function_id", "dimension", "problem_id"],
+        as_index=False,
+        dropna=False,
+    )[value_column].mean()
+    dimension_means = problem_means.groupby(
+        ["function_id", "dimension"],
+        as_index=False,
+        dropna=False,
+    )[value_column].mean()
+    function_means = dimension_means.groupby("function_id", dropna=False)[value_column].mean()
+    if function_means.empty or not np.isfinite(function_means.to_numpy(dtype=float)).all():
+        raise ValueError("function-balanced mean requires finite values and non-empty functions")
+    return float(function_means.mean())
+
+
+def _train_family_values(inputs: PreparedNestedLearningInputs) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            set(
+                inputs.query_adjusted_states.loc[
+                    inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
+                    "family",
+                ].astype(str)
+            )
+        )
+    )
+
+
+def _end_to_end_family_oof_scores(
+    *,
+    spec: DecisionModelSpec,
+    inputs: PreparedNestedLearningInputs,
+    feature_columns: list[str],
+    requested_folds: int,
+    fold_role: str,
+    opportunity_scope: str,
+    target_column: str,
+    auxiliary_label_column: str,
+    expected_dimensions: Sequence[int],
+) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
+    partitions = family_fold_partitions(
+        families=_train_family_values(inputs),
+        requested_folds=requested_folds,
+    )
+    holdout_frames: list[pd.DataFrame] = []
+    holdout_scores: list[np.ndarray] = []
+    fold_rows: list[dict[str, Any]] = []
+    for fold_index, (fit_families, holdout_families) in enumerate(partitions):
+        selector_fold_role = f"train_outer_{len(partitions)}_fold_{fold_index}"
+        views = build_fold_learning_views(
+            inputs=inputs,
+            fit_families=fit_families,
+            holdout_families=holdout_families,
+            fold_role=selector_fold_role,
+        )
+        fit_frame = _opportunity_view(views.fit_labels, opportunity_scope)
+        holdout_frame = _opportunity_view(views.holdout_labels, opportunity_scope)
+        fitted, used_constant, positive_rows, negative_rows = _fit_model_for_target(
+            clone(spec.estimator),
+            fit_frame,
+            feature_columns,
+            spec.objective,
+            target_column=target_column,
+            auxiliary_label_column=auxiliary_label_column,
+        )
+        scores = _predict_model(fitted, holdout_frame, feature_columns)
+        holdout_frame = holdout_frame.copy()
+        holdout_frame["oof_fold"] = int(fold_index)
+        holdout_frame["oof_selector_fold_role"] = selector_fold_role
+        holdout_frames.append(holdout_frame)
+        holdout_scores.append(scores)
+        fold_rows.append(
+            {
+                "model_name": spec.model_name,
+                "model_family": spec.model_family,
+                "objective": spec.objective,
+                "target_column": target_column,
+                "fold_role": fold_role,
+                "selector_fold_role": selector_fold_role,
+                "outer_fold": None,
+                "fold_index": int(fold_index),
+                "n_splits": int(len(partitions)),
+                "fit_rows": int(len(fit_frame)),
+                "holdout_rows": int(len(holdout_frame)),
+                "fit_positive_utility_rows": int(positive_rows),
+                "fit_negative_utility_rows": int(negative_rows),
+                "uses_constant_classifier": bool(used_constant),
+                "fit_families": ",".join(fit_families),
+                "holdout_families": ",".join(holdout_families),
+                "family_overlap_count": 0,
+                "validation_rows_used": 0,
+                "upstream_components_refit_within_fold": True,
+            }
+        )
+    frame = pd.concat(holdout_frames, ignore_index=True)
+    scores = np.concatenate(holdout_scores).astype(float, copy=False)
+    if len(frame) != len(scores) or not np.isfinite(scores).all():
+        raise RuntimeError(f"{fold_role} did not produce one finite score per held-out row")
+    if set(frame["family"].astype(str)) != set(_train_family_values(inputs)):
+        raise RuntimeError(f"{fold_role} does not cover every BBOB-train landscape family")
+    return frame, scores, pd.DataFrame(fold_rows)
 
 
 def _nested_family_oof_predictions(
     *,
     spec: DecisionModelSpec,
-    train: pd.DataFrame,
+    inputs: PreparedNestedLearningInputs,
     feature_columns: list[str],
+    opportunity_scope: str,
+    expected_dimensions: Sequence[int],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    groups = train["family"].astype(str).to_numpy()
-    unique_groups = np.unique(groups)
-    n_splits = min(OUTER_OOF_FOLDS, len(unique_groups))
-    if n_splits < 2:
-        raise ValueError("nested model selection requires at least two BBOB-train function families")
+    outer_partitions = family_fold_partitions(
+        families=_train_family_values(inputs),
+        requested_folds=OUTER_OOF_FOLDS,
+    )
     prediction_frames: list[pd.DataFrame] = []
     fold_frames: list[pd.DataFrame] = []
-    splitter = GroupKFold(n_splits=n_splits)
-    for outer_fold, (outer_fit_index, outer_holdout_index) in enumerate(splitter.split(train, groups=groups)):
-        outer_fit = train.iloc[outer_fit_index]
-        outer_holdout = train.iloc[outer_holdout_index]
-        inner_scores, inner_fold_summary = _family_oof_scores(
-            spec=spec,
-            frame=outer_fit,
-            feature_columns=feature_columns,
+    for outer_fold, (outer_fit_families, outer_holdout_families) in enumerate(
+        outer_partitions
+    ):
+        outer_role = f"train_outer_{len(outer_partitions)}_fold_{outer_fold}"
+        outer_views = build_fold_learning_views(
+            inputs=inputs,
+            fit_families=outer_fit_families,
+            holdout_families=outer_holdout_families,
+            fold_role=outer_role,
+        )
+        outer_fit = _opportunity_view(outer_views.fit_labels, opportunity_scope)
+        outer_holdout = _opportunity_view(
+            outer_views.holdout_labels,
+            opportunity_scope,
+        )
+
+        inner_frames: list[pd.DataFrame] = []
+        inner_scores: list[np.ndarray] = []
+        inner_partitions = family_fold_partitions(
+            families=outer_fit_families,
             requested_folds=INNER_OOF_FOLDS,
-            fold_role="nested_inner_threshold",
-            outer_fold=int(outer_fold),
         )
+        for inner_fold, (inner_fit_families, inner_holdout_families) in enumerate(
+            inner_partitions
+        ):
+            inner_role = f"{outer_role}_inner_{len(inner_partitions)}_fold_{inner_fold}"
+            inner_views = build_fold_learning_views(
+                inputs=inputs,
+                fit_families=inner_fit_families,
+                holdout_families=inner_holdout_families,
+                fold_role=inner_role,
+            )
+            inner_fit = _opportunity_view(inner_views.fit_labels, opportunity_scope)
+            inner_holdout = _opportunity_view(
+                inner_views.holdout_labels,
+                opportunity_scope,
+            )
+            inner_model, inner_constant, inner_positive, inner_negative = _fit_model(
+                clone(spec.estimator),
+                inner_fit,
+                feature_columns,
+                spec.objective,
+            )
+            inner_holdout_scores = _predict_model(
+                inner_model,
+                inner_holdout,
+                feature_columns,
+            )
+            inner_frames.append(inner_holdout)
+            inner_scores.append(inner_holdout_scores)
+            fold_frames.append(
+                pd.DataFrame(
+                    [
+                        {
+                            "model_name": spec.model_name,
+                            "model_family": spec.model_family,
+                            "objective": spec.objective,
+                            "target_column": TARGET_COLUMN,
+                            "fold_role": "nested_inner_threshold",
+                            "selector_fold_role": inner_role,
+                            "outer_fold": int(outer_fold),
+                            "fold_index": int(inner_fold),
+                            "n_splits": int(len(inner_partitions)),
+                            "fit_rows": int(len(inner_fit)),
+                            "holdout_rows": int(len(inner_holdout)),
+                            "fit_positive_utility_rows": int(inner_positive),
+                            "fit_negative_utility_rows": int(inner_negative),
+                            "uses_constant_classifier": bool(inner_constant),
+                            "fit_families": ",".join(inner_fit_families),
+                            "holdout_families": ",".join(inner_holdout_families),
+                            "family_overlap_count": 0,
+                            "validation_rows_used": 0,
+                            "upstream_components_refit_within_fold": True,
+                        }
+                    ]
+                )
+            )
+        inner_frame = pd.concat(inner_frames, ignore_index=True)
+        inner_score_values = np.concatenate(inner_scores).astype(float, copy=False)
         threshold = _decision_threshold_from_scores(
-            frame=outer_fit,
-            scores=inner_scores,
-            observed=outer_fit[TARGET_COLUMN].to_numpy(dtype=float),
+            frame=inner_frame,
+            scores=inner_score_values,
+            observed=inner_frame[TARGET_COLUMN].to_numpy(dtype=float),
+            expected_dimensions=expected_dimensions,
         )
-        fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
+        fitted, used_constant, positive_rows, negative_rows = _fit_model(
             clone(spec.estimator),
             outer_fit,
             feature_columns,
             spec.objective,
         )
-        holdout_scores = _predict_model(fitted, outer_holdout, feature_columns)
-        calls = holdout_scores > threshold
-        output = outer_holdout[list(METADATA_COLUMNS) + [TARGET_COLUMN, AUXILIARY_LABEL_COLUMN]].copy()
+        scores = _predict_model(fitted, outer_holdout, feature_columns)
+        calls, decision_utility = _first_trigger_policy_arrays(
+            outer_holdout,
+            scores=scores,
+            observed=outer_holdout[TARGET_COLUMN].to_numpy(dtype=float),
+            threshold=threshold,
+        )
+        output = outer_holdout[
+            list(METADATA_COLUMNS) + [TARGET_COLUMN, AUXILIARY_LABEL_COLUMN]
+        ].copy()
         output.insert(0, "data_split", "nested_train_oof")
         output.insert(1, "model_name", spec.model_name)
         output.insert(2, "model_family", spec.model_family)
         output.insert(3, "objective", spec.objective)
         output["outer_fold"] = int(outer_fold)
-        output["decision_score"] = holdout_scores
+        output["decision_score"] = scores
         output["nested_oof_threshold"] = float(threshold)
         output["decision_run_query_nested_oof"] = calls
-        output["decision_utility_nested_oof"] = np.where(calls, output[TARGET_COLUMN], 0.0)
+        output["decision_utility_nested_oof"] = decision_utility
+        output["decision_policy_unit"] = "trajectory_first_trigger"
+        output["selector_fold_role"] = outer_role
         prediction_frames.append(output)
-
-        fit_families = sorted(set(outer_fit["family"].astype(str)))
-        holdout_families = sorted(set(outer_holdout["family"].astype(str)))
-        overlap = sorted(set(fit_families).intersection(holdout_families))
-        if overlap:
-            raise RuntimeError(f"nested outer function-family fold overlap: {overlap}")
-        fold_frames.append(inner_fold_summary)
         fold_frames.append(
             pd.DataFrame(
                 [
@@ -937,28 +1667,31 @@ def _nested_family_oof_predictions(
                         "model_name": spec.model_name,
                         "model_family": spec.model_family,
                         "objective": spec.objective,
+                        "target_column": TARGET_COLUMN,
                         "fold_role": "nested_outer_evaluation",
+                        "selector_fold_role": outer_role,
                         "outer_fold": int(outer_fold),
                         "fold_index": int(outer_fold),
-                        "n_splits": int(n_splits),
+                        "n_splits": int(len(outer_partitions)),
                         "fit_rows": int(len(outer_fit)),
                         "holdout_rows": int(len(outer_holdout)),
-                        "fit_positive_utility_rows": int(fit_positive_rows),
-                        "fit_negative_utility_rows": int(fit_negative_rows),
-                        "uses_constant_classifier": bool(used_constant_classifier),
-                        "fit_families": ",".join(fit_families),
-                        "holdout_families": ",".join(holdout_families),
+                        "fit_positive_utility_rows": int(positive_rows),
+                        "fit_negative_utility_rows": int(negative_rows),
+                        "uses_constant_classifier": bool(used_constant),
+                        "fit_families": ",".join(outer_fit_families),
+                        "holdout_families": ",".join(outer_holdout_families),
                         "family_overlap_count": 0,
                         "validation_rows_used": 0,
                         "threshold": float(threshold),
-                        "threshold_source": "inner_function_family_oof",
+                        "threshold_source": "inner_fold_specific_upstream_family_oof",
+                        "upstream_components_refit_within_fold": True,
                     }
                 ]
             )
         )
     predictions = pd.concat(prediction_frames, ignore_index=True)
-    if len(predictions) != len(train):
-        raise RuntimeError("nested OOF predictions must contain exactly one row per BBOB-train state")
+    if set(predictions["family"].astype(str)) != set(_train_family_values(inputs)):
+        raise RuntimeError("nested OOF predictions do not cover every BBOB-train family")
     return predictions, pd.concat(fold_frames, ignore_index=True)
 
 
@@ -966,6 +1699,8 @@ def _decision_threshold_from_scores(
     frame: pd.DataFrame,
     scores: np.ndarray,
     observed: np.ndarray,
+    *,
+    expected_dimensions: Sequence[int],
 ) -> float:
     scores = np.asarray(scores, dtype=float).reshape(-1)
     observed = np.asarray(observed, dtype=float).reshape(-1)
@@ -976,9 +1711,53 @@ def _decision_threshold_from_scores(
 
     thresholds = _threshold_candidates(np.unique(scores))
     utility_delta = np.zeros(len(thresholds) + 1, dtype=float)
-    call_delta = np.zeros(len(thresholds) + 1, dtype=int)
+    call_delta = np.zeros(len(thresholds) + 1, dtype=float)
 
-    for _, run_frame in _iter_decision_run_groups(frame):
+    frozen_dimensions = _check_complete_dimension_coverage(
+        frame,
+        expected_dimensions=expected_dimensions,
+        context="threshold-fitting Decision data",
+    )
+    run_table = frame[list(RUN_KEY_COLUMNS)].drop_duplicates().copy()
+    runs_per_problem = run_table.groupby(
+        ["function_id", "dimension", "problem_id"],
+        dropna=False,
+    ).size().rename("runs_per_problem")
+    problems_per_dimension = (
+        run_table[["function_id", "dimension", "problem_id"]]
+        .drop_duplicates()
+        .groupby(["function_id", "dimension"], dropna=False)
+        .size()
+        .rename("problems_per_dimension")
+    )
+    function_count = int(run_table["function_id"].astype(str).nunique())
+    if function_count <= 0:
+        raise ValueError("threshold fitting requires at least one function")
+    weighted_runs = run_table.merge(
+        runs_per_problem.reset_index(),
+        on=["function_id", "dimension", "problem_id"],
+        how="left",
+        validate="many_to_one",
+    ).merge(
+        problems_per_dimension.reset_index(),
+        on=["function_id", "dimension"],
+        how="left",
+        validate="many_to_one",
+    )
+    weighted_runs["run_weight"] = 1.0 / (
+        float(function_count)
+        * float(len(frozen_dimensions))
+        * weighted_runs["problems_per_dimension"].to_numpy(dtype=float)
+        * weighted_runs["runs_per_problem"].to_numpy(dtype=float)
+    )
+    run_weights = {
+        tuple(row[column] for column in RUN_KEY_COLUMNS): float(row["run_weight"])
+        for _, row in weighted_runs.iterrows()
+    }
+    if not np.isclose(sum(run_weights.values()), 1.0, rtol=0.0, atol=1e-12):
+        raise RuntimeError("function-balanced threshold weights must sum to one")
+
+    for run_key, run_frame in _iter_decision_run_groups(frame):
         ordered = _ordered_decision_run_frame(run_frame)
         run_positions = frame.index.get_indexer(ordered.index)
         if (run_positions < 0).any():
@@ -990,17 +1769,30 @@ def _decision_threshold_from_scores(
             start = int(np.searchsorted(thresholds, max_previous_score, side="left"))
             end = int(np.searchsorted(thresholds, float(score), side="left"))
             if start < end:
-                utility_delta[start] += float(utility)
-                utility_delta[end] -= float(utility)
-                call_delta[start] += 1
-                call_delta[end] -= 1
+                weighted_utility = float(utility) * run_weights[tuple(run_key)]
+                utility_delta[start] += weighted_utility
+                utility_delta[end] -= weighted_utility
+                call_delta[start] += run_weights[tuple(run_key)]
+                call_delta[end] -= run_weights[tuple(run_key)]
             if float(score) > max_previous_score:
                 max_previous_score = float(score)
 
     decision_utility_sums = np.cumsum(utility_delta[:-1])
-    call_runs = np.cumsum(call_delta[:-1])
-    best_order = np.lexsort((thresholds, -call_runs, decision_utility_sums))
-    best_threshold = float(thresholds[int(best_order[-1])])
+    weighted_call_rates = np.cumsum(call_delta[:-1])
+    best_utility = float(np.max(decision_utility_sums))
+    utility_ties = np.flatnonzero(
+        np.isclose(decision_utility_sums, best_utility, rtol=0.0, atol=1e-12)
+    )
+    minimum_call_rate = float(np.min(weighted_call_rates[utility_ties]))
+    call_ties = utility_ties[
+        np.isclose(
+            weighted_call_rates[utility_ties],
+            minimum_call_rate,
+            rtol=0.0,
+            atol=1e-12,
+        )
+    ]
+    best_threshold = float(np.max(thresholds[call_ties]))
 
     if not np.isfinite(best_threshold):
         raise RuntimeError("OOF threshold selection produced a non-finite threshold")
@@ -1024,14 +1816,78 @@ def _prediction_frame(
     output.insert(3, "objective", objective)
     output["decision_score"] = scores.astype(float)
     for threshold_mode, threshold in thresholds.items():
-        output[f"decision_run_query_{threshold_mode}"] = scores > threshold
-        output[f"decision_utility_{threshold_mode}"] = np.where(scores > threshold, output[TARGET_COLUMN], 0.0)
+        calls, decision_utility = _first_trigger_policy_arrays(
+            frame,
+            scores=scores,
+            observed=frame[TARGET_COLUMN].to_numpy(dtype=float),
+            threshold=float(threshold),
+        )
+        output[f"decision_run_query_{threshold_mode}"] = calls
+        output[f"decision_utility_{threshold_mode}"] = decision_utility
+    output["decision_policy_unit"] = "trajectory_first_trigger"
+    return output
+
+
+def _target_prediction_frame(
+    *,
+    frame: pd.DataFrame,
+    scores: np.ndarray,
+    thresholds: dict[str, float],
+    model_name: str,
+    model_family: str,
+    objective: str,
+    data_split: str,
+    target_column: str,
+    auxiliary_label_column: str,
+    policy_target: str,
+) -> pd.DataFrame:
+    output = frame[
+        list(METADATA_COLUMNS) + [target_column, auxiliary_label_column]
+    ].copy()
+    output.insert(0, "data_split", data_split)
+    output.insert(1, "model_name", model_name)
+    output.insert(2, "model_family", model_family)
+    output.insert(3, "objective", objective)
+    output.insert(4, "policy_target", policy_target)
+    if policy_target == "behavior_only_full_budget":
+        behavior_relation_columns = {
+            "selected_algorithm": "behavior_selected_algorithm",
+            "selected_action": "behavior_selected_action",
+            "selected_equals_default": "behavior_selected_equals_default",
+            "selected_equals_prefix": "behavior_selected_equals_prefix",
+            "handoff_required": "behavior_handoff_required",
+            "handoff_type": "behavior_handoff_type",
+        }
+        missing_behavior = sorted(
+            set(behavior_relation_columns.values()).difference(frame.columns)
+        )
+        if missing_behavior:
+            raise ValueError(
+                "Behavior-only prediction output is missing action-relation columns: "
+                f"{missing_behavior}"
+            )
+        for standard_column, behavior_column in behavior_relation_columns.items():
+            output[standard_column] = frame[behavior_column].to_numpy()
+        output["query_transition_mode"] = frame["behavior_handoff_type"].astype(str).to_numpy()
+    output["decision_score"] = np.asarray(scores, dtype=float)
+    for threshold_mode, threshold in thresholds.items():
+        calls, decision_utility = _first_trigger_policy_arrays(
+            frame,
+            scores=scores,
+            observed=frame[target_column].to_numpy(dtype=float),
+            threshold=float(threshold),
+        )
+        output[f"decision_run_query_{threshold_mode}"] = calls
+        output[f"decision_utility_{threshold_mode}"] = decision_utility
+    output["decision_policy_unit"] = "trajectory_first_trigger"
     return output
 
 
 def _nested_model_selection_summary(
     predictions: pd.DataFrame,
     model_specs: tuple[DecisionModelSpec, ...],
+    *,
+    expected_dimensions: Sequence[int],
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     candidate_order = {name: index for index, name in enumerate(ACTIVE_MODEL_NAMES)}
@@ -1042,18 +1898,28 @@ def _nested_model_selection_summary(
         observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
         scores = frame["decision_score"].to_numpy(dtype=float)
         positive = observed > 0.0
-        calls = frame["decision_run_query_nested_oof"].to_numpy(dtype=bool)
-        decision_utility = frame["decision_utility_nested_oof"].to_numpy(dtype=float)
-        captured_positive = positive & calls
-        positive_utility_sum = float(np.sum(observed[positive]))
-        captured_positive_utility_sum = float(np.sum(observed[captured_positive]))
+        run_summary = _first_trigger_run_summary(
+            frame,
+            call_column="decision_run_query_nested_oof",
+            utility_column="decision_utility_nested_oof",
+        )
+        calls = run_summary["called"].to_numpy(dtype=bool)
+        decision_utility = run_summary["call_utility"].to_numpy(dtype=float)
+        captured_positive = run_summary["call_positive"].to_numpy(dtype=bool)
+        positive_utility_sum = float(np.sum(run_summary["best_available_positive_utility"]))
+        captured_positive_utility_sum = float(np.sum(decision_utility[captured_positive]))
         row = {
             "model_name": spec.model_name,
             "model_family": spec.model_family,
             "objective": spec.objective,
             "candidate_order": int(candidate_order[spec.model_name]),
-            MODEL_SELECTION_METRIC: float(np.mean(decision_utility)),
+            MODEL_SELECTION_METRIC: _function_balanced_run_mean(
+                run_summary,
+                "call_utility",
+                expected_dimensions=expected_dimensions,
+            ),
             "nested_family_oof_decision_utility_sum": float(np.sum(decision_utility)),
+            "nested_family_oof_runs": int(len(run_summary)),
             "nested_family_oof_query_call_rate": float(np.mean(calls)),
             "nested_family_oof_precision_u_gt_zero_under_calls": float(
                 np.sum(captured_positive) / max(int(np.sum(calls)), 1)
@@ -1282,36 +2148,47 @@ def _decision_row(
 ) -> dict[str, Any]:
     observed = frame[TARGET_COLUMN].to_numpy(dtype=float)
     positive = observed > 0.0
-    calls = frame[f"decision_run_query_{threshold_mode}"].to_numpy(dtype=bool)
-    decision_utility = np.where(calls, observed, 0.0)
-    captured_positive = positive & calls
-    unhelpful_calls = (~positive) & calls
-    positive_rows = int(np.sum(positive))
-    positive_utility_sum = float(np.sum(observed[positive]))
-    captured_positive_utility_sum = float(np.sum(observed[captured_positive]))
-    call_rows = int(np.sum(calls))
+    call_column = f"decision_run_query_{threshold_mode}"
+    utility_column = f"decision_utility_{threshold_mode}"
+    run_summary = _first_trigger_run_summary(
+        frame,
+        call_column=call_column,
+        utility_column=utility_column,
+    )
+    calls = run_summary["called"].to_numpy(dtype=bool)
+    decision_utility = run_summary["call_utility"].to_numpy(dtype=float)
+    captured_positive = run_summary["call_positive"].to_numpy(dtype=bool)
+    unhelpful_calls = run_summary["unhelpful_call"].to_numpy(dtype=bool)
+    positive_runs = int(np.sum(run_summary["has_positive_opportunity"].to_numpy(dtype=bool)))
+    positive_utility_sum = float(np.sum(run_summary["best_available_positive_utility"]))
+    captured_positive_utility_sum = float(np.sum(decision_utility[captured_positive]))
+    call_runs = int(np.sum(calls))
     return {
         **_common_fields(frame, layer, group, model_name, model_family),
         "threshold_mode": threshold_mode,
         "threshold": float(threshold),
-        "decision_query_call_rows": call_rows,
+        "policy_unit": "trajectory_first_trigger",
+        "runs": int(len(run_summary)),
+        "decision_query_call_runs": call_runs,
         "decision_query_call_rate": float(np.mean(calls)),
-        "mean_observed_utility_under_calls": float(np.mean(observed[calls])) if call_rows else 0.0,
-        "positive_rows_captured": int(np.sum(captured_positive)),
-        "positive_row_capture_rate": float(np.sum(captured_positive) / max(positive_rows, 1)),
+        "mean_observed_utility_under_calls": float(np.mean(decision_utility[calls])) if call_runs else 0.0,
+        "positive_runs_captured": int(np.sum(captured_positive)),
+        "positive_run_capture_rate": float(np.sum(captured_positive) / max(positive_runs, 1)),
         "utility_capture_rate": (
             captured_positive_utility_sum / positive_utility_sum if positive_utility_sum > 0.0 else 0.0
         ),
-        "precision_u_gt_zero_under_calls": float(np.sum(captured_positive) / max(call_rows, 1)),
-        "unhelpful_call_rows": int(np.sum(unhelpful_calls)),
-        "unhelpful_call_rate_within_calls": float(np.sum(unhelpful_calls) / max(call_rows, 1)),
-        "unhelpful_call_share_all_rows": float(np.mean(unhelpful_calls)),
-        "unhelpful_call_cost_sum": float(-np.sum(observed[unhelpful_calls])),
+        "precision_u_gt_zero_under_calls": float(np.sum(captured_positive) / max(call_runs, 1)),
+        "unhelpful_call_runs": int(np.sum(unhelpful_calls)),
+        "unhelpful_call_rate_within_calls": float(np.sum(unhelpful_calls) / max(call_runs, 1)),
+        "unhelpful_call_share_all_runs": float(np.mean(unhelpful_calls)),
+        "unhelpful_call_cost_sum": float(-np.sum(decision_utility[unhelpful_calls])),
         "decision_utility_sum": float(np.sum(decision_utility)),
         "decision_mean_utility": float(np.mean(decision_utility)),
-        "always_query_mean_utility": float(np.mean(observed)),
+        "always_query_mean_utility": float(np.mean(run_summary["first_opportunity_utility"])),
         "never_query_mean_utility": 0.0,
-        "best_observed_action_mean_utility": float(np.mean(np.maximum(observed, 0.0))),
+        "run_hindsight_max_positive_utility_mean": float(
+            np.mean(run_summary["best_available_positive_utility"])
+        ),
     }
 
 
@@ -1479,8 +2356,8 @@ def _markdown_report(
             "- Dataset: formal phase1 refined sampling materialized Decision dataset.",
             "- Train split: `bbob_train`; validation split: `bbob_validation`.",
             "- Active candidates are fixed to LDA, Logistic Regression, and Ridge.",
-            "- Model selection uses nested function-family OOF decision utility on BBOB-train only.",
-            "- Frozen thresholds use full BBOB-train function-family OOF scores; validation is evaluation only.",
+            "- Model selection uses nested landscape-family OOF decision utility on BBOB-train only.",
+            "- Fixed thresholds use full BBOB-train landscape-family OOF scores; validation is evaluation only.",
             "- Metadata is used only for reporting, splitting, and error analysis.",
             f"- Feature group: `{summary['feature_group']}` with {summary['feature_count']} input columns.",
             f"- Selected model: `{summary['selected_model_name']}`.",
@@ -1590,7 +2467,7 @@ def _markdown_report(
                         "model_name",
                         "decision_query_call_rate",
                         "mean_observed_utility_under_calls",
-                        "positive_row_capture_rate",
+                        "positive_run_capture_rate",
                         "utility_capture_rate",
                         "precision_u_gt_zero_under_calls",
                         "unhelpful_call_rate_within_calls",
@@ -1607,7 +2484,7 @@ def _markdown_report(
                         "model_name",
                         "decision_query_call_rate",
                         "mean_observed_utility_under_calls",
-                        "positive_row_capture_rate",
+                        "positive_run_capture_rate",
                         "utility_capture_rate",
                         "precision_u_gt_zero_under_calls",
                         "unhelpful_call_rate_within_calls",
@@ -1680,38 +2557,141 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Select and train the frozen three-candidate Decision Model protocol with nested family OOF."
+        description=(
+            "Fit fold-specific SBS/Selectors/Utility labels and train the frozen "
+            "three-candidate Decision protocol with nested landscape-family OOF."
+        )
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
-    parser.add_argument("--dataset", type=Path, default=None)
-    parser.add_argument("--schema", type=Path, default=None)
+    parser.add_argument(
+        "--train-config",
+        type=Path,
+        default=Path("configs/phase1_bbob_train.yaml"),
+    )
+    parser.add_argument("--query-action-loss", type=Path, action="append", required=True)
+    parser.add_argument("--behavior-action-loss", type=Path, action="append", required=True)
+    parser.add_argument("--behavior", type=Path, action="append", required=True)
+    parser.add_argument("--query-feature", type=Path, action="append", required=True)
+    parser.add_argument("--complete-path-timing", type=Path, action="append", default=None)
+    parser.add_argument("--pre-run-action-loss", type=Path, action="append", required=True)
+    parser.add_argument(
+        "--emit-replay-plan",
+        type=Path,
+        default=None,
+        help=(
+            "Write the fold/state/path plan after fitting fold-specific Selectors. "
+            "The plan must be executed by a real decision-state-to-terminal replay runner."
+        ),
+    )
+    parser.add_argument("--replay-plan-only", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--feature-group",
-        choices=("T0", "B1", "B2", "B3"),
+        choices=FORMAL_FEATURE_GROUPS,
         default="B3",
+    )
+    parser.add_argument(
+        "--opportunity-scope",
+        choices=OPPORTUNITY_SCOPES,
+        default=ALL_ACCEPTED_OPPORTUNITIES,
     )
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument("--target-column", choices=UTILITY_VALUE_COLUMNS, default=DEFAULT_TARGET_COLUMN)
     parser.add_argument("--auxiliary-label-column", choices=NEED_QUERY_COLUMNS, default=None)
+    parser.add_argument(
+        "--behavior-target-column",
+        choices=BEHAVIOR_UTILITY_VALUE_COLUMNS,
+        default=DEFAULT_BEHAVIOR_TARGET_COLUMN,
+    )
+    parser.add_argument(
+        "--behavior-auxiliary-label-column",
+        choices=NEED_BEHAVIOR_ONLY_COLUMNS,
+        default=None,
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    if FULL_TRAIN_OOF_FOLDS != OUTER_OOF_FOLDS:
+        raise RuntimeError(
+            "replay-plan roles require FULL_TRAIN_OOF_FOLDS == OUTER_OOF_FOLDS"
+        )
     auxiliary_label_column = args.auxiliary_label_column or NEED_QUERY_COLUMNS[
         UTILITY_VALUE_COLUMNS.index(args.target_column)
     ]
+    behavior_auxiliary_label_column = (
+        args.behavior_auxiliary_label_column
+        or NEED_BEHAVIOR_ONLY_COLUMNS[
+            BEHAVIOR_UTILITY_VALUE_COLUMNS.index(args.behavior_target_column)
+        ]
+    )
+    config = load_config(args.train_config)
+    performance = read_performance(config, None, None)
+    prepared_inputs = prepare_nested_learning_inputs(
+        query_id=args.query_id,
+        performance=performance,
+        query_action_loss_paths=list(args.query_action_loss),
+        behavior_action_loss_paths=list(args.behavior_action_loss),
+        behavior_paths=list(args.behavior),
+        query_feature_paths=list(args.query_feature),
+        complete_path_timing_paths=(
+            None
+            if args.complete_path_timing is None
+            else list(args.complete_path_timing)
+        ),
+        log10_gap_floor=float(config["log10_gap_floor"]),
+        log10_gap_cap=float(config["log10_gap_cap"]),
+        pre_run_action_loss_paths=list(args.pre_run_action_loss),
+    )
+    replay_plan_path = args.emit_replay_plan
+    if args.replay_plan_only and replay_plan_path is None:
+        replay_plan_path = (
+            Path("results/decision")
+            / args.query_id
+            / "fold_specific_selected_path_replay_plan.parquet"
+        )
+    if replay_plan_path is not None:
+        if replay_plan_path.exists() and not args.overwrite:
+            raise FileExistsError(
+                f"fold-specific replay plan already exists; pass --overwrite: {replay_plan_path}"
+            )
+        replay_plan = build_required_replay_plan(
+            inputs=prepared_inputs,
+            outer_folds=OUTER_OOF_FOLDS,
+            inner_folds=INNER_OOF_FOLDS,
+        )
+        replay_plan_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.Table.from_pandas(replay_plan, preserve_index=False),
+            replay_plan_path,
+        )
+        print(f"wrote {len(replay_plan)} fold/state/path replay rows to {replay_plan_path}")
+    if args.replay_plan_only:
+        return
+    if prepared_inputs.complete_path_timings is None:
+        raise ValueError(
+            "formal training requires --complete-path-timing from the executed "
+            "fold-specific replay plan; action-component runtimes are not accepted"
+        )
 
-    materialized = Path("results/decision") / args.query_id / "materialized_training_data"
+    default_output = (
+        Path("results/decision")
+        / args.query_id
+        / "feature_group_ablation"
+        / args.feature_group
+        / args.opportunity_scope
+    )
     train_full_decision_models(
         query_id=args.query_id,
-        dataset_path=args.dataset or materialized / "decision_dataset.parquet",
-        schema_path=args.schema or materialized / "decision_dataset_schema.json",
-        output_dir=args.output_dir
-        or Path("results/decision") / args.query_id / "feature_group_ablation" / args.feature_group,
+        prepared_inputs=prepared_inputs,
+        output_dir=args.output_dir or default_output,
         overwrite=args.overwrite,
         random_seed=args.random_seed,
         feature_group=args.feature_group,
+        opportunity_scope=args.opportunity_scope,
+        expected_dimensions=tuple(int(value) for value in config["dimensions"]),
         target_column=args.target_column,
         auxiliary_label_column=auxiliary_label_column,
+        behavior_target_column=args.behavior_target_column,
+        behavior_auxiliary_label_column=behavior_auxiliary_label_column,
     )
 
 

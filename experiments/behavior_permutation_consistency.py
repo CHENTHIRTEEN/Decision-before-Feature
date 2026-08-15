@@ -18,6 +18,9 @@ from trajectory.window_statistics import WINDOW_RATIOS
 
 
 PERMUTATION_STREAM_CODE = 20260812
+FORMAL_LOG10_GAP_FLOOR = 1.0e-12
+FORMAL_LOG10_GAP_CAP = 1.0e20
+FORMAL_SUCCESS_GAP_TARGET = 1.0e-8
 
 
 def check_population_permutation_consistency(
@@ -52,6 +55,10 @@ def check_population_permutation_consistency(
                 seed=seed,
                 fe_total=fe_total,
                 settings=settings,
+                log10_gap_floor=FORMAL_LOG10_GAP_FLOOR,
+                log10_gap_cap=FORMAL_LOG10_GAP_CAP,
+                success_gap_target=FORMAL_SUCCESS_GAP_TARGET,
+                failure_loss_cap=FORMAL_LOG10_GAP_CAP,
             )
         finally:
             problem.close()

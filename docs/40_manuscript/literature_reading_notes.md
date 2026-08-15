@@ -16,8 +16,8 @@
 - BibTeX key：`cenikjLandscapeFeaturesSingleobjective2025`
 - 阅读载体：Zotero 索引 PDF 全文；核读摘要、数据划分、特征—性能对齐、AS 结果、讨论与局限。
 - 可支撑：相似实例跨训练/测试会使 AS 评价偏乐观；该文的 problem split 与 problem-combination split 中，多组景观表示未优于简单基线；SBS 是关键基线；ELA 对采样和变换敏感。
-- 不可支撑：本项目 family split 或阈值已有效；BBOB-validation、CEC 或工程泛化已经成立；行为特征必然优于 ELA；ELA 普遍不值得执行。
-- 正文用途：Introduction 的泛化风险；Related Work 的严格划分与 SBS；Experimental Setup 的 function-family split 动机。
+- 不可支撑：本项目 function-ID grouped split 或阈值已有效；BBOB-validation、CEC 或工程泛化已经成立；行为特征必然优于 ELA；ELA 普遍不值得执行。
+- 正文用途：Introduction 的泛化风险；Related Work 的严格划分与 SBS；Experimental Setup 的 function-ID grouped split 动机。当前项目没有经典 landscape-family taxonomy。
 
 ### A.2 Cenikj et al. (2026)
 
@@ -140,7 +140,7 @@
 
 这 10 篇文献共同支持以下研究动机：静态景观特征已用于算法选择和自适应搜索，但具有采样、计算及泛化限制；优化轨迹可以提供 problem--algorithm interaction 信息。因此，在获取 ELA 之前预测其预期收益能否覆盖成本，是合理且尚需本项目正式实验回答的问题。
 
-它们不能替代以下本项目产物：RQ1--RQ5 的正式统计结果、BBOB-train family-OOF 模型与阈值、BBOB-validation 冻结评价、CEC2017/CEC2022/工程问题泛化、ELA 成本扣除后的净效用，以及各 baseline 的最终性能差。上述内容在对应正式产物生成前不得写成已证实结论。
+它们不能替代以下本项目产物：RQ1--RQ5 的正式统计结果、BBOB-train grouped-by-function OOF 模型与阈值、BBOB-validation 已见内部评价、CEC2017/CEC2022/工程问题的 suite-specific 评价、query 成本扣除后的净效用，以及各 baseline 的最终性能差。上述内容在对应正式产物生成前不得写成已证实结论。
 
 ## B. `docs/90_literature` 项目内全文
 
@@ -217,8 +217,8 @@
 - BibTeX key：`kerschkeAutomatedAlgorithmSelection2019`
 - 核读范围：Zotero 索引 PDF 全文；核读 ELA--machine-learning pipeline、portfolio、SBS/VBS、feature cost、leave-one-function-out 评价与局限。
 - 可支撑：静态 ELA 与监督学习可以把问题实例映射到 portfolio action；SBS/VBS 是算法选择的重要参照；特征采样 FE 应纳入总预算；function-level split 比随机 run/instance split 更能暴露泛化难度。
-- 不可支撑：descriptor 已计算后的 action selection 不等同于 descriptor 计算前的 query decision；leave-one-function-out 不等同于本文 function-family split；该文性能不验证本文 Selection Reference 或 Decision Model。
-- 正文用途：Introduction 与 Related Work 的传统 ELA-based AAS 基线；Experimental Setup 中 SBS/VBS 和 function-family split 的文献脉络。
+- 不可支撑：descriptor 已计算后的 action selection 不等同于 descriptor 计算前的 query decision；leave-one-function-out 不能被改写成跨经典 landscape-family 泛化；该文性能不验证本文 Selection Reference 或 Decision Model。
+- 正文用途：Introduction 与 Related Work 的传统 ELA-based AAS 基线；Experimental Setup 中 SBS/VBS 和 function-ID grouped split 的文献脉络。
 
 ### C.2 Prager and Trautmann (2024), pflacco
 
@@ -298,7 +298,7 @@
 
 | 研究 | Decision target | Information time | Input | Label／分析目标 | Cost treatment | Transition | Split／评价边界 |
 |---|---|---|---|---|---|---|---|
-| Kerschke and Trautmann (2019) | 选择 portfolio algorithm | 静态 ELA 已计算之后 | 独立样本的 ELA | performance-derived algorithm selection | 计入 feature sampling FE | 启动所选算法 | leave-one-function-out；不是 family split |
+| Kerschke and Trautmann (2019) | 选择 portfolio algorithm | 静态 ELA 已计算之后 | 独立样本的 ELA | performance-derived algorithm selection | 计入 feature sampling FE | 启动所选算法 | leave-one-function-out；不等于跨经典 landscape-family taxonomy |
 | Jankovic et al. (2022) | 选择第二阶段算法 | 固定 CMA-ES 前缀及 trajectory ELA 之后 | CMA-ES 前缀上的 ELA | 候选算法 fixed-budget performance | 复用前缀 FE；无 paired query/skip net utility | 单次 algorithm-specific warm-start | 5D BBOB、instance-group evaluation；CEC 留作未来工作 |
 | Kostovska et al. (2022) | 选择第二阶段候选 | 固定 switch point 之后 | trajectory ELA、CMA-ES 内部时间序列或二者 | 候选 performance regression | 无独立 ELA sample；未把 acquisition/computation 合为 gate utility | 从 CMA-ES 单次 warm-start 切换 | BBOB 5D/10D；另测 BBOB-to-YABBOB |
 | Renau and Hart (2024) | 选择 portfolio algorithm | probing trajectory 构建之后 | 短的 algorithm-centric probe sequence | algorithm-selection target | 摘要只支持“相对昂贵表示”的成本动机 | probe 后选择；细节未由摘要确认 | 具体 split 未由摘要确认 |
@@ -309,7 +309,7 @@
 | van der Blom and Vermetten (2026) | 特征预算条件下的 per-instance algorithm selection | 特征已计算之后 | 静态景观特征与预算情景 | algorithm-selection performance | feature FE 与 optimizer 共享总预算 | 选择算法并用剩余预算优化 | 结论依赖 portfolio、问题、维度、预算与评价情景 |
 | RL-DAS (2024) | 运行中重复选择 DE variant | 每次动态调度时，已有 landscape/history/context | 信息丰富的 RL state | MDP reward | 重复 feature/state acquisition；不是 paired query/skip utility | 多次切换或调度候选 DE 状态 | proof-of-principle 的 DE/CEC 条件；不证明外部转移 |
 | DACBench (2021) | 动态设置 hyperparameter 或 algorithm component | 每个配置时点的目标算法状态 | benchmark-defined state 与 instance context | 累积 reward／solution quality | state 查询与配置频率属于 benchmark 定义；不估计独立 query acquisition utility | 重复参数或组件控制 | 含 CMA-ES 与 ModEA 等 DAC benchmark；不是 query/skip 评价 |
-| Decision-before-Feature | 执行或跳过固定 descriptor query | query descriptors 尚不存在时 | 算法无关 behavior 与允许的连续预算上下文 | matched-state、cost-adjusted query utility | 同时区分 query FE、时间与内存口径；只扣除非重复成本 | query 后由独立 Selection Reference 选择 native continuation 或 population-transfer initialization | BBOB-train function-family OOF 选模/阈值；BBOB-validation 与外部套件仅冻结评价，当前尚无泛化结论 |
+| Decision-before-Feature | 执行或跳过固定 descriptor query | query descriptors 尚不存在时 | 算法无关 behavior 与允许的连续预算上下文 | matched-state、cost-adjusted query utility | 同时区分 query FE、时间与内存口径；只扣除非重复成本 | query 后由独立 Selection Reference 选择 native continuation 或 population-transfer initialization | BBOB-train function-ID grouped OOF 选模/阈值；BBOB-validation 是已见内部评价，外部 suites 分开评价，当前尚无泛化结论 |
 
 ## E. 精确研究缺口与引用边界
 
@@ -402,8 +402,8 @@ Renau and Hart (2025) 已按 Zotero 全文证据纳入正文和 BibTeX；其用�
 - BibTeX key：`petelinPitfallsBenchmarkingAlgorithm2025`
 - 核读范围：Zotero PDF 全文，共 9 页；核读 leave-instance-out/leave-problem-out 对比、非信息特征示例、scale-sensitive target 与 scale-free selection metric。
 - 可支撑：共享函数的 instance-level 划分可能奖励问题类别识别而非 unseen-problem algorithm ranking；scale-sensitive performance-regression error 可能改善却不提高实际 selection ranking。
-- 不可支撑：本文 function-family split 或 statewise-normalized utility 已经有效；严格 split 本身能保证外部泛化；该文结果可替代本文 RQ2/RQ4 评价。
-- 正文用途：Related Work 与 Experimental Setup 中说明 function-family partition、statewise action-loss normalization 和 utility-based model selection 的动机，同时保留这些设计仍需正式评价的边界。
+- 不可支撑：本文 function-ID grouped split 或 statewise-normalized utility 已经有效；严格 split 本身能保证外部泛化；该文结果可替代本文 RQ2/RQ4 评价。
+- 正文用途：Related Work 与 Experimental Setup 中说明 function-ID partition、statewise action-loss normalization 和 utility-based model selection 的动机，同时保留这些设计仍需正式评价的边界。只有补充可复核 taxonomy 后才能讨论跨经典 landscape-family 迁移。
 
 ### G.6 Mersmann et al. (2011), Exploratory Landscape Analysis
 

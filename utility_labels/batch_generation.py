@@ -17,23 +17,27 @@ from utility_labels.generation import generate_utility_labels
 from utility_labels.validation import validate_utility_label_file
 
 
-TARGET_COLUMN = "u_query_lamT_1"
+TARGET_COLUMN = "u_query_joint_lamT_1"
 
 
 def utility_label_shard_path(
     output_root: Path,
     split: str,
-    family: str,
+    function_id: str,
     dimension: int,
 ) -> Path:
-    return output_root / split / family / f"dimension_{dimension}" / "utility_labels.parquet"
+    return output_root / split / function_id / f"dimension_{dimension}" / "utility_labels.parquet"
 
 
 def generate_utility_label_shards(
     *,
     query_id: str,
     config_paths: list[Path],
-    selection_reference_path: Path,
+    query_selection_reference_path: Path,
+    behavior_selection_reference_path: Path,
+    query_adjusted_behavior_reference_path: Path,
+    sampling_only_reference_path: Path,
+    complete_path_timings_path: Path,
     output_root: Path,
     only_functions: list[int] | None,
     only_dimensions: list[int] | None,
@@ -46,7 +50,9 @@ def generate_utility_label_shards(
         config = load_config(config_path)
         split = split_name(config)
         for shard in make_shards(config, only_functions, only_dimensions):
-            output = utility_label_shard_path(output_root, split, shard.family, shard.dimension)
+            output = utility_label_shard_path(
+                output_root, split, shard.function_id, shard.dimension
+            )
             if output.exists() and not overwrite:
                 print(f"skip existing query utility shard {output}")
                 skipped += 1
@@ -55,7 +61,11 @@ def generate_utility_label_shards(
                 {
                     "query_id": query_id,
                     "config_path": str(config_path),
-                    "selection_reference_path": str(selection_reference_path),
+                    "query_selection_reference_path": str(query_selection_reference_path),
+                    "behavior_selection_reference_path": str(behavior_selection_reference_path),
+                    "query_adjusted_behavior_reference_path": str(query_adjusted_behavior_reference_path),
+                    "sampling_only_reference_path": str(sampling_only_reference_path),
+                    "complete_path_timings_path": str(complete_path_timings_path),
                     "output_path": str(output),
                     "function": shard.function,
                     "dimension": shard.dimension,
@@ -96,10 +106,13 @@ def summarize_utility_label_shards(
         config = load_config(config_path)
         split = split_name(config)
         for shard in make_shards(config, only_functions, only_dimensions):
-            path = utility_label_shard_path(output_root, split, shard.family, shard.dimension)
+            path = utility_label_shard_path(
+                output_root, split, shard.function_id, shard.dimension
+            )
             row = {
                 "query_id": query_id,
                 "split": split,
+                "function_id": shard.function_id,
                 "family": shard.family,
                 "dimension": shard.dimension,
                 "path": str(path),
@@ -143,7 +156,13 @@ def _generate_one_shard(task: dict[str, Any]) -> dict[str, Any]:
     summary = generate_utility_labels(
         query_id=str(task["query_id"]),
         config_path=Path(task["config_path"]),
-        selection_reference_path=Path(task["selection_reference_path"]),
+        query_selection_reference_path=Path(task["query_selection_reference_path"]),
+        behavior_selection_reference_path=Path(task["behavior_selection_reference_path"]),
+        query_adjusted_behavior_reference_path=Path(
+            task["query_adjusted_behavior_reference_path"]
+        ),
+        sampling_only_reference_path=Path(task["sampling_only_reference_path"]),
+        complete_path_timings_path=Path(task["complete_path_timings_path"]),
         output_path=Path(task["output_path"]),
         only_functions=[int(task["function"])],
         only_dimensions=[int(task["dimension"])],
@@ -156,7 +175,7 @@ def _generate_one_shard(task: dict[str, Any]) -> dict[str, Any]:
 
 def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
     if labels.empty:
-        return pd.DataFrame(columns=["query_id", "split", "rows", "call_rate", "mean_u_query_lamT_1"])
+        return pd.DataFrame(columns=["query_id", "split", "rows", "call_rate", "mean_u_query_joint_lamT_1"])
     rows = []
     for split, frame in labels.groupby("split", sort=True):
         target = frame[TARGET_COLUMN].astype(float)
@@ -166,7 +185,7 @@ def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
                 "split": str(split),
                 "rows": int(len(frame)),
                 "call_rate": float((target > 0.0).mean()),
-                "mean_u_query_lamT_1": float(target.mean()),
+                "mean_u_query_joint_lamT_1": float(target.mean()),
                 "mean_performance_gain_norm": float(frame["performance_gain_norm"].mean()),
                 "mean_selector_regret_raw": float(frame["selector_regret_raw"].mean()),
                 **{f"mean_{column}": float(frame[column].mean()) for column in UTILITY_VALUE_COLUMNS},
@@ -220,7 +239,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate query-specific utility labels by split/family/dimension.")
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, action="append", default=None)
-    parser.add_argument("--selection-reference", type=Path, default=None)
+    parser.add_argument("--query-selection-reference", type=Path, default=None)
+    parser.add_argument("--behavior-selection-reference", type=Path, default=None)
+    parser.add_argument("--query-adjusted-behavior-reference", type=Path, default=None)
+    parser.add_argument("--sampling-only-reference", type=Path, default=None)
+    parser.add_argument("--complete-path-timings", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, default=None)
     parser.add_argument("--report-dir", type=Path, default=None)
     parser.add_argument("--only-function", type=int, action="append", default=None)
@@ -235,14 +258,21 @@ def main() -> None:
         Path("configs/phase1_bbob_train.yaml"),
         Path("configs/phase1_bbob_validation.yaml"),
     ]
-    selection = args.selection_reference or Path("results/selection_reference") / args.query_id / "selection_reference.parquet"
+    query_selection = args.query_selection_reference or Path("results/selection_reference") / args.query_id / "selection_reference.parquet"
+    behavior_selection = args.behavior_selection_reference or Path("results/selection_reference/behavior_only_full_budget/selection_reference.parquet")
+    state_only_selection = args.query_adjusted_behavior_reference or Path("results/selection_reference") / args.query_id / "state_only_selection_reference.parquet"
+    sampling_only_selection = args.sampling_only_reference or Path("results/selection_reference") / args.query_id / "sampling_only_continue_current.parquet"
     output_root = args.output_root or Path("results/utility_labels") / args.query_id
     report_dir = args.report_dir or Path("results/utility_labels") / args.query_id / "quality"
     if not args.summarize_only:
         generate_utility_label_shards(
             query_id=args.query_id,
             config_paths=config_paths,
-            selection_reference_path=selection,
+            query_selection_reference_path=query_selection,
+            behavior_selection_reference_path=behavior_selection,
+            query_adjusted_behavior_reference_path=state_only_selection,
+            sampling_only_reference_path=sampling_only_selection,
+            complete_path_timings_path=args.complete_path_timings,
             output_root=output_root,
             only_functions=args.only_function,
             only_dimensions=args.only_dimension,

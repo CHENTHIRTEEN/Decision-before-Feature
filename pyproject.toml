@@ -40,17 +40,13 @@ utility-labels-generate-batch = "utility_labels.batch_generation:main"
 utility-labels-validate = "utility_labels.validation:main"
 decision-materialize-training-data = "decision.materialize_training_data:main"
 decision-check-training-pipeline-contract = "decision.check_training_pipeline_contract:main"
-decision-handoff-learnability = "decision.handoff_learnability_diagnostic:main"
-decision-algorithm-partition-stacking-diagnostic = "decision.algorithm_partition_stacking_diagnostic:main"
 decision-train-full = "decision.train_full_decision_model:main"
 decision-compare-feature-groups = "decision.compare_feature_group_training:main"
 decision-check-model-protocol = "decision.check_model_protocol:main"
 decision-threshold-sweep = "decision.threshold_sweep:main"
 decision-compare-controller-baselines = "decision.compare_controller_baselines:main"
-decision-controller-cost-performance = "decision.controller_cost_performance_pareto:main"
-decision-external-test-predict = "decision.external_test_predict:main"
 decision-online-controller-evaluate = "decision.online_controller_evaluate:main"
-decision-cec-online-score-distribution = "decision.cec_online_score_distribution:main"
+decision-build-static-vbs = "decision.static_portfolio_reference:main"
 
 [build-system]
 requires = ["setuptools>=80"]

@@ -44,8 +44,6 @@ DESCRIPTOR_CHEAP_COLUMNS = (
     "descriptor_y_max",
     "descriptor_y_mean",
     "descriptor_y_std",
-    "descriptor_y_median",
-    "descriptor_y_iqr",
     "descriptor_y_skew",
     "descriptor_y_kurtosis",
     "descriptor_x_mean_pairwise",
@@ -179,7 +177,7 @@ LANDSCAPE_QUERY_SPECS = {
         feature_groups=("descriptor_cheap",),
         feature_columns=DESCRIPTOR_CHEAP_COLUMNS,
         primary=True,
-        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:descriptor_cheap_invariant_16_lhs_50d",
+        protocol=f"{LANDSCAPE_QUERY_PROTOCOL_VERSION}:descriptor_cheap_invariant_14_lhs_50d",
         preprocessing_id=QUERY_PREPROCESSING_VERSION,
     ),
     "pflacco_standard_invariant": LandscapeQuerySpec(
@@ -232,7 +230,7 @@ def validate_frozen_query_specs() -> None:
     if broad.sample_design.sample_size_per_dimension != 100:
         raise ValueError("pflacco_broad_invariant must use lhs_100d")
     expected_counts = {
-        "descriptor_cheap_invariant": 16,
+        "descriptor_cheap_invariant": 14,
         "pflacco_standard_invariant": 37,
         "pflacco_broad_invariant": 52,
     }

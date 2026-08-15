@@ -11,6 +11,7 @@ from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 STATE_KEY_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "dimension",
     "prefix_algorithm",

@@ -1,133 +1,115 @@
-# Decision-before-Feature 特征信息必要性与表示依赖性验证设计
+# Decision-before-Feature Query 操作性增量与表示依赖性验证设计
 
-## 1. 文档定位
+> 唯一活动扩展协议（2026-08-14）。本文把“query 操作性增量”和“query features 的边际预测贡献”明确分开；旧 Full/Compact ELA 二分、单一 `U_query` 以及把两类增量混写的方案全部退出。
 
-本文档讨论固定 landscape representation 的信息增量与表示依赖性。旧版文档使用 “Full ELA / Compact ELA” 二分法，但当前 16 维描述符既不是完整 ELA，也不是 pflacco 的完整 feature sets；该二分法已由三档 Landscape Query 协议取代。
+## 1. 三档固定 query
 
-活动配置以 `docs/10_protocols/Decision-before-Feature_Landscape_Query三档配置与数据契约.md` 为准：
+三档以主协议为准：
 
-- `descriptor_cheap`：16 个自定义低成本描述符，`lhs_50d`，5% FE，第一篇论文唯一主 query；
-- `pflacco_standard`：37 个预定义 pflacco 1.2.2 特征，`lhs_50d`，5% FE；
-- `pflacco_broad`：52 个预定义 pflacco 1.2.2 特征，`lhs_100d`，10% FE。
+| query_id | descriptors | sample design | FE | 角色 |
+|---|---:|---|---:|---|
+| `descriptor_cheap_invariant` | 14 个自定义 permutation-invariant descriptors | `lhs_50d` | $0.05B$ | 第一篇论文主 query |
+| `pflacco_standard_invariant` | 37 个预定义 pflacco 1.2.2 descriptors | `lhs_50d` | $0.05B$ | 配置稳健性 |
+| `pflacco_broad_invariant` | 52 个预定义 pflacco 1.2.2 descriptors | `lhs_100d` | $0.10B$ | 配置稳健性 |
 
-standard 与 broad 只用于预先定义的配置稳健性实验，不得根据 validation 结果改选主 query。NeurELA、Deep-ELA 及其他学习式或动态表示不在本轮实现范围内。
+cheap 与 standard 共享同一 `lhs_50d` 样本和 5% query-budget action outcomes；broad 使用独立 `lhs_100d` 样本与 10% outcomes。三档分别拟合 Selector、Utility、Decision 与 threshold，`query_id` 只作数据隔离和协议核对，不进入模型输入。
 
----
+Cheap 原设计中的 `descriptor_y_median` 与 `descriptor_y_iqr` 在统一 median/IQR preprocessing 后恒为 0 和 1，已从活动 whitelist 删除；该构念修正不改变 query ID、样本、FE 或 action-loss 表。
 
-## 2. 两个不同问题
+NeurELA、Deep-ELA、Progressive ELA 与动态 query-type selection 不在第一篇论文范围。三档不是 Full ELA 的覆盖性分级，也不能按 validation 结果替换主 query。
 
-### 2.1 固定 query 是否值得执行
+## 2. 主问题：固定 query 的联合路径是否值得执行
 
-第一篇论文的主问题是：
+主问题是：
 
-> 算法无关搜索行为能否预测调用固定 `descriptor_cheap` query 的状态依赖效用？
+> 在冻结状态分布、portfolio、Selector、预算和 first-trigger policy 下，query 前算法无关 Behavior 能否预测执行 `descriptor_cheap_invariant` 与 full Selector 相对原生 SBS continuation 的联合净效用？
 
-比较 No-query 与 Run Query，并计算：
-
-$$
-U_{query}=(P_{skip}-p_{query})-\lambda_T C_T-\lambda_M C_M.
-$$
-
-其中 `FE_query` 已通过减少 Run Query 的后续优化预算进入 $p_{query}$，不得重复按 FE 数量扣除。主 $C_T$ 比较 Query 与 No-query 的完整端到端 wall-clock：`runtime_query` 包含采样、样本目标评价与特征计算时间，同时两条路径的后续优化运行时间相减；纯分析计算开销另作诊断。
-
-### 2.2 结论是否依赖 representation
-
-配置稳健性问题是：
-
-> 在不改变 Decision 输入边界、function-family split、`phase1_dynamic_budget_event_v1` 采样参数、算法池和等总 FE 原则时，效用与调用决策是否随预定义 query 配置改变？
-
-分别报告：
+对 Skip 与 Query path：
 
 $$
-U_{cheap},\quad U_{standard},\quad U_{broad}.
+U_q^{joint}=(\ell_s-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_s).
 $$
 
-三档必须独立训练 Selector、Utility target 和 Decision Model。`query_id` 只用于数据隔离和协议检查，不作为模型输入；本轮不训练动态 query-type selector。
+$\ell_q$ 使用 Query terminal best，包括 query sample best 和 selected continuation best。Query sample 不并入 optimizer population，但 sample FE、first hit、terminal performance 与 runtime 均计入真实 Query path。另报 continuation-only gap 和 sample-best contribution。
 
----
+这一 estimand 同时包含 acquisition、Selector error、handoff 和 continuation，不能称为 descriptors 的独立边际价值。
 
-## 3. 共享前缀配对续跑协议
+## 3. query 操作性增量
 
-每个状态从同一完整 optimizer checkpoint state 构造两条路径：
-
-1. No-query：按主协议原生继续训练集 SBS/default；
-2. Run Query：付出固定 query FE，使用该 query 的 Selector 选择动作，再以减少后的后续优化预算运行。
-
-若 query 后仍选择 prefix algorithm，必须恢复完整内部状态原生继续；若切换算法，只转移 population、fitness 与 best-so-far position，并记录 population-transfer initialization。Query 的 LHS 样本不得并入优化 population。
-
-cheap 与 standard 共享完全相同的 `lhs_50d` 样本和 5% FE action-loss 表；broad 使用独立 `lhs_100d` 样本与 10% FE action-loss 表。不同 `sample_design_id` 或 `FE_query` 的 action losses 不得混用。
-
----
-
-## 4. 信息增量与成本必须分开
-
-以下两种现象不能混写：
-
-### 情况 A：性能差为正但净效用不大于零
+Behavior-only full-budget path 不执行 query，使用 $B-FE_t$ 的四动作 outcomes 与 Behavior-only Selector。定义：
 
 $$
-P_{skip}-p_{query}>0,\qquad U_{query}\leq0.
+U_b=(\ell_s-\ell_b)-\lambda_T(\log_{10}T_b-\log_{10}T_s),
 $$
 
-这表示 selector 路径的最终性能差不足以覆盖预定义的非 FE 成本。
+$$
+I_q=(\ell_b-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_b)
+=U_q^{joint}-U_b.
+$$
 
-### 情况 B：query feature 对动作损失预测的增量有限
+字段为 `query_operational_increment_lamT_*`。它回答：在已有 Behavior-only 可部署路径上，增加固定 query 后的操作性净差。由于 Query 与 Behavior-only 的剩余 FE、sample best 和 acquisition time 不同，$I_q$ 不是纯信息效应，也不是因果 estimand。
 
-在 Selection Reference 内比较使用同一拆分与同一 action-loss 表的模型：
+`matched_trigger_behavior_only` 在 Proposed first-trigger 的同一 state 计算 $I_q$；它是 matched-trigger diagnostic。主 baseline `self_thresholded_behavior_only` 则用 $U_b$ 的自身 train-only OOF threshold 决定 trigger，不能共用 Proposed threshold 或政策名称。
 
-- behavior-only；
-- behavior + 该 query 的固定 feature columns。
+## 4. Query-feature predictive increment
 
-如果忽略 query runtime 后，selector regret 或 action-loss 回归性能改善仍很小，只能说明该固定 representation 对当前动作选择任务的增量有限，不能外推为所有 ELA 信息无用。
+为了诊断 query descriptors 对动作选择的边际预测贡献，在同一 query-adjusted budget、同一四动作 outcomes、同一 function OOF split 上比较：
 
-Decision Model 本身仍只接收算法无关 behavior；上述 feature 增量比较属于下游 Selector 的分析，不得把 query feature 泄漏到 Decision 输入。
+- `query_adjusted_state_only_selector`：Behavior + 连续 remaining-budget ratio；
+- full Query Selector：Behavior + query descriptors + 同一 remaining-budget ratio。
 
----
+定义：
 
-## 5. 统计与报告单位
+$$
+\Delta_{pred}
+=\ell_{\text{state-only selected, continuation-only}}
+-\ell_{\text{full-query selected, continuation-only}}.
+$$
 
-同一 trajectory 的 checkpoint 高度相关，不能把所有行当作独立样本。分层单位为：
+活动字段为 `query_feature_predictive_increment_log10_gap`。该诊断：
 
-```text
-function family -> function instance -> dimension -> optimizer seed -> sampled state (integer FE)
-```
+- 不新增 action-loss runs；
+- 不使用 sample best；
+- 不扣 query FE、runtime 或 memory；
+- 只使用 OOF selected continuation-only endpoint；
+- 不能替代 $I_q$ 或 $U_q^{joint}$。
 
-每档 query 至少报告：
+若 $\Delta_{pred}$ 接近零，只能说明当前 descriptors 对当前 query-budget action choice 的增量未建立；不能推出 landscape information 普遍无用。若 $\Delta_{pred}>0$ 而 $I_q\le0$，可解释为预测改善未覆盖 acquisition/预算代价。若方向相反，应完整报告 Selector error、sample contribution 和 runtime，不得选择性展示。
 
-- `FE_query`、`runtime_query` 和 query failure rate；
-- selector regret 与 action-loss regression performance；
-- Utility 分布、调用率、utility capture 和最终优化性能；
-- function-family 层面的配对效应量与区间；
-- Never Query、Always Query、Random Analysis、Traditional AAS、SBS 与 VBS。
+## 5. 完整嵌套与泄漏控制
 
-不能用 `p > 0.05` 证明等价。如果提出实质等价，必须预先定义等价界，并使用区间或等价性检验。
+每个 outer fold 只用 outer-fit functions 重算 `SBS_outer`、Query/State-only/Behavior-only Selectors、Utility 和 Decision；每个 inner fold 又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。完整 BBOB-train threshold、matched-rate Random calibration 与本扩展的 OOF diagnostics 也必须来自 fold-specific 上游 OOF。
 
----
+禁止：
 
-## 6. 失败与缺失值解释
+- 用完整 train 的 action labels/Selectors 生成后再做 Decision-only OOF；
+- 用 BBOB-validation 或外部 suite 选择 query、features、模型或 threshold；
+- 把 query descriptors 放入 Decision X；
+- 混读不同 `query_id`、`sample_design_id` 或 `FE_query` 的 outcomes。
 
-BBOB train/validation 不允许 group-level extraction failure。单个未定义值保存为 null，只使用 BBOB-train median imputation；任何整列缺失都阻止模型拟合。
+Trajectory reservoir 的 `query_source_mode=trajectory_reservoir_zero_extra_fe` 只作额外诊断；其 `query_protocol=trajectory_query_reservoir_v1` 与独立 LHS 主 estimand 的 sample design 不同，不能合并或替代主结果。
 
-外部 benchmark 可以记录 query failure，并使用冻结的 BBOB-train median fallback。但只要存在 group-level failure，就必须单独报告，不能形成该 query 的无条件跨 benchmark 泛化结论。
+## 6. 统计与报告
 
----
+Function 是最高聚合层。先在每个科学 run 内得到 first-trigger outcome；Random 的 30 个 streams 先在 run 内平均。BBOB-validation 主区间固定全部六个 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。function-resampling 只作函数组成敏感性；有限集均值不外推到 function 或 transformed-instance 超总体。每档至少报告：
+
+- $U_q^{joint}$、$U_b$、$I_q$；
+- $\Delta_{pred}$ 与两 Selector 的 selected continuation-only `log10_gap`；
+- query/sample FE、sample-best contribution、完整路径 runtime；
+- terminal `log10_gap`、target-hit rate、endpoint-success rate、ERT、query/selector/action failure；
+- first-trigger call/trigger/handoff 与 coverage；
+- function-level effects 和 95% CI。
+
+Utility、`log10_gap`、runtime ratio、call/target-hit rate 只按各自项目内 operational tolerance 作描述；`endpoint_success` rate 若分析须另行预设边界。不能通过 scalarized Utility 的内部抵消代替任一 endpoint 判断，也不据这些边界作确认性等价声明。
 
 ## 7. 允许的结论
 
-若三档效应方向和主要结论一致，只能写：
-
-> 结论在三个预定义 landscape-query 配置上具有稳健性。
+若三个配置方向一致，只能写“结论在三个预定义 landscape-query 配置上稳定”。若不一致，报告 representation dependence，并检查 descriptors、样本量、sample best、失败率、Selector regret、FE 与 runtime 的组成。
 
 不得写成：
 
-- 对完整 ELA 成立；
-- 对全部 pflacco feature groups 成立；
-- 对 NeurELA、Deep-ELA 或任意 landscape representation 成立。
-
-若三档结论不一致，应报告 representation dependence，并解释差异是否与 feature group、样本量、失败率或计算成本有关；不得隐藏结果、事后改选主 query 或重定义配置。
-
----
-
-## 8. 后续扩展边界
-
-特征组消融、Progressive ELA、NeurELA、Deep-ELA 与动态 representation selection 均可成为后续独立研究问题，但不进入第一篇论文主实验。本轮不根据 SHAP 排名删减特征，不实现 learned query type selection，也不把三档配置包装成完整 landscape analysis 的覆盖性比较。
+- 对完整 ELA、全部 pflacco 或任意 learned representation 成立；
+- $I_q$ 是 descriptors 的纯信息价值或因果效应；
+- $\Delta_{pred}$ 证明 features 必要/不必要；
+- query samples 是免费的或可视为 optimizer population；
+- 根据结果改选主 query、lambda、features 或 sample design。

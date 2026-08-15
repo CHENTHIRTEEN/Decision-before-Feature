@@ -3,150 +3,261 @@
 
 \subsection{State-conditional analysis selection}
 
-Let $p\in\mathcal{P}$ denote a bounded continuous black-box minimization problem with objective
+Let $p\in\mathcal{P}$ denote a bounded continuous black-box minimization
+problem,
 \begin{equation}
   \min_{x\in\mathcal{X}_p} f_p(x),
   \qquad
-  \mathcal{X}_p=[\ell_p,u_p]\subset\mathbb{R}^{d}.
+  \mathcal{X}_p=[\ell_p,u_p]\subset\mathbb{R}^{d},
   \label{eq:black-box-problem}
 \end{equation}
-The objective is available only through function evaluations (FEs).  A run has a fixed total budget $B=FE_{\mathrm{total}}$ and uses a portfolio
+evaluated under a fixed total budget $B=FE_{\mathrm{total}}$.  The portfolio is
 \begin{equation}
   \mathcal{A}=\{\mathrm{DE},\mathrm{PSO},\mathrm{CMA\mbox{-}ES},\mathrm{SHADE}\}.
 \end{equation}
-At a decision opportunity $t$, the native optimizer state is
+At decision opportunity $t$, the native optimizer state is
 \begin{equation}
-  s_t=(X_t,y_t,H_t,\omega_t,e_t),
+  S_t=(X_t,y_t,H_t,\omega_t,e_t),
   \label{eq:complete-search-state}
 \end{equation}
-where $X_t$ and $y_t$ are the current population and its objective values, $H_t$ is the native-update history required by the behavior representation, $\omega_t$ collects the optimizer's internal dynamic variables and random-number-generator state, and $e_t$ is the number of FEs already consumed.  The complete state in Eq.~\eqref{eq:complete-search-state}, rather than a reconstructed population-only approximation, is the common starting point for all continuations.
+where $X_t$ and $y_t$ are the evaluated population and objective values, $H_t$
+is the retained native-update history, $\omega_t$ contains optimizer dynamics
+and random-number-generator state, and $e_t$ is the exact number of consumed
+FEs.  Every continuation starts from this complete state; a population-only
+reconstruction is not treated as native continuation.
 
-The analysis-selection decision is binary, $d_t\in\{0,1\}$, with
+The analysis-selection decision is
 \begin{equation}
   d_t=
   \begin{cases}
-    0, & \text{skip query }q,\\
-    1, & \text{execute }q\text{ and invoke its selector}.
+    0, & \text{continue without acquiring query }q,\\
+    1, & \text{acquire }q\text{ and invoke its selector}.
   \end{cases}
   \label{eq:analysis-decision}
 \end{equation}
-The primary analysis evaluates one query, \query{}: a fixed 16-dimensional
-low-cost landscape descriptor computed from a Latin-hypercube sample of size
-$50d$.  It consumes $FE_q=50d=0.05B$ objective evaluations.  Two additional,
-prespecified query configurations examine representation and cost dependence.
-Consequently, $d_t$ does not mean ``perform arbitrary landscape analysis'', and
-conclusions for the primary query do not automatically extend to other ELA
-methods, all \texttt{pflacco} feature groups, or learned representations.
+The primary query, \query{}, comprises 14 fixed, permutation-invariant,
+low-cost descriptors computed from an independent Latin-hypercube sample of
+size $50d$.  It consumes $FE_q=50d=0.05B$ objective evaluations.  Two response
+summaries that become constants after the prescribed median/IQR preprocessing
+are excluded from the active descriptor list.  This removal changes neither
+the query identifier, sample design, nor action outcomes.  Two larger,
+prespecified query configurations evaluate representation and acquisition-cost
+dependence.  Thus, $d_t$ does not denote arbitrary landscape analysis, and the
+primary result cannot be extended to unevaluated descriptor families.
 
-\subsection{No-query and query paths}
+\subsection{Shared state, actions, and budgets}
 
-The default optimizer $a_0\in\mathcal{A}$ is the single best solver (SBS) determined exclusively from complete-budget BBOB training outcomes.  The main protocol uses the same algorithm for the prefix and the default path.  If the query is skipped, the complete checkpoint state is continued natively for
+The default is the fold-specific single best solver (SBS), computed from
+complete-budget training outcomes by equally weighted aggregation over runs,
+problems (dimension--instance pairs), and functions of clipped
+$\log_{10}$ gap.  In the primary population, the prefix and default algorithms
+are this same SBS.  The Skip path therefore restores and continues the complete
+native state for
 \begin{equation}
-  B^{\mathrm{skip}}_t=B-e_t
+  B_t^{s}=B-e_t
   \label{eq:skip-budget}
 \end{equation}
-additional FEs.  Let $P_{\mathrm{skip}}(s_t)$ denote the resulting final loss, with smaller values preferred.
+additional FEs.
 
-If the query is executed, its sample is evaluated and its fixed descriptors are passed to a downstream, query-specific selection reference.  The unique action set at a state whose prefix algorithm is $a_t$ is
+At a state with prefix algorithm $a_t$, the non-duplicated action set is
 \begin{equation}
-  \mathcal{A}(s_t)
+  \mathcal{A}(S_t)
   =\{\texttt{continue\_current}\}
    \cup\bigl(\mathcal{A}\setminus\{a_t\}\bigr).
   \label{eq:state-action-set}
 \end{equation}
-Thus, the four-algorithm portfolio always yields four non-duplicated actions.  The \texttt{continue\_current} action preserves $\omega_t$ and continues the native state.  Each of the other three actions initializes the target optimizer once from the checkpoint population, objective values, and best-so-far position; the target optimizer receives newly initialized internal variables.  This transition is termed \emph{population-transfer initialization}.  Query sample points are not inserted into the continuation population.
-This explicit distinction is motivated by trajectory-based warm-starting studies,
-where the representation, switch point, and state-transfer rule jointly define
-the second-stage selection problem
-\cite{jankovicTrajectorybasedAlgorithmSelection2022,kostovskaPerrunAlgorithmSelection2022}.
-Population-transfer initialization here is a fixed study design and is not
-assumed equivalent to either paper's optimizer-specific warm start.
+The current action preserves $\omega_t$ and advances natively.  Each other
+action performs one population-transfer initialization from the evaluated
+population, its objective values, and the best-so-far point; algorithm-specific
+internal state is newly initialized.  Query sample points are not inserted into
+the optimizer population.
 
-Every query action receives the same remaining optimization budget
+The Query and Behavior-only action matrices use different continuation
+budgets,
+\begin{align}
+  B_t^q &= B-e_t-FE_q,
+  \label{eq:query-budget}\\
+  B_t^b &= B-e_t.
+  \label{eq:behavior-budget}
+\end{align}
+The four observed outcomes in either matrix supervise a multi-output action-loss
+regressor through the within-state transformation
 \begin{equation}
-  B^{q}_t=B-e_t-FE_q.
-  \label{eq:query-budget}
+  \widetilde L_a=
+  \frac{L_a-\min_c L_c}
+       {\max\!\left(\max_c L_c-\min_c L_c,10^{-12}\right)}.
+  \label{eq:selector-target-transform}
 \end{equation}
-Let $L(s_t,a)$ be the observed final loss after taking action $a\in\mathcal{A}(s_t)$ under Eq.~\eqref{eq:query-budget}.  The fitted selection reference chooses $\widehat a_t$, and the observed query-path loss is
-\begin{equation}
-  p_q(s_t)=L(s_t,\widehat a_t).
-  \label{eq:query-path-loss}
-\end{equation}
-Equations~\eqref{eq:skip-budget} and \eqref{eq:query-budget} enforce an equal total FE budget.  The FEs used by the query already reduce the budget available to the query continuation and must not be charged a second time in the utility.
+The minimum over actions that were actually run is called the \emph{best
+observed action}, not an oracle.
 
-\subsection{Observed performance difference and net utility}
+\subsection{Terminal endpoints and decision-state future-path timing}
 
-For a minimization problem, the raw observed performance difference is
+One prespecified Stage-A scientific execution fixes each path's terminal gap,
+observed first hit, target-hit status, path completion,
+completion-conditioned endpoint success, planned FE, effective FE, and failure
+status.  An observed target hit is retained even if the path later fails;
+standard ERT uses observed target hit rather than completion-conditioned
+endpoint success.  Let $g_s$ and
+$g_b$ be the Stage-A terminal best gaps of the Skip and Behavior-only paths.
+Although the query sample is not an optimizer population, every sampled
+point is a real objective evaluation.  The Query terminal gap is therefore
 \begin{equation}
-  G_{\mathrm{raw}}(s_t)
-  =P_{\mathrm{skip}}(s_t)-p_q(s_t).
-  \label{eq:raw-performance-gain}
+  g_q=\min\{g_{q,\mathrm{sample}},g_{q,\mathrm{continuation}}\}.
+  \label{eq:query-path-gap}
 \end{equation}
-Accordingly, $G_{\mathrm{raw}}>0$ means that the query path produced the smaller final loss, whereas $G_{\mathrm{raw}}<0$ means that the no-query path produced the smaller final loss.  To reduce the influence of objective offsets and scales across problems, the main label uses
+The same best-so-far endpoint defines Query target hit and first hitting time.  A
+hit during sampling records its within-query offset.  The continuation-only gap
+and the sample-best contribution remain separate diagnostics.
+
+Each raw gap is clipped according to the prespecified suite endpoints and then
+log transformed,
 \begin{equation}
-\begin{gathered}
-  \kappa(s_t)=
-  \max\!\left(
-    \left|P_{\mathrm{skip}}(s_t)\right|,
-    \left|p_q(s_t)\right|,
-    10^{-12}
-  \right),\\
-  G(s_t)=\frac{G_{\mathrm{raw}}(s_t)}{\kappa(s_t)}.
-\end{gathered}
-\label{eq:normalized-performance-gain}
+  \ell_k=\log_{10}\!\left(\min\{\max(g_k,10^{-12}),10^{20}\}\right),
+  \qquad k\in\{s,q,b\}.
+  \label{eq:clipped-log-gap}
 \end{equation}
-The primary time cost compares complete wall-clock paths.  Let $T_{q,\mathrm{sample}}$, $T_{q,\mathrm{eval}}$, $T_{q,\mathrm{feat}}$, $T_{\mathrm{sel}}$, $T_{\mathrm{handoff}}$, and $T_{q,\mathrm{opt}}$ denote query-sample generation, objective evaluation of that sample, feature computation, online selection, any required population-transfer initialization, and the shorter query-path continuation, respectively.  Let $T_{\mathrm{skip,handoff}}$ and $T_{\mathrm{skip,opt}}$ denote the corresponding no-query transition and continuation times.  We define
+After the relevant fold-specific selector has been fitted, Stage B executes
+each selected Skip, Query, and Behavior-only path from the same decision state
+to termination three prespecified times under a cyclic path order.  These
+replays determine timing only; they never replace the Stage-A scientific
+endpoints.  Each repetition retains its status, effective FE, timeout,
+completion, failure fields, order, component times, and full future-path time.
+For each repetition, the censored time equals raw observed time when the path
+completed and equals the larger of raw observed time and the role-specific
+timeout when the path timed out or failed.  Let $T_s,T_q,T_b$ be the medians of
+the three prespecified censored future-path times; the raw observed medians are
+diagnostic only.  When the Stage-A path completed, every completed replay must
+reproduce its gap, observed target hit, and first hit.  When Stage A did not
+complete, completed replays are checked only against one another and never
+replace the failed scientific endpoint.
+Planned FE must retain the path identity.  Replay effective FE is retained per
+repetition and need not equal Stage A or another repetition; it never replaces
+the Stage-A scientific effective FE.  Path-identity consistency,
+completed-replay internal endpoint consistency, and Stage-A-to-completed-replay
+consistency are stored separately.  Within-Stage-B status instability and
+Stage-A/Stage-B completion instability are also distinct.  A legacy
+failure-worst-case field, if retained, is a strict alias of the censored value.  A
+timing or status observed after execution cannot be used to selectively rerun,
+delete, or replace a repetition.  The Query time begins at the decision state
+and includes sample generation and objective evaluation,
+descriptor computation, downstream selection, any handoff, and continuation;
+the other two times include every operation their paths perform after that same
+state.  The already executed common prefix is a sunk cost and is excluded from
+all three $T_k$.  Repeating isolated action components does not substitute for
+these selected state-to-terminal replays.
+
+For policy-level resource reporting, $W_\pi$ separately denotes the censored median
+Stage-B wall-clock over three prespecified executions from $FE=0$ to termination
+under policy $\pi$, including its prefix, streaming Behavior and Decision
+inference, and any triggered downstream path.  Its performance and FE endpoints
+remain those of the corresponding prespecified Stage-A scientific execution.
+A pre-run AAS policy also starts this measurement at $FE=0$.  $W_\pi$ evaluates
+complete online execution, whereas $T_k$ evaluates a choice conditional on reaching
+$S_t$; neither quantity substitutes for the other.
+
+\subsection{Three distinct utility quantities}
+
+The joint net utility of acquiring the query and using its full selector is
 \begin{equation}
-\begin{gathered}
-  T_{q,\mathrm{total}}(s_t)=
-  T_{q,\mathrm{sample}}(s_t)+T_{q,\mathrm{eval}}(s_t)
-  +T_{q,\mathrm{feat}}(s_t)+T_{\mathrm{sel}}(s_t)
-  +T_{\mathrm{handoff}}(s_t)+T_{q,\mathrm{opt}}(s_t),\\
-  T_{\mathrm{skip,total}}(s_t)=
-  T_{\mathrm{skip,handoff}}(s_t)+T_{\mathrm{skip,opt}}(s_t),\\
-  C_T(s_t)=
-  \frac{T_{q,\mathrm{total}}(s_t)-T_{\mathrm{skip,total}}(s_t)}
-       {\max\!\left(T_{\mathrm{skip,total}}(s_t),10^{-12}\right)}.
-\end{gathered}
-  \label{eq:normalized-time-cost}
-\end{equation}
-Thus $C_T>0$ means that the query path took longer, whereas $C_T<0$ means that its complete elapsed time was shorter.  This accounting includes the objective-evaluation time of the query sample but also subtracts the continuation time avoided because the equal-FE query path has fewer optimization evaluations.  Feature computation, online selection, and transfer initialization are additionally reported as a separate computational-overhead diagnostic; that diagnostic does not replace $C_T$ in the primary utility.
-The primary study reports memory separately rather than including it in the label and therefore fixes $C_M(s_t)=0$.  The net utility of executing query $q$ is
-\begin{equation}
-  U_q(s_t)=G(s_t)-\lambda_T C_T(s_t)-\lambda_M C_M(s_t).
+  U_q^{\mathrm{joint}}(S_t)
+  =(\ell_s-\ell_q)
+  -\lambda_T\bigl(\log_{10}T_q-\log_{10}T_s\bigr),
   \label{eq:query-utility}
 \end{equation}
-The primary target uses $\lambda_T=1$ and $\lambda_M=0$.  Values $\lambda_T\in\{0,0.25,0.5,1,2\}$ are retained for a prespecified sensitivity analysis, but they do not replace the primary target.  Population-transfer effects are already present in $L(s_t,a)$ and likewise are not subtracted again.
+where the primary setting is $\lambda_T=1$ and $\lambda_M=0$.  Thus one decimal
+order of terminal-gap change and one decimal order of state-to-terminal runtime
+change receive equal scalarization weight; this is a study setting, not a
+universal resource preference.
 
-The continuous value in Eq.~\eqref{eq:query-utility} is retained.  Its associated binary training label is
+The corresponding Behavior-only full-budget utility is
 \begin{equation}
-  y_q(s_t)=\mathbf{1}\!\left[U_q(s_t)>0\right].
+  U_b(S_t)
+  =(\ell_s-\ell_b)
+  -\lambda_T\bigl(\log_{10}T_b-\log_{10}T_s\bigr),
+  \label{eq:behavior-utility}
+\end{equation}
+and the operational Query increment over that path is
+\begin{align}
+  I_q(S_t)
+  &=(\ell_b-\ell_q)
+  -\lambda_T\bigl(\log_{10}T_q-\log_{10}T_b\bigr)\\
+  &=U_q^{\mathrm{joint}}(S_t)-U_b(S_t).
+  \label{eq:operational-increment}
+\end{align}
+$I_q$ includes query evaluations, sample-best contribution, unequal
+continuation budgets, acquisition time, and the difference between the two
+fitted selectors.  It is an operational path comparison, not a
+pure-information or causal estimand.  We report it both over all eligible
+states and over states first triggered by the proposed policy.  If
+$U_q^{\mathrm{joint}}>0$ but $I_q\leq0$ in the corresponding population, the
+evidence supports the joint Query/full-selector path over SBS, but not query
+acquisition over the full-budget Behavior-only path.
+
+The marginal predictive contribution of query descriptors is a separate
+diagnostic.  A state-only selector and the full Query selector use the same
+query-budget four-action outcomes; their OOF-selected continuation-only gaps
+define
+\begin{equation}
+  \Delta_{q,\mathrm{pred}}
+  =\ell_{\mathrm{state\mbox{-}only\ selected,cont}}
+   -\ell_{\mathrm{full\ query\ selected,cont}}.
+  \label{eq:query-feature-predictive-increment}
+\end{equation}
+This comparison adds no action runs, excludes the sample best, and does not
+charge acquisition cost.  It cannot replace Eq.~\eqref{eq:operational-increment}.
+Because the protocol does not include a matched-acquisition state-only fourth
+path, neither comparison separately identifies the operational contribution of
+the descriptors from sampling, sample-best, FE, runtime, and budget effects.
+
+The continuous joint utility is retained, with binary target
+\begin{equation}
+  y_q(S_t)=\mathbf{1}\!\left[U_q^{\mathrm{joint}}(S_t)>0\right].
   \label{eq:query-label}
 \end{equation}
-For deployment, a decision model produces a continuous score $z(s_t)$ from information available before the query, and the policy calls the query when
+The Decision input contains only information available before the query.  It
+excludes query descriptors, benchmark and algorithm identity, optimizer
+parameters, known-optimum gaps, action outcomes, and future states.
+
+\subsection{First-trigger policy}
+
+For run $r$, opportunities are ordered by exact FE and opportunity index.  The
+deployed trigger is
 \begin{equation}
-  \widehat d_t=\mathbf{1}\!\left[z(s_t)>\tau_{\mathrm{OOF}}\right].
+  t_r^*=\min\{t:z_\theta(S_{r,t})>\tau_{\mathrm{OOF}}\},
   \label{eq:deployment-decision}
 \end{equation}
-The threshold $\tau_{\mathrm{OOF}}$ is estimated only from BBOB-training function-family out-of-fold predictions; it is not tuned on BBOB validation or an external benchmark.  For Ridge, $z$ is a predicted continuous utility.  For LDA and logistic regression, it is a classification score for Eq.~\eqref{eq:query-label}; such a score is not interpreted as a calibrated utility magnitude.
+with no trigger when the set is empty.  A run can trigger at most once, and
+states after $t_r^*$ are unreachable under that policy.  The threshold is
+estimated only from BBOB-training scores produced by a fold-specific upstream
+OOF chain; BBOB validation and external suites do not influence it.  Ridge
+produces a continuous utility prediction, whereas LDA and logistic regression
+produce classification scores that are not interpreted as calibrated utility
+magnitudes.
 
-\subsection{Diagnostic decomposition and claim boundary}
+\subsection{Action-loss decomposition and claim boundary}
 
-For label diagnosis only, define the best observed action among the four actions actually run from the shared state,
+Within the relevant action matrix, define
 \begin{equation}
-  L_{\mathrm{best}}(s_t)=\min_{a\in\mathcal{A}(s_t)}L(s_t,a).
+  L_{\mathrm{best}}(S_t)=\min_{a\in\mathcal{A}(S_t)}L(S_t,a).
   \label{eq:best-observed-loss}
 \end{equation}
-The raw performance difference then has the identity
+Then
 \begin{align}
-  V_{\mathrm{potential}}(s_t)
-  &=P_{\mathrm{skip}}(s_t)-L_{\mathrm{best}}(s_t),\\
-  R_{\mathrm{selector}}(s_t)
-  &=p_q(s_t)-L_{\mathrm{best}}(s_t),\\
-  G_{\mathrm{raw}}(s_t)
-  &=V_{\mathrm{potential}}(s_t)-R_{\mathrm{selector}}(s_t).
+  V_{\mathrm{potential}}(S_t)
+  &=L_{\mathrm{skip}}(S_t)-L_{\mathrm{best}}(S_t),\\
+  R_{\mathrm{selector}}(S_t)
+  &=L_{\mathrm{selected}}(S_t)-L_{\mathrm{best}}(S_t),\\
+  L_{\mathrm{skip}}(S_t)-L_{\mathrm{selected}}(S_t)
+  &=V_{\mathrm{potential}}(S_t)-R_{\mathrm{selector}}(S_t).
   \label{eq:selector-decomposition}
 \end{align}
-The minimum in Eq.~\eqref{eq:best-observed-loss} is called the \emph{best observed action}.  It is neither the static virtual best solver nor a deployable decision rule, because it uses losses revealed only after all candidate continuations have been run.  The decomposition is descriptive: shared-state action runs do not by themselves identify a causal effect of handoff or of any individual behavior variable.
+Population-transfer effects already appear in the observed action outcome and
+state-to-terminal future-path runtime; query FEs already reduce the continuation budget.  They
+are not charged again.
 
-The resulting research estimand is state- and query-specific: the net value of invoking a fixed query and its fitted downstream selector instead of natively continuing the training-derived SBS from the same complete state.  Equations~\eqref{eq:analysis-decision}--\eqref{eq:selector-decomposition} specify the estimand and label construction.  They do not imply that the primary query is avoidable in most states, that behavior predicts its utility, or that the learned policy transfers to an external benchmark; each proposition requires its corresponding empirical evaluation.
+The resulting estimands are specific to the evaluated query, portfolio,
+selector, transition rule, budget, and state distribution.  Shared-state action
+runs do not identify a causal effect.  The formulation does not presuppose that
+most states have non-beneficial utility, that Behavior predicts utility, or
+that the policy transfers to an external suite.

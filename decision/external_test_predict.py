@@ -20,7 +20,12 @@ from decision.model_protocol import (
     resolve_model_name,
 )
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
-from decision.train_full_decision_model import AUXILIARY_LABEL_COLUMN, METADATA_COLUMNS, TARGET_COLUMN
+from decision.train_full_decision_model import (
+    AUXILIARY_LABEL_COLUMN,
+    METADATA_COLUMNS,
+    RUN_KEY_COLUMNS,
+    TARGET_COLUMN,
+)
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 
 
@@ -77,6 +82,10 @@ def predict_external_test(
         model_name=model_name,
         model_family=_model_family(training_summary, model_name),
     )
+    call_column = f"decision_run_query_{threshold_mode}"
+    run_calls = predictions.groupby(list(RUN_KEY_COLUMNS), dropna=False)[call_column].sum()
+    if bool((run_calls > 1).any()):
+        raise RuntimeError("external first-trigger predictions call more than once per trajectory")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = output_dir / "controller_predictions.parquet"
@@ -97,6 +106,9 @@ def predict_external_test(
         "threshold": float(threshold),
         "expected_split": expected_split,
         "rows": int(len(predictions)),
+        "trajectories": int(len(run_calls)),
+        "run_level_first_trigger_call_rate": float((run_calls > 0).mean()),
+        "policy_unit": "trajectory_first_trigger",
         "feature_columns": feature_columns,
         "model_path": str(model_path),
         "prediction_seconds": float(prediction_seconds),
@@ -223,13 +235,37 @@ def _prediction_frame(
     model_name: str,
     model_family: str,
 ) -> pd.DataFrame:
-    output = frame[list(METADATA_COLUMNS) + [TARGET_COLUMN, AUXILIARY_LABEL_COLUMN]].copy()
+    output = frame[list(METADATA_COLUMNS) + [TARGET_COLUMN, AUXILIARY_LABEL_COLUMN]].copy().reset_index(drop=True)
     output.insert(0, "data_split", "external_test")
     output.insert(1, "model_name", model_name)
     output.insert(2, "model_family", model_family)
     output["decision_score"] = scores.astype(float)
-    output[f"decision_run_query_{threshold_mode}"] = scores > threshold
-    output[f"decision_utility_{threshold_mode}"] = np.where(scores > threshold, output[TARGET_COLUMN], 0.0)
+    calls = np.zeros(len(output), dtype=bool)
+    decision_utility = np.zeros(len(output), dtype=float)
+    for _, run_frame in output.groupby(list(RUN_KEY_COLUMNS), sort=False, dropna=False):
+        order_columns = ["FE"]
+        if "decision_opportunity_index" in run_frame.columns:
+            if run_frame["decision_opportunity_index"].isna().any():
+                raise ValueError("external decision_opportunity_index contains missing values")
+            order_columns.append("decision_opportunity_index")
+        elif run_frame["FE"].duplicated().any():
+            raise ValueError(
+                "external first-trigger prediction requires decision_opportunity_index when a run has duplicate FE values"
+            )
+        ordered = run_frame.sort_values(order_columns, kind="mergesort")
+        positions = output.index.get_indexer(ordered.index)
+        if (positions < 0).any():
+            raise RuntimeError("external first-trigger rows are not aligned with prediction output")
+        hit = np.flatnonzero(scores[positions] > float(threshold))
+        if hit.size == 0:
+            continue
+        trigger_position = int(positions[int(hit[0])])
+        calls[trigger_position] = True
+        decision_utility[trigger_position] = float(output.iloc[trigger_position][TARGET_COLUMN])
+    output[f"decision_run_query_{threshold_mode}"] = calls
+    output[f"decision_utility_{threshold_mode}"] = decision_utility
+    output["policy_first_trigger"] = calls
+    output["decision_policy_unit"] = "trajectory_first_trigger"
     return output
 
 
@@ -257,7 +293,10 @@ def _input_contract(feature_columns: list[str], expected_split: str) -> pd.DataF
 
 def _markdown_report(*, summary: dict[str, Any], input_contract: pd.DataFrame, predictions: pd.DataFrame) -> str:
     call_column = f"decision_run_query_{summary['threshold_mode']}"
-    call_rate = float(predictions[call_column].mean()) if len(predictions) else 0.0
+    run_calls = predictions.groupby(list(RUN_KEY_COLUMNS), dropna=False)[call_column].sum()
+    if bool((run_calls > 1).any()):
+        raise ValueError("external first-trigger prediction calls more than once in one trajectory")
+    call_rate = float((run_calls > 0).mean()) if len(run_calls) else 0.0
     return "\n".join(
         [
             "# CEC2017 external test controller prediction",
@@ -269,7 +308,8 @@ def _markdown_report(*, summary: dict[str, Any], input_contract: pd.DataFrame, p
             f"- Model: `{summary['model_name']}`.",
             f"- Threshold mode: `{summary['threshold_mode']}`.",
             f"- External test rows: {summary['rows']}.",
-            f"- Controller Query call rate: {call_rate:.6g}.",
+            f"- External test trajectories: {len(run_calls)}.",
+            f"- Run-level first-trigger Query call rate: {call_rate:.6g}.",
             "- CEC2017 rows were not used for model fitting, preprocessing fitting, or threshold fitting.",
             "",
             "## Input contract",
@@ -314,7 +354,7 @@ def main() -> None:
         dataset_path=args.dataset or external_root / "materialized_test_data/decision_dataset.parquet",
         training_summary_path=args.training_summary
         or query_root
-        / "feature_group_ablation/B3/full_decision_model_training_summary.json",
+        / "feature_group_ablation/B3/all_accepted/full_decision_model_training_summary.json",
         output_dir=args.output_dir or external_root / "external_test_prediction",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

@@ -49,8 +49,12 @@ def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
 
     return Problem(
         problem_id=problem_id,
-        family=f"cec{year}_f{function:02d}",
+        function_id=f"cec{year}_f{function:02d}",
+        family=f"cec{year}_unassigned_landscape_family",
         dimension=dimension,
+        suite_code=2 if int(year) == 2017 else 3,
+        function_number=int(function),
+        instance_number=1,
         bounds=bounds,
         objective=objective,
         reference_value=coerce_reference_value(function_object, ("bias", "fopt", "best_value", "optimum")),

@@ -1,538 +1,97 @@
-# Decision-before-Feature Search Maturity与Query Utility关系验证设计
+# Decision-before-Feature Search Maturity 与 Query Utility 关系验证设计
 
-> 实现同步（2026-08-11）：旧 BBOB 消融同时依赖重建式 continuation 标签和identity-dependent behavior，不能作为当前证据。完整状态trajectory与permutation-invariant behavior重生成后须重新执行 maturity-aware 消融、外部评价和统计区间估计。
+> 唯一活动验证协议（2026-08-15）。本文中的 Search Maturity 是 Behavior 的确定性派生基函数，Query Utility 使用预指定 Stage-A 单次科学运行经配置截断后的 `log10_gap`，以及 Stage-B 三次 decision-state-to-terminal censored future-path wall-clock 中位数；raw observed median 只作诊断。本文不预设二者为单调、U 形或倒 U 关系，也不把描述性关联解释为因果关系。
 
-## 1. 文档定位
+## 1. 研究问题
 
-本文档用于验证 Decision-before-Feature 框架中的核心理论假设：
+本实验回答两个可证伪问题：
 
-> 搜索行为不是简单描述优化过程，而是能够反映当前问题是否已具备执行所评估固定
-> landscape-analysis query 的价值。
+1. 在相同预算 milestones 上，B3 Behavior 是否比仅含 `FE_ratio` 的 T0 提供更高的 run-level first-trigger 联合效用？
+2. 在 B2 已含原始 Behavior 的条件下，三项确定性 Maturity 变换是否改善固定模型家族的 first-trigger 联合效用？
 
-整体关系：
+第一个问题评价 Behavior 是否超出纯时间；第二个问题只评价预定义非线性基函数，不评价新信息来源或潜在状态。
 
-    Search Behavior Features
+## 2. 目标量
 
-            |
+对 `skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 和 `behavior_only_full_budget` 五条状态后未来路径，先把非负 benchmark-reference raw gap 按 suite 配置截断：
 
-            v
+\[
+\ell_k=\log_{10}\!\left(\min(\max(g_k,10^{-12}),10^{20})\right),
+\quad k\in\{skip,q,b\}.
+\]
 
-    Search Maturity
+预指定 Stage-A 每条路径只运行一次，固定 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、planned/effective FE 与科学失败状态；标准 ERT 使用 `target_hit_observed`。Stage-B 再从同一 complete optimizer state 和相同 RNG state 到 terminal 真实运行预定三次，但只用于计时。按 `cyclic_complete_path_v1` 循环移动 canonical path order，逐次保存 raw observed runtime、status、observed hit、path completion、endpoint success、effective FE 与失败字段。completed repetition 的 censored time 等于 raw，timed-out/failed repetition 为 `max(raw, role timeout)`，$T_k$ 是三次 censored time 的中位数；raw median 只作诊断。路径身份、completed replays 内部 endpoint 和 Stage-A→completed replay endpoint 一致性分别保存，Stage-B status instability 与跨阶段 completion instability 也分别保存。三次不得选择性补跑或覆盖 Stage-A 科学端点。共享 prefix 是 sunk cost，不进入 $T_k$；FE=0→terminal 政策 wall-clock 另作端点。
 
-            |
+主联合效用、Behavior-only 效用与 query 操作性增量为：
 
-            v
+\[
+U_q^{joint}=(\ell_{skip}-\ell_q)
+-\lambda_T\left(\log_{10}T_q-\log_{10}T_{skip}\right),
+\]
 
-    Query Utility
+\[
+U_b=(\ell_{skip}-\ell_b)
+-\lambda_T\left(\log_{10}T_b-\log_{10}T_{skip}\right),
+\]
 
-            |
+\[
+I_q=(\ell_b-\ell_q)
+-\lambda_T\left(\log_{10}T_q-\log_{10}T_b\right)
+=U_q^{joint}-U_b.
+\]
 
-            v
+主情景固定 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 只作完整敏感性分析。所有旧的 raw-gap max-scale Utility、相对时间差 Utility 和一次计时标签均失效。
 
-    Decision-before-Feature
+## 3. 数据与机会集合
 
-本实验的目标：
+主数据限于 `descriptor_cheap_invariant`、fold-specific SBS prefix、BBOB-train 与 `phase1_dynamic_budget_event_v1`。主 T0 对比只保留 12 个固定预算 milestones；事件机会依赖 Behavior，完整动态 schedule 上的 T0 仅作为 `schedule_conditioned_T0` sensitivity。
 
-证明 Search Maturity 不是人为构造的概念，而是连接：
+一条 run 的机会按整数 `FE` 和 `decision_opportunity_index` 排序。threshold 第一次越过后，该政策不再观察后续状态。模型选择、threshold、call rate、precision、policy Utility 与 capture 都按 run-level first-trigger 计算。
 
--   Optimization Behavior
--   Fixed-query Decision
+## 4. 冻结实验组
 
-之间的有效中间状态。
+| 组 | 字段数 | 用途 |
+|---|---:|---|
+| T0 | 1 | milestone-only 纯时间参照 |
+| B1 | 19 | core permutation-invariant Behavior |
+| B2 | 25 | 加 longitudinal set dynamics |
+| B2+Motion | 28 | B2 加三项 Motion |
+| B2+Maturity | 28 | B2 加三项 Maturity |
+| B3 | 31 | B2 同时加 Motion 与 Maturity |
 
-------------------------------------------------------------------------
+主要预设 contrasts 为 `B1-T0`、`B2-B1`、`B2+Motion-B2`、`B2+Maturity-B2`、`B3-(B2+Motion)` 与 `B3-(B2+Maturity)`。所有组共享同一数据范围、完整嵌套 function 链和已选模型名；每组只用自身 train OOF score 冻结 first-trigger threshold，不重新选模型或按结果选择 feature group。
 
-# 2. 核心理论假设
+## 5. 完整嵌套要求
 
-## H1: Search Behavior 包含固定 query 的效用信息
+每个 outer holdout function 的证据必须由 outer-fit functions 独立生成。outer-fit 内每个 inner holdout 又必须只使用 inner-fit functions 计算 `SBS_inner`、拟合/cross-fit 两类 Selector、生成三类 Utility、拟合 preprocessing/Decision 并评价 inner holdout。inner holdout 不得通过预制 Selector 或 Utility label 进入其自身 threshold 拟合。
 
-优化过程中的行为状态：
+outer threshold 冻结后，使用 `SBS_outer` 和 outer-fit 全量组件只评价 outer holdout 一次。完整 BBOB-train OOF threshold 也执行同样的 fold-specific 上游链。BBOB-validation 与外部 suite 不参与公式、特征、模型、threshold 或分箱选择。
 
-$$ s_t $$
+## 6. 主要与辅助分析
 
-能够预测：
+主要分析使用 function-balanced run-level first-trigger `u_query_joint_lamT_1`。效应按 run → static problem → fixed dimension stratum → function 聚合，function 为顶层统计单位。
 
-$$ U_{query} $$
+辅助分析可以报告：
 
-即：
+- 单个 Maturity 字段与 joint Utility 的 function-balanced Spearman；
+- 预先固定分位数 bins 中的 Utility、gap 和 runtime 分布；
+- 不同 function、dimension、query 配置的描述性异质性；
+- Ridge 标准化系数或 LDA/Logistic 判别方向的 fold 稳定性。
 
-$$ s_t \rightarrow U_{query} $$
+这些分析不用于筛选特征、选择曲线形状或产生新的 threshold。若图形呈现非单调关系，只能描述实际估计与区间，不能事后命名“最佳成熟区间”。
 
-------------------------------------------------------------------------
+## 7. 推断
 
-## H2: Search Maturity比单一行为指标具有更强解释能力
+对已见 BBOB-validation 使用 10,000 次条件配对 bootstrap：固定保留六个 validation functions、全部 dimensions 与 instances 1/2/3 对应的全部 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；每个抽中 seed/run 的完整有序 state 簇不可拆分。function-resampling 只作函数组成敏感性。上述边界只称项目内 operational tolerance，区间只描述该固定有限集，不能恢复独立确认性评价资格或推断到 transformed-instance 超总体。
 
-单个指标：
+RQ5 的六个预设 contrasts 改为估计性 family。BBOB-validation 对六个固定且已见 function effects 的 sign-flip 额外要求 signs 可交换；双侧 exact raw p 最小为 0.03125，Holm 后最小 adjusted p 为 0.1875，所以在 0.05 下不可能拒绝。逐 function effects、固定有限集效应与条件 CI 为主，adjusted p 只作假设敏感辅助，不作函数超总体推断。
 
-例如：
+## 8. 结果解释
 
--   population Wasserstein change
--   diversity
--   stagnation
+支持 Maturity 的最低证据是相应 first-trigger Utility contrast 的效应、区间与外部方向；单个相关系数、训练拟合或一张平滑曲线都不充分。结果仅允许表述为“该预定义变换在所评估设置中提供/未提供预测增量”。
 
-只能描述局部行为。
+若已见 BBOB-validation 上 milestone-only B3 未超出 T0 或 dimension-stratified T0，则“Behavior 超出阶段及已知维度上下文的预测价值”在该固定有限集上未建立；即使超出，也仍只是开发期条件证据，train outer OOF 只作开发诊断。若 Maturity contrasts 未超出项目内 operational tolerance，则不得声称 Maturity 有独立贡献。若不同 suite 方向不一致，必须报告 representation/suite dependence。
 
-Search Maturity融合：
+## 9. 输出
 
-多个行为维度：
-
-形成：
-
-$$ M_t $$
-
-能够更准确表示：
-
-分析就绪状态。
-
-------------------------------------------------------------------------
-
-## H3: Query Utility与Search Maturity存在结构关系
-
-不是简单：
-
-$$ M \uparrow \Rightarrow U \uparrow $$
-
-而应该存在：
-
-中间最优区域。
-
-即：
-
-倒U关系：
-
-    Query Utility
-
-          ^
-          |
-
-          |        ***
-          |      **   **
-          |    **
-          |
-          +---------------->
-
-              Search Maturity
-
-------------------------------------------------------------------------
-
-# 3. 实验数据基础
-
-使用：
-
-Offline trajectory dataset。
-
-来源：
-
-多个优化算法：
-
--   DE
--   PSO
--   CMA-ES
--   SHADE
-
-Benchmark：
-
-BBOB训练集。
-
-记录：
-
-不同FE阶段：
-
--   behavior state
--   Query Utility
-
-------------------------------------------------------------------------
-
-# 4. Search Maturity计算方案
-
-## 4.1 Explicit Maturity Index
-
-基于：
-
-两个因素。
-
-------------------------------------------------------------------------
-
-## Exploration Stabilization (ES)
-
-表示：
-
-探索是否从随机转向结构化。
-
-输入：
-
--   diversity下降趋势
--   population Wasserstein变化率的稳定程度
--   covariance spectral concentration
--   centroid shift coherence
-
-输出：
-
-$$ ES_t\in[0,1]$$
-
-------------------------------------------------------------------------
-
-## Exploitation Saturation (XS)
-
-表示：
-
-开发是否过度饱和。
-
-输入：
-
--   stagnation
--   improvement decay
--   population concentration
-
-输出：
-
-$$ XS_t\in[0,1]$$
-
-------------------------------------------------------------------------
-
-## Maturity
-
-定义：
-
-$$ M_t=ES_t(1-XS_t) $$
-
-------------------------------------------------------------------------
-
-# 5. 关系验证实验
-
-# Experiment 1: Behavior Feature与Query Utility相关性
-
-## 目标
-
-验证：
-
-单个行为指标是否包含固定 query 的效用信息。
-
-------------------------------------------------------------------------
-
-## 方法
-
-计算：
-
-Spearman correlation：
-
-$$ \rho(feature,U_{query}) $$
-
-分析：
-
--   improvement rate
--   diversity
--   population and fitness distribution change
--   stagnation
-
-------------------------------------------------------------------------
-
-## 预期结果
-
-不同指标存在相关性。
-
-但是：
-
-单指标解释能力有限。
-
-------------------------------------------------------------------------
-
-# Experiment 2: Search Maturity与Query Utility关系
-
-## 目标
-
-验证：
-
-Maturity 是否比单指标更接近固定 query 的效用。
-
-------------------------------------------------------------------------
-
-## 方法
-
-计算：
-
-$$ \rho(M,U_{query}) $$
-
-并绘制：
-
-二维关系图。
-
-------------------------------------------------------------------------
-
-## 分析
-
-观察：
-
-低成熟：
-
-固定 query 的效用较低。
-
-中成熟：
-
-固定 query 的效用达到较高区间。
-
-高成熟：
-
-固定 query 的效用下降。
-
-------------------------------------------------------------------------
-
-# Experiment 3: Maturity-based Decision
-
-## 目标
-
-验证：
-
-Search Maturity 是否可以指导固定 query 的调用决策。
-
-------------------------------------------------------------------------
-
-## 方法
-
-比较：
-
-### Rule-based
-
-例如：
-
-$$ M_t>\theta $$
-
-执行固定 query。
-
-------------------------------------------------------------------------
-
-### ML-based
-
-输入：
-
-Behavior features。
-
-输出：
-
-Utility。
-
-------------------------------------------------------------------------
-
-比较：
-
--   Utility prediction
--   Decision accuracy
-
-------------------------------------------------------------------------
-
-# Experiment 4: Ablation
-
-## Ablation A
-
-Without Search Maturity
-
-结构：
-
-    Behavior
-
-    ↓
-
-    Utility Prediction
-
-------------------------------------------------------------------------
-
-## Ablation B
-
-With Search Maturity
-
-结构：
-
-    Behavior
-
-    ↓
-
-    Maturity
-
-    ↓
-
-    Utility Prediction
-
-------------------------------------------------------------------------
-
-比较：
-
--   R2
--   MAE
--   Spearman
-
-验证：
-
-Maturity是否提供额外信息。
-
-------------------------------------------------------------------------
-
-# Experiment 5: Cross-function-family Analysis
-
-目标：
-
-验证不同Landscape类型下：
-
-Maturity-Utility关系是否稳定。
-
-分析：
-
-不同function family：
-
--   smooth
--   ill-conditioned
--   multimodal
--   composition
-
-------------------------------------------------------------------------
-
-# 6. 可视化设计
-
-## Figure 1
-
-Behavior State Space
-
-展示：
-
-不同搜索阶段。
-
-------------------------------------------------------------------------
-
-## Figure 2
-
-Search Maturity Curve
-
-横轴：
-
-FE ratio
-
-纵轴：
-
-Maturity。
-
-展示：
-
-不同算法的变化。
-
-------------------------------------------------------------------------
-
-## Figure 3
-
-Maturity vs Query Utility
-
-展示：
-
-倒U关系。
-
-------------------------------------------------------------------------
-
-## Figure 4
-
-Utility Prediction Comparison
-
-比较：
-
--   single features
--   behavior vector
--   maturity representation
-
-------------------------------------------------------------------------
-
-# 7. 关键评价指标
-
-## 主选择
-
--   nested function-family OOF decision mean utility
-
-## 辅助分数指标
-
--   AUROC
--   Average Precision
--   Spearman
-
-## 连续 Utility 回归
-
--   Ridge RMSE
-
-分类分数不与连续 Utility 直接计算 RMSE。
-
-## End-to-end
-
--   Optimization performance
--   FE saving
--   Pareto efficiency
-
-------------------------------------------------------------------------
-
-# 8. 可能的审稿质疑与回应
-
-## Q1:
-
-Search Maturity是否只是人为定义？
-
-回应：
-
-通过：
-
--   correlation analysis
--   ablation
--   prediction improvement
-
-证明其有效性。
-
-------------------------------------------------------------------------
-
-## Q2:
-
-为什么不用单个behavior指标？
-
-回应：
-
-单指标无法描述：
-
-探索稳定化和开发饱和之间的关系。
-
-------------------------------------------------------------------------
-
-## Q3:
-
-Maturity是否等价于convergence？
-
-回应：
-
-比较：
-
--   convergence indicators
--   maturity indicators
-
-证明二者不同。
-
-------------------------------------------------------------------------
-
-# 9. 最终研究结论目标
-
-证明：
-
-    Optimization Behavior
-
-            |
-
-            v
-
-    Search Maturity
-
-            |
-
-            v
-
-    Query Utility
-
-            |
-
-            v
-
-    Analysis Selection
-
-形成稳定的信息链。
-
-这使Decision-before-Feature不仅是一个机器学习分类器，而成为一种基于搜索状态的信息感知Landscape
-Analysis决策框架。
+结果表必须保存 `query_id`、outer/inner function-family split、feature group、模型、threshold mode、first-trigger state、joint/Behavior-only/increment Utility、matched-acquisition 三项增量、Stage-A 五条 `log10_gap`/observed-hit/target-hit/path-completion/endpoint-success/planned/effective FE/科学失败、Stage-B 五条 future paths 的三次 raw/censored wall-clock、逐次状态、三类一致性与两类 instability、FE=0 policy wall-clock、call/trigger/handoff、coverage 与失败字段。不得读取任何旧 `u_query_lamT_*` 或逐状态 policy 汇总产物。

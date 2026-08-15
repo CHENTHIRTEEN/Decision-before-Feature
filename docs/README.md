@@ -8,7 +8,7 @@
 2. `../DEVELOPMENT_DECISIONS.md`：已冻结的可执行协议。
 3. `00_master/`：研究问题、数学定义、论文结构和引用边界。
 4. `10_protocols/`：数据、标签、模型、baseline 和成本评价协议。
-5. `30_results/`：已撤回旧结果的影响范围；完整状态重生成后再更新正式结果。
+5. `30_results/`：只记录已撤回旧结果的影响范围；完整两阶段链重生成后再新增正式结果。
 6. `20_extensions/`：尚未进入主实验的扩展问题。
 7. `archive/`：已被当前规格取代的历史材料。
 
@@ -16,12 +16,13 @@
 
 ## 当前实现与结果
 
-截至 2026-08-11：
+截至 2026-08-14：
 
 - 四种优化器的完整状态 continuation 与真实 BBOB 一致性检查已实现；
-- 逐共享状态 action-loss Selection Reference、连续 remaining-budget regression 与对应一致性检查已实现；
+- 逐共享状态 action-loss Selection Reference、连续 remaining-budget regression 与部分一致性检查已实现；
 - 旧 BBOB trajectory、utility labels、259,200 行 Decision dataset 和模型结果受重建式 continuation 影响，均不得作为正式证据；
-- 当前必须从 trajectory 开始重生成，再重新选择 Decision Model；
+- 活动 Utility 已改为截断 `log10_gap` 差减完整路径 `log10` runtime ratio，并分开 joint、Behavior-only、operational increment 与 query-feature predictive increment；
+- 当前必须从 trajectory 开始重生成一次 state-action matrices，再由 fold-specific Selector 选择动作并三次重跑 selected complete paths；现有 action-component 计时不能代替该阶段；
 - 旧 CEC2017 在线结果作废，完整外部评价须在内部链路重生成后执行。
 
 详细数值见：
@@ -49,7 +50,7 @@
 - `Decision-before-Feature Decision Model设计与训练协议.md`
 - `Decision-before-Feature Baseline与公平比较协议.md`
 - `Decision-before-Feature_Search Maturity理论设计.md`
-- `Decision-before-Feature Search Maturity与Query Utility关系验证设计.md`
+- `Decision-before-Feature Search Maturity与ELA Utility关系验证设计.md`
 - `Decision-before-Feature_Decision_Model计算成本与资源开销分析设计.md`
 
 正式 phase1 的关键冻结口径：
@@ -62,15 +63,24 @@ budget milestones: 0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42, 0.46, 0
 states per run: 12--18
 final performance: separate final_performance.parquet, one FE=FE_total row per problem_id/algorithm/seed
 behavior columns: 34 outputs / 31 formal inputs / 3 diagnostic-only
-feature groups: T0/B1/B2/B3 = 1/19/25/31
-target: u_query_lamT_1
+feature groups: T0/B1/B2/B2+Motion/B2+Maturity/B3 = 1/19/25/28/28/31
+primary query: descriptor_cheap_invariant = 14 columns / lhs_50d / 5% FE
+robustness queries: pflacco_standard_invariant = 37; pflacco_broad_invariant = 52
+primary target: u_query_joint_lamT_1
+operational increment: query_operational_increment_lamT_1
+predictive diagnostic: query_feature_predictive_increment_log10_gap
 algorithm switch: population transfer
 Selection Reference: statewise action-loss regression with continuous remaining budget
 query sample reuse as optimizer population: false
 Decision X: algorithm-agnostic behavior only
+policy unit: run-level first trigger, at most once
 ```
 
-SBS 只从 BBOB-train 的完整预算终值表计算：先对每个 `problem_id × algorithm` 的全部 seeds 取 `best_fitness` 算术均值，再逐 problem 排名，最后跨 problem 平均排名；并列按冻结 portfolio 顺序 `de, pso, cmaes, shade` 决定。`0.20–0.60` decision trajectory 不提供 SBS 终值；`all_candidates` 只是 B3 的兼容别名，不含诊断字段，也不增加正式消融组。
+SBS 只从相应 fit functions 的完整预算终值表计算：raw gap 按配置截断并取 `log10_gap`，再按 run → static problem（function × dimension × instance）→ fixed dimension stratum → function 等权聚合，选择均值最低算法；并列按 `de,pso,cmaes,shade`。outer/inner/full-train 分别重算。`0.20–0.60` decision trajectory 不提供 SBS 终值；`all_candidates` 只是 B3 兼容别名，`primary_with_maturity` 只对应 B2+Maturity。
+
+统一 median/IQR preprocessing 后恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr` 已从主 query 活动 whitelist 删除，因此 cheap 从 16 列改为 14 列；query ID、`lhs_50d`、5% FE 和既有 action-loss 设计不变。
+
+正式运行前仍有 blockers：replay planner 已有枚举能力，但 offline decision-state-to-terminal runner、物化实测 plan 与 Stage-A Skip 复用尚未闭合；资源/排期未确认；CEC2017 F2/F30 函数集口径需核对；CEC2022 与工程问题的 suite endpoint 和 constraint rule 尚未冻结。
 
 ## 20_extensions
 
@@ -83,7 +93,7 @@ preliminary/min_support 的扩展计划和归因记录已移动到 `archive/min_
 
 ## 30_results
 
-- `phase1_current_results.md`：当前正式 BBOB 内部结果、模型选择、结果边界和外部评价状态。
+- `phase1_current_results.md`：已撤回旧 BBOB 结果的范围、不能迁移的结论及当前正式证据缺口；不是当前正式结果页。
 
 ## 90_literature
 

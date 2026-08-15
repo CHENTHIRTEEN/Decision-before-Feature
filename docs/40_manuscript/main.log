@@ -1,0 +1,1920 @@
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.2.20)  15 AUG 2026 02:29
+entering extended mode
+ restricted \write18 enabled.
+ file:line:error style messages enabled.
+ %&-line parsing enabled.
+**/Users/bingchen/Desktop/Decision-before-Feature/docs/40_manuscript/main
+(/Users/bingchen/Desktop/Decision-before-Feature/docs/40_manuscript/main.tex
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-01-18>
+(/usr/local/texlive/2025/texmf-dist/tex/latex/els-cas-templates/cas-dc.cls
+Document Class: cas-dc 2024/05/04, 2.4: Formatting class for CAS double column articles
+\c@blind=\count192
+\@bls=\dimen141
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2024/06/29 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/fleqn.clo
+File: fleqn.clo 2016/12/29 v1.2b Standard LaTeX option (flush left equations)
+\mathindent=\skip49
+Applying: [2015/01/01] Make \[ robust on input line 50.
+LaTeX Info: Redefining \[ on input line 51.
+Already applied: [0000/00/00] Make \[ robust on input line 62.
+Applying: [2015/01/01] Make \] robust on input line 74.
+LaTeX Info: Redefining \] on input line 75.
+Already applied: [0000/00/00] Make \] robust on input line 83.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/base/size10.clo
+File: size10.clo 2024/06/29 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count193
+\c@section=\count194
+\c@subsection=\count195
+\c@subsubsection=\count196
+\c@paragraph=\count197
+\c@subparagraph=\count198
+\c@figure=\count199
+\c@table=\count266
+\abovecaptionskip=\skip50
+\belowcaptionskip=\skip51
+\bibindent=\dimen142
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/graphicx.sty
+Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/keyval.sty
+Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
+\KV@toks@=\toks17
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/graphics.sty
+Package: graphics 2024/08/06 v1.4g Standard LaTeX Graphics (DPC,SPQR)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/trig.sty
+Package: trig 2023/12/02 v1.11 sin cos tan (DPC)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
+File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
+)
+Package graphics Info: Driver file: xetex.def on input line 106.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-def/xetex.def
+File: xetex.def 2022/09/22 v5.0n Graphics/color driver for xetex
+))
+\Gin@req@height=\dimen143
+\Gin@req@width=\dimen144
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsmath.sty
+Package: amsmath 2024/11/05 v2.17t AMS math features
+\@mathmargin=\skip52
+
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amstext.sty
+Package: amstext 2021/08/26 v2.01 AMS text
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsgen.sty
+File: amsgen.sty 1999/11/30 v2.0 generic functions
+\@emptytoks=\toks18
+\ex@=\dimen145
+)) (/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsbsy.sty
+Package: amsbsy 1999/11/29 v1.2d Bold Symbols
+\pmbraise@=\dimen146
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsopn.sty
+Package: amsopn 2022/04/08 v2.04 operator names
+)
+\inf@bad=\count267
+LaTeX Info: Redefining \frac on input line 233.
+\uproot@=\count268
+\leftroot@=\count269
+LaTeX Info: Redefining \overline on input line 398.
+LaTeX Info: Redefining \colon on input line 409.
+\classnum@=\count270
+\DOTSCASE@=\count271
+LaTeX Info: Redefining \ldots on input line 495.
+LaTeX Info: Redefining \dots on input line 498.
+LaTeX Info: Redefining \cdots on input line 619.
+\Mathstrutbox@=\box52
+\strutbox@=\box53
+LaTeX Info: Redefining \big on input line 721.
+LaTeX Info: Redefining \Big on input line 722.
+LaTeX Info: Redefining \bigg on input line 723.
+LaTeX Info: Redefining \Bigg on input line 724.
+\big@size=\dimen147
+LaTeX Font Info:    Redeclaring font encoding OML on input line 742.
+LaTeX Font Info:    Redeclaring font encoding OMS on input line 743.
+\macc@depth=\count272
+LaTeX Info: Redefining \bmod on input line 904.
+LaTeX Info: Redefining \pmod on input line 909.
+LaTeX Info: Redefining \smash on input line 939.
+LaTeX Info: Redefining \relbar on input line 969.
+LaTeX Info: Redefining \Relbar on input line 970.
+\c@MaxMatrixCols=\count273
+\dotsspace@=\muskip17
+\c@parentequation=\count274
+\dspbrk@lvl=\count275
+\tag@help=\toks19
+\row@=\count276
+\column@=\count277
+\maxfields@=\count278
+\andhelp@=\toks20
+\eqnshift@=\dimen148
+\alignsep@=\dimen149
+\tagshift@=\dimen150
+\tagwidth@=\dimen151
+\totwidth@=\dimen152
+\lineht@=\dimen153
+\@envbody=\toks21
+\multlinegap=\skip53
+\multlinetaggap=\skip54
+\mathdisplay@stack=\toks22
+LaTeX Info: Redefining \[ on input line 2953.
+LaTeX Info: Redefining \] on input line 2954.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/amsfonts.sty
+Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
+\symAMSa=\mathgroup4
+\symAMSb=\mathgroup5
+LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
+(Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/amssymb.sty
+Package: amssymb 2013/01/14 v3.01 AMS font symbols
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/l3kernel/expl3.sty
+Package: expl3 2025-01-18 L3 programming layer (loader) 
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/l3backend/l3backend-xetex.def
+File: l3backend-xetex.def 2024-05-08 L3 backend support: XeTeX
+\g__graphics_track_int=\count279
+\l__pdf_internal_box=\box54
+\g__pdf_backend_annotation_int=\count280
+\g__pdf_backend_link_int=\count281
+)) (/usr/local/texlive/2025/texmf-dist/tex/latex/l3packages/xparse/xparse.sty
+Package: xparse 2024-08-16 L3 Experimental document command parser
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/etoolbox/etoolbox.sty
+Package: etoolbox 2025/02/11 v2.5l e-TeX tools for LaTeX (JAW)
+\etb@tempcnta=\count282
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/preprint/balance.sty
+Package: balance 1999/02/23 4.3 (PWD)
+\oldvsize=\dimen154
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/booktabs/booktabs.sty
+Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
+\heavyrulewidth=\dimen155
+\lightrulewidth=\dimen156
+\cmidrulewidth=\dimen157
+\belowrulesep=\dimen158
+\belowbottomsep=\dimen159
+\aboverulesep=\dimen160
+\abovetopsep=\dimen161
+\cmidrulesep=\dimen162
+\cmidrulekern=\dimen163
+\defaultaddspace=\dimen164
+\@cmidla=\count283
+\@cmidlb=\count284
+\@aboverulesep=\dimen165
+\@belowrulesep=\dimen166
+\@thisruleclass=\count285
+\@lastruleclass=\count286
+\@thisrulewidth=\dimen167
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/makecell/makecell.sty
+Package: makecell 2009/08/03 V0.1e Managing of Tab Column Heads and Cells
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/array.sty
+Package: array 2024/10/17 v2.6g Tabular extension package (FMi)
+\col@sep=\dimen168
+\ar@mcellbox=\box55
+\extrarowheight=\dimen169
+\NC@list=\toks23
+\extratabsurround=\skip55
+\backup@length=\skip56
+\ar@cellbox=\box56
+)
+\rotheadsize=\dimen170
+\c@nlinenum=\count287
+\TeXr@lab=\toks24
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/multirow/multirow.sty
+Package: multirow 2024/11/12 v2.9 Span multiple rows of a table
+\multirow@colwidth=\skip57
+\multirow@cntb=\count288
+\multirow@dima=\skip58
+\bigstrutjot=\dimen171
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/colortbl/colortbl.sty
+Package: colortbl 2024/07/06 v1.0i Color table columns (DPC)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/color.sty
+Package: color 2024/06/23 v1.3e Standard LaTeX Color (DPC)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package color Info: Driver file: xetex.def on input line 149.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+\everycr=\toks25
+\minrowclearance=\skip59
+\rownum=\count289
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/dcolumn.sty
+Package: dcolumn 2023/07/08 v1.06 decimal alignment package (DPC)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/sttools/stfloats.sty
+Package: stfloats 2017/03/27 v3.3 Improve float mechanism and baselineskip settings
+\@dblbotnum=\count290
+\c@dblbotnumber=\count291
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/xspace.sty
+Package: xspace 2014/10/28 v1.13 Space after command names (DPC,MH)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/xstring/xstring.sty (/usr/local/texlive/2025/texmf-dist/tex/generic/xstring/xstring.tex
+\xs_counta=\count292
+\xs_countb=\count293
+)
+Package: xstring 2023/08/22 v1.86 String manipulations (CT)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/footmisc/footmisc.sty
+Package: footmisc 2024/12/24 v6.0g a miscellany of footnote facilities
+\FN@temptoken=\toks26
+\footnotemargin=\dimen172
+\@outputbox@depth=\dimen173
+Package footmisc Info: Declaring symbol style bringhurst on input line 699.
+Package footmisc Info: Declaring symbol style chicago on input line 707.
+Package footmisc Info: Declaring symbol style wiley on input line 716.
+Package footmisc Info: Declaring symbol style lamport-robust on input line 727.
+Package footmisc Info: Declaring symbol style lamport* on input line 747.
+Package footmisc Info: Declaring symbol style lamport*-robust on input line 768.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: xetex.def on input line 274.
+LaTeX Info: Redefining \color on input line 762.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/mathcolor.ltx)
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
+Package xcolor Info: Model `RGB' extended on input line 1365.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/xcolor/svgnam.def
+File: svgnam.def 2024/09/29 v3.02 Predefined colors according to SVG 1.1 (UK)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/dvipsnam.def
+File: dvipsnam.def 2016/06/17 v3.0m Driver-dependent file (DPC,SPQR)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/hyperref.sty
+Package: hyperref 2024-11-05 v7.01l Hypertext links for LaTeX
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/iftex/iftex.sty
+Package: iftex 2024/12/12 v1.0g TeX engine tests
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty
+Package: kvsetkeys 2022-10-05 v1.19 Key value parser (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty
+Package: kvdefinekeys 2019-12-19 v1.6 Define keys (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+Package: pdfescape 2019/12/09 v1.15 Implements pdfTeX's escape features (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty
+Package: ltxcmds 2023-12-04 v1.26 LaTeX kernel commands for general use (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+Package: pdftexcmds 2020-06-27 v0.33 Utility functions of pdfTeX for LuaTeX (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/infwarerr/infwarerr.sty
+Package: infwarerr 2019/12/03 v1.5 Providing info/warning/error messages (HO)
+)
+Package pdftexcmds Info: \pdf@primitive is available.
+Package pdftexcmds Info: \pdf@ifprimitive is available.
+Package pdftexcmds Info: \pdfdraftmode not found.
+)) (/usr/local/texlive/2025/texmf-dist/tex/latex/hycolor/hycolor.sty
+Package: hycolor 2020-01-27 v1.10 Color options for hyperref/bookmark (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/nameref.sty
+Package: nameref 2023-11-26 v2.56 Cross-referencing by name of section
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/refcount/refcount.sty
+Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/gettitlestring/gettitlestring.sty
+Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/kvoptions/kvoptions.sty
+Package: kvoptions 2022-06-15 v3.15 Key value format for package options (HO)
+))
+\c@section@level=\count294
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/stringenc/stringenc.sty
+Package: stringenc 2019/11/29 v1.12 Convert strings between diff. encodings (HO)
+)
+\@linkdim=\dimen174
+\Hy@linkcounter=\count295
+\Hy@pagecounter=\count296
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/pd1enc.def
+File: pd1enc.def 2024-11-05 v7.01l Hyperref: PDFDocEncoding definition (HO)
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/intcalc/intcalc.sty
+Package: intcalc 2019/12/15 v1.3 Expandable calculations with integers (HO)
+)
+\Hy@SavedSpaceFactor=\count297
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/puenc.def
+File: puenc.def 2024-11-05 v7.01l Hyperref: PDF Unicode definition (HO)
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 4040.
+Package hyperref Info: Hyper figures OFF on input line 4157.
+Package hyperref Info: Link nesting OFF on input line 4162.
+Package hyperref Info: Hyper index ON on input line 4165.
+Package hyperref Info: Plain pages OFF on input line 4172.
+Package hyperref Info: Backreferencing OFF on input line 4177.
+Package hyperref Info: Implicit mode ON; LaTeX internals redefined.
+Package hyperref Info: Bookmarks ON on input line 4424.
+\c@Hy@tempcnt=\count298
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/url/url.sty
+\Urlmuskip=\muskip18
+Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
+)
+LaTeX Info: Redefining \url on input line 4763.
+\XeTeXLinkMargin=\dimen175
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/bitset/bitset.sty
+Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty
+Package: bigintcalc 2019/12/15 v1.5 Expandable calculations on big integers (HO)
+))
+\Fld@menulength=\count299
+\Field@Width=\dimen176
+\Fld@charsize=\dimen177
+Package hyperref Info: Hyper figures OFF on input line 6042.
+Package hyperref Info: Link nesting OFF on input line 6047.
+Package hyperref Info: Hyper index ON on input line 6050.
+Package hyperref Info: backreferencing OFF on input line 6057.
+Package hyperref Info: Link coloring ON on input line 6060.
+Package hyperref Info: Link coloring with OCG OFF on input line 6067.
+Package hyperref Info: PDF/A mode OFF on input line 6072.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/base/atbegshi-ltx.sty
+Package: atbegshi-ltx 2021/01/10 v1.0c Emulation of the original atbegshi
+package with kernel methods
+)
+\Hy@abspage=\count300
+\c@Item=\count301
+\c@Hfootnote=\count302
+)
+Package hyperref Info: Driver (autodetected): hxetex.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/hxetex.def
+File: hxetex.def 2024-11-05 v7.01l Hyperref driver for XeTeX
+\pdfm@box=\box57
+\c@Hy@AnnotLevel=\count303
+\HyField@AnnotCount=\count304
+\Fld@listcount=\count305
+\c@bookmark@seq@number=\count306
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+Package: rerunfilecheck 2022-07-10 v1.10 Rerun checks for auxiliary files (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/base/atveryend-ltx.sty
+Package: atveryend-ltx 2020/08/19 v1.0a Emulation of the original atveryend package
+with kernel methods
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+Package: uniquecounter 2019/12/15 v1.4 Provide unlimited unique counter (HO)
+)
+Package uniquecounter Info: New unique counter `rerunfilecheck' on input line 285.
+)
+\Hy@SectionHShift=\skip60
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/els-cas-templates/cas-common.sty
+\l_stm_title_before_dim=\dimen178
+\l_stm_title_after_dim=\dimen179
+\g_ead_int=\count307
+\g_uad_int=\count308
+\@eadauthor=\toks27
+\g_stm_tnote_int=\count309
+\g_stm_fnote_int=\count310
+\g_stm_cor_int=\count311
+\g_stm_au_int=\count312
+\g_stm_aau_int=\count313
+\l_autype_int=\count314
+\l_stm_augroup_before_dim=\dimen180
+\l_stm_augroup_after_dim=\dimen181
+\l_stm_augroup_lskip_tl=\dimen182
+\l_stm_augroup_rskip_tl=\dimen183
+\g_stm_aff_int=\count315
+\g_stm_aff_ext_int=\count316
+\g_stm_aff_int_int=\count317
+\g_stm_fn_aff_ext_int=\count318
+\g_stm_fn_aff_int_int=\count319
+\l_stm_aff_before_dim=\dimen184
+\l_stm_aff_after_dim=\dimen185
+\l_stm_aff_lskip_dim=\dimen186
+\l_stm_aff_rskip_dim=\dimen187
+\g_stm_augr_int=\count320
+\g_stm_aaugr_int=\count321
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/moreverb/moreverb.sty
+Package: moreverb 2008/06/03 v2.3a `more' verbatim facilities
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/verbatim.sty
+Package: verbatim 2024-01-22 v1.5x LaTeX2e package for verbatim enhancements
+\every@verbatim=\toks28
+\verbatim@line=\toks29
+\verbatim@in@stream=\read2
+)
+\tab@position=\count322
+\tab@size=\count323
+\listing@line=\count324
+)
+\g_stm_abs_box=\box58
+\casgrabsbox=\box59
+\casauhlbox=\box60
+\g_stm_key_box=\box61
+\g_stm_jtype_int=\count325
+\g_stm_blind_int=\count326
+\c@au=\count327
+\c@cnote=\count328
+\c@tnote=\count329
+\c@fnote=\count330
+\c@aff=\count331
+\g_stm_notes_box=\box62
+\g_stm_front_box=\box63
+\paraindent=\dimen188
+\subparaindent=\dimen189
+\FullWidth=\dimen190
+\l_tbl_width_dim=\dimen191
+\l_tbl_abovecap_skip=\skip61
+\l_tbl_belowcap_skip=\skip62
+\l_tbl_abovetbl_skip=\skip63
+\l_tbl_belowtbl_skip=\skip64
+\l_fig_width_dim=\dimen192
+\cascaptionbox=\box64
+\l_fig_abovecap_skip=\skip65
+\l_fig_belowcap_skip=\skip66
+\l_fig_abovefig_skip=\skip67
+\l_fig_belowfig_skip=\skip68
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/wrapfig/wrapfig.sty
+\wrapoverhang=\dimen193
+\WF@size=\dimen194
+\c@WF@wrappedlines=\count332
+\WF@box=\box65
+\WF@everypar=\toks30
+Package: wrapfig 2003/01/31  v 3.6
+)
+\l_wrap_figwidth_dim=\dimen195
+\l_wrap_fighspace_dim=\dimen196
+\l_wrap_figvspace_dim=\dimen197
+\l_wrap_fighcorr_dim=\dimen198
+\l_wrap_figvcorr_dim=\dimen199
+\l_above_bio_dim=\dimen256
+\l_wrap_figlcorr_int=\count333
+\l_wrap_figlines_int=\count334
+\l_bio_text_box=\box66
+\c@ca_biography_ctr=\count335
+\l_ca_temp_inta=\count336
+\leftMargin=\dimen257
+\@enLab=\toks31
+\@sep=\skip69
+\@@sep=\skip70
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/base/fontenc.sty
+Package: fontenc 2021/04/29 v2.0v Standard LaTeX package
+LaTeX Font Info:    Trying to load font information for T1+lmr on input line 116.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/lm/t1lmr.fd
+File: t1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
+)) (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/stix.sty
+Package: stix 2018/04/17 v1.1.3-latex STIX fonts support package
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/base/textcomp.sty
+Package: textcomp 2024/04/24 v2.1b Standard LaTeX package
+LaTeX Font Info:    Changing ? sub-encoding to TS1/0 on input line 75.
+)
+LaTeX Font Info:    Redeclaring symbol font `letters' on input line 76.
+LaTeX Font Info:    Encoding `OML' has changed to `LS1' for symbol font
+(Font)              `letters' in the math version `normal' on input line 76.
+LaTeX Font Info:    Overwriting symbol font `letters' in version `normal'
+(Font)                  OML/cmm/m/it --> LS1/stix/m/it on input line 76.
+LaTeX Font Info:    Encoding `OML' has changed to `LS1' for symbol font
+(Font)              `letters' in the math version `bold' on input line 76.
+LaTeX Font Info:    Overwriting symbol font `letters' in version `bold'
+(Font)                  OML/cmm/b/it --> LS1/stix/m/it on input line 76.
+LaTeX Font Info:    Redeclaring symbol font `operators' on input line 77.
+LaTeX Font Info:    Encoding `OT1' has changed to `LS1' for symbol font
+(Font)              `operators' in the math version `normal' on input line 77.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
+(Font)                  OT1/cmr/m/n --> LS1/stix/m/n on input line 77.
+LaTeX Font Info:    Encoding `OT1' has changed to `LS1' for symbol font
+(Font)              `operators' in the math version `bold' on input line 77.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  OT1/cmr/bx/n --> LS1/stix/m/n on input line 77.
+\symbold-operators=\mathgroup6
+LaTeX Font Info:    Redeclaring symbol font `symbols' on input line 79.
+LaTeX Font Info:    Encoding `OMS' has changed to `LS1' for symbol font
+(Font)              `symbols' in the math version `normal' on input line 79.
+LaTeX Font Info:    Overwriting symbol font `symbols' in version `normal'
+(Font)                  OMS/cmsy/m/n --> LS1/stixscr/m/n on input line 79.
+LaTeX Font Info:    Encoding `OMS' has changed to `LS1' for symbol font
+(Font)              `symbols' in the math version `bold' on input line 79.
+LaTeX Font Info:    Overwriting symbol font `symbols' in version `bold'
+(Font)                  OMS/cmsy/b/n --> LS1/stixscr/m/n on input line 79.
+\symsymbols2=\mathgroup7
+\symsymbols3=\mathgroup8
+\symsymbols4=\mathgroup9
+\symintegrals=\mathgroup10
+LaTeX Font Info:    Redeclaring symbol font `largesymbols' on input line 84.
+LaTeX Font Info:    Encoding `OMX' has changed to `LS2' for symbol font
+(Font)              `largesymbols' in the math version `normal' on input line 84.
+LaTeX Font Info:    Overwriting symbol font `largesymbols' in version `normal'
+(Font)                  OMX/cmex/m/n --> LS2/stixex/m/n on input line 84.
+LaTeX Font Info:    Encoding `OMX' has changed to `LS2' for symbol font
+(Font)              `largesymbols' in the math version `bold' on input line 84.
+LaTeX Font Info:    Overwriting symbol font `largesymbols' in version `bold'
+(Font)                  OMX/cmex/m/n --> LS2/stixex/m/n on input line 84.
+\symarrows1=\mathgroup11
+\symarrows2=\mathgroup12
+\symarrows3=\mathgroup13
+LaTeX Font Info:    Overwriting symbol font `letters' in version `bold'
+(Font)                  LS1/stix/m/it --> LS1/stix/b/it on input line 88.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  LS1/stix/m/n --> LS1/stix/b/n on input line 89.
+LaTeX Font Info:    Overwriting symbol font `symbols' in version `bold'
+(Font)                  LS1/stixscr/m/n --> LS1/stixscr/b/n on input line 90.
+LaTeX Font Info:    Overwriting symbol font `symbols2' in version `bold'
+(Font)                  LS1/stixfrak/m/n --> LS1/stixfrak/b/n on input line 91.
+LaTeX Font Info:    Overwriting symbol font `symbols3' in version `bold'
+(Font)                  LS1/stixbb/m/n --> LS1/stixbb/b/n on input line 92.
+LaTeX Font Info:    Overwriting symbol font `symbols4' in version `bold'
+(Font)                  LS1/stixbb/m/it --> LS1/stixbb/b/it on input line 93.
+LaTeX Font Info:    Overwriting symbol font `integrals' in version `bold'
+(Font)                  LS2/stixcal/m/n --> LS2/stixcal/b/n on input line 94.
+LaTeX Font Info:    Overwriting symbol font `largesymbols' in version `bold'
+(Font)                  LS2/stixex/m/n --> LS2/stixex/b/n on input line 95.
+LaTeX Font Info:    Overwriting symbol font `arrows1' in version `bold'
+(Font)                  LS1/stixsf/m/n --> LS1/stixsf/b/n on input line 96.
+LaTeX Font Info:    Overwriting symbol font `arrows2' in version `bold'
+(Font)                  LS1/stixsf/m/it --> LS1/stixsf/b/it on input line 97.
+LaTeX Font Info:    Overwriting symbol font `arrows3' in version `bold'
+(Font)                  LS2/stixtt/m/n --> LS2/stixtt/b/n on input line 98.
+LaTeX Font Info:    Redeclaring math alphabet \mathit on input line 99.
+LaTeX Font Info:    Redeclaring math alphabet \mathfrak on input line 102.
+LaTeX Font Info:    Redeclaring math alphabet \mathsf on input line 106.
+LaTeX Font Info:    Redeclaring math alphabet \mathtt on input line 108.
+LaTeX Font Info:    Redeclaring math alphabet \mathbf on input line 109.
+LaTeX Info: Redefining \yen on input line 456.
+LaTeX Info: Redefining \circledR on input line 458.
+LaTeX Info: Redefining \checkmark on input line 460.
+LaTeX Info: Redefining \maltese on input line 461.
+LaTeX Font Info:    Redeclaring math accent \grave on input line 698.
+LaTeX Font Info:    Redeclaring math accent \acute on input line 699.
+LaTeX Font Info:    Redeclaring math accent \hat on input line 700.
+LaTeX Font Info:    Redeclaring math accent \tilde on input line 701.
+LaTeX Font Info:    Redeclaring math accent \bar on input line 702.
+LaTeX Font Info:    Redeclaring math accent \breve on input line 703.
+LaTeX Font Info:    Redeclaring math accent \dot on input line 704.
+LaTeX Font Info:    Redeclaring math accent \ddot on input line 705.
+LaTeX Font Info:    Redeclaring math accent \mathring on input line 707.
+LaTeX Font Info:    Redeclaring math accent \check on input line 708.
+LaTeX Font Info:    Redeclaring math accent \vec on input line 716.
+LaTeX Font Info:    Redeclaring math accent \widehat on input line 728.
+LaTeX Font Info:    Redeclaring math accent \widetilde on input line 729.
+LaTeX Info: Redefining \vdots on input line 1518.
+LaTeX Info: Redefining \cdots on input line 1522.
+LaTeX Font Info:    Redeclaring math symbol \mathsterling on input line 1978.
+LaTeX Info: Redefining \not on input line 2144.
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/inconsolata/inconsolata.sty
+Package: inconsolata 2019/05/17 v1.12
+ `inconsolata-zi4' v1.12, 2019/05/17 Text macros for Inconsolata (msharpe) (/usr/local/texlive/2025/texmf-dist/tex/latex/xkeyval/xkeyval.sty
+Package: xkeyval 2022/06/16 v2.9 package option processing (HA)
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/xkeyval/xkeyval.tex (/usr/local/texlive/2025/texmf-dist/tex/generic/xkeyval/xkvutils.tex
+\XKV@toks=\toks32
+\XKV@tempa@toks=\toks33
+)
+\XKV@depth=\count337
+File: xkeyval.tex 2014/12/03 v2.7a key=value parser (HA)
+))
+\zifour@ocount=\count338
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/geometry/geometry.sty
+Package: geometry 2020/01/02 v5.9 Page Geometry
+ (/usr/local/texlive/2025/texmf-dist/tex/generic/iftex/ifvtex.sty
+Package: ifvtex 2019/10/25 v1.7 ifvtex legacy package. Use iftex instead.
+)
+\Gm@cnth=\count339
+\Gm@cntv=\count340
+\c@Gm@tempcnt=\count341
+\Gm@bindingoffset=\dimen258
+\Gm@wd@mp=\dimen259
+\Gm@odd@mp=\dimen260
+\Gm@even@mp=\dimen261
+\Gm@layoutwidth=\dimen262
+\Gm@layoutheight=\dimen263
+\Gm@layouthoffset=\dimen264
+\Gm@layoutvoffset=\dimen265
+\Gm@dimlist=\toks34
+)) (/usr/local/texlive/2025/texmf-dist/tex/latex/natbib/natbib.sty
+Package: natbib 2010/09/13 8.31b (PWD, AO)
+\bibhang=\skip71
+\bibsep=\skip72
+LaTeX Info: Redefining \cite on input line 694.
+\c@NAT@ctr=\count342
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/placeins/placeins.sty
+Package: placeins 2005/04/18  v 2.2
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/tabularx.sty
+Package: tabularx 2023/12/11 v2.12a `tabularx' package (DPC)
+\TX@col@width=\dimen266
+\TX@old@table=\dimen267
+\TX@old@col=\dimen268
+\TX@target=\dimen269
+\TX@delta=\dimen270
+\TX@cols=\count343
+\TX@ftn=\toks35
+)
+LaTeX Font Info:    Trying to load font information for T1+stix on input line 23.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/t1stix.fd
+File: t1stix.fd 2015/04/17 v1.1.2-latex STIX T1 font definitions
+) (./main.aux)
+\openout1 = `main.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 23.
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for LS1/stix/m/n on input line 23.
+LaTeX Font Info:    Trying to load font information for LS1+stix on input line 23.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls1stix.fd
+File: ls1stix.fd 2015/04/17 v1.1.2-latex STIX LS1 font definitions
+)
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Font Info:    Checking defaults for LS2/stix/m/n on input line 23.
+LaTeX Font Info:    Trying to load font information for LS2+stix on input line 23.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls2stix.fd
+File: ls2stix.fd 2015/04/17 v1.1.2-latex STIX LS2 font definitions
+)
+LaTeX Font Info:    ... okay on input line 23.
+LaTeX Info: Command `\dddot' is already robust on input line 23.
+LaTeX Info: Command `\ddddot' is already robust on input line 23.
+Package hyperref Info: Link coloring ON on input line 23.
+ (./main.out) (./main.out)
+\@outlinefile=\write3
+\openout3 = `main.out'.
+
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/upquote/upquote.sty
+Package: upquote 2012/04/19 v1.3 upright-quote and grave-accent glyphs in verbatim
+)
+*geometry* driver: auto-detecting
+*geometry* detected driver: xetex
+*geometry* verbose mode - [ preamble ] result:
+* driver: xetex
+* paper: custom
+* layout: <same size as paper>
+* layoutoffset:(h,v)=(0.0pt,0.0pt)
+* modes: 
+* h-part:(L,W,R)=(51.4995pt, 494.50888pt, 51.4995pt)
+* v-part:(T,H,B)=(55.48286pt, 689.4103pt, 51.784pt)
+* \paperwidth=597.50787pt
+* \paperheight=796.67715pt
+* \textwidth=494.50888pt
+* \textheight=689.4103pt
+* \oddsidemargin=-20.7705pt
+* \evensidemargin=-20.7705pt
+* \topmargin=-40.78712pt
+* \headheight=12.0pt
+* \headsep=12.0pt
+* \topskip=10.0pt
+* \footskip=12.0pt
+* \marginparwidth=57.0pt
+* \marginparsep=11.0pt
+* \columnsep=18.0pt
+* \skip\footins=9.0pt plus 4.0pt minus 2.0pt
+* \hoffset=0.0pt
+* \voffset=0.0pt
+* \mag=1000
+* \@twocolumnfalse
+* \@twosidefalse
+* \@mparswitchfalse
+* \@reversemarginfalse
+* (1in=72.27pt=25.4mm, 1cm=28.453pt)
+
+\verbatim@out=\write4
+\openout4 = `main.abs'.
+
+LaTeX Font Info:    Trying to load font information for TS1+stix on input line 71.
+(/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ts1stix.fd
+File: ts1stix.fd 2015/04/17 v1.1.2-latex STIX TS1 font definitions
+)
+
+[0
+
+]
+LaTeX Font Info:    Trying to load font information for LS1+stixscr on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls1stixscr.fd
+File: ls1stixscr.fd 2015/04/17 v1.1.2-latex STIX script LS1 font definitions
+)
+LaTeX Font Info:    Trying to load font information for LS2+stixex on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls2stixex.fd
+File: ls2stixex.fd 2015/04/17 v1.1.2-latex STIX extentions LS2 font definitions
+)
+LaTeX Font Info:    Trying to load font information for U+msa on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+LaTeX Font Info:    Trying to load font information for LS1+stixfrak on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls1stixfrak.fd
+File: ls1stixfrak.fd 2015/04/17 v1.1.2-latex STIX fraktur LS1 font definitions
+)
+LaTeX Font Info:    Trying to load font information for LS1+stixbb on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls1stixbb.fd
+File: ls1stixbb.fd 2015/04/17 v1.1.2-latex STIX blackboard LS1 font definitions
+)
+LaTeX Font Info:    Trying to load font information for LS2+stixcal on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls2stixcal.fd
+File: ls2stixcal.fd 2015/04/17 v1.1.2-latex STIX calligraphic LS2 font definitions
+)
+LaTeX Font Info:    Trying to load font information for LS1+stixsf on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls1stixsf.fd
+File: ls1stixsf.fd 2015/04/17 v1.1.2-latex STIX sans-serif LS1 font definitions
+)
+LaTeX Font Info:    Trying to load font information for LS2+stixtt on input line 85.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/stix/ls2stixtt.fd
+File: ls2stixtt.fd 2015/04/17 v1.1.2-latex STIX typewriter LS2 font definitions
+)
+Overfull \hbox (123.62721pt too wide) detected at line 85
+[]
+ []
+
+(./main.abs)
+
+Package hyperref Warning: Ignoring empty anchor on input line 85.
+
+(./sections/01_introduction.tex
+
+Package natbib Warning: Citation `kerschkeAutomatedAlgorithmSelection2019' on page 1 undefined on input line 4.
+
+
+Package natbib Warning: Citation `guoAutomatedAlgorithmSelection2025' on page 1 undefined on input line 4.
+
+
+Package natbib Warning: Citation `malanSurveyTechniquesCharacterising2013' on page 1 undefined on input line 6.
+
+
+Package natbib Warning: Citation `pragerPflaccoFeaturebasedLandscape2024' on page 1 undefined on input line 6.
+
+
+Package natbib Warning: Citation `blomInfluenceFeatureComputation2026' on page 1 undefined on input line 6.
+
+
+Package natbib Warning: Citation `guoAutomatedAlgorithmSelection2025' on page 1 undefined on input line 6.
+
+
+Package natbib Warning: Citation `ochoaSearchTrajectoryNetworks2021' on page 1 undefined on input line 8.
+
+
+Package natbib Warning: Citation `cenikjDynamoRepTrajectoryBasedPopulation2023' on page 1 undefined on input line 8.
+
+
+Package natbib Warning: Citation `korosecOpt2VecContinuousOptimization2024' on page 1 undefined on input line 8.
+
+
+Package natbib Warning: Citation `renauUtilityProbingTrajectories2024' on page 1 undefined on input line 8.
+
+
+Package natbib Warning: Citation `renauAlgorithmSelectionProbing2025b' on page 1 undefined on input line 8.
+
+
+
+
+Package natbib Warning: Citation `cenikjLandscapeFeaturesSingleobjective2025' on page 1 undefined on input line 10.
+
+
+Package natbib Warning: Citation `kostovskaPerrunAlgorithmSelection2022' on page 1 undefined on input line 10.
+
+
+Package natbib Warning: Citation `cenikjSurveyFeaturesUsed2026' on page 1 undefined on input line 10.
+
+
+Package natbib Warning: Citation `jankovicTrajectorybasedAlgorithmSelection2022' on page 1 undefined on input line 12.
+
+
+Package natbib Warning: Citation `kostovskaPerrunAlgorithmSelection2022' on page 1 undefined on input line 12.
+
+
+Package natbib Warning: Citation `guoDeepReinforcementLearning2024b' on page 1 undefined on input line 12.
+
+
+Package natbib Warning: Citation `sallamLandscapebasedAdaptiveOperator2017' on page 1 undefined on input line 12.
+
+
+Package natbib Warning: Citation `zhouAdaptiveMultipopulationArtificial2024' on page 1 undefined on input line 12.
+
+
+Underfull \hbox (badness 1776) in paragraph at lines 12--13
+[]\T1/stix/m/n/10 This pa-per stud-ies a de-ci-sion that pre-cedes fea-ture
+ []
+
+
+Underfull \hbox (badness 3525) in paragraph at lines 12--13
+\T1/stix/m/n/10 agnostic be-hav-ioral his-tory, should a fixed landscape-
+ []
+
+
+Underfull \hbox (badness 3792) in paragraph at lines 12--13
+\T1/stix/m/n/10 based per-run se-lec-tion, which con-structs a tra-jec-tory
+ []
+
+
+
+LaTeX Font Info:    Trying to load font information for T1+lmss on input line 13.
+(/usr/local/texlive/2025/texmf-dist/tex/latex/lm/t1lmss.fd
+File: t1lmss.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
+) [1
+
+]
+LaTeX Font Info:    Trying to load font information for T1+zi4 on input line 16.
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/inconsolata/t1zi4.fd
+File: t1zi4.fd 2018/01/14 T1/zi4 (Inconsolata)
+)
+LaTeX Font Info:    Font shape `T1/zi4/m/n' will be
+(Font)              scaled to size 8.50006pt on input line 16.
+
+Underfull \hbox (badness 2134) in paragraph at lines 16--17
+\T1/stix/m/n/10 RQ1 char-ac-ter-izes the state-wise util-ity of the pri-mary
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/zi4/m/n/10 descriptor_cheap_invariant \T1/stix/m/n/10 query. RQ2 tests whether
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 elapsed bud-get and a dimension-stratified time-only
+ []
+
+
+Underfull \hbox (badness 5446) in paragraph at lines 16--17
+\T1/stix/m/n/10 com-para-tor. RQ3 com-pares the re-sult-ing pol-icy with
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 fixed, ran-dom, tra-di-tional landscape-based, behavior-
+ []
+
+
+Underfull \hbox (badness 2538) in paragraph at lines 16--17
+\T1/stix/m/n/10 only, and port-fo-lio ref-er-ences un-der com-mon re-source
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 ac-count-ing. RQ4 re-ports the in-spected six-function
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 BBOB-validation set and CEC2017 as de-vel-op-ment
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 eval-u-a-tions, and re-serves CEC2022 and en-gi-neer-ing
+ []
+
+
+Underfull \hbox (badness 4156) in paragraph at lines 16--17
+\T1/stix/m/n/10 is re-ported sep-a-rately. The BBOB-validation es-ti-mand
+ []
+
+
+Underfull \hbox (badness 1990) in paragraph at lines 16--17
+\T1/stix/m/n/10 is a finite-set mean, not a function-superpopulation or
+ []
+
+
+Underfull \hbox (badness 4291) in paragraph at lines 16--17
+\T1/stix/m/n/10 independent-confirmation es-ti-mand. RQ5 ex-am-ines the
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 six pre-spec-i-fied T0/B1/B2/B2+Motion/B2+Maturity/B3
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T1/stix/m/n/10 groups, model-appropriate co-ef-fi-cient or dis-crim-i-nant
+ []
+
+
+Underfull \hbox (badness 1117) in paragraph at lines 16--17
+\T1/stix/m/n/10 func-tion, di-men-sion, and query con-fig-u-ra-tion. RQ4 and
+ []
+
+
+
+
+Underfull \hbox (badness 4543) in paragraph at lines 18--19
+\T1/stix/m/n/10 ex-e-cu-tion of a fixed landscape-descriptor query as a
+ []
+
+
+Underfull \hbox (badness 2856) in paragraph at lines 18--19
+\T1/stix/m/n/10 net-utility tar-get. Sec-ond, we con-struct the gate in-put
+ []
+
+
+Underfull \hbox (badness 1147) in paragraph at lines 18--19
+\T1/stix/m/n/10 from permutation-invariant native-update his-to-ries while
+ []
+
+
+Underfull \hbox (badness 3364) in paragraph at lines 18--19
+\T1/stix/m/n/10 action-loss se-lec-tor and make na-tive con-tin-u-a-tion and
+ []
+
+
+Underfull \hbox (badness 1668) in paragraph at lines 18--19
+\T1/stix/m/n/10 train-only thresh-old fit-ting, to-gether with an eval-u-a-tion
+ []
+
+
+Underfull \hbox (badness 1502) in paragraph at lines 18--19
+\T1/stix/m/n/10 in-for-ma-tion tim-ing, matched-state util-ity la-bels, and an
+ []
+
+) (./sections/02_related_work.tex
+
+Package natbib Warning: Citation `malanSurveyTechniquesCharacterising2013' on page 2 undefined on input line 10.
+
+
+Package natbib Warning: Citation `mersmannExploratoryLandscapeAnalysis2011' on page 2 undefined on input line 14.
+
+
+Package natbib Warning: Citation `pragerPflaccoFeaturebasedLandscape2024' on page 2 undefined on input line 17.
+
+
+Package natbib Warning: Citation `renauExploratoryLandscapeAnalysis2020' on page 2 undefined on input line 20.
+
+
+Package natbib Warning: Citation `kerschkeAutomatedAlgorithmSelection2019' on page 2 undefined on input line 28.
+
+
+Package natbib Warning: Citation `guoAutomatedAlgorithmSelection2025' on page 2 undefined on input line 30.
+
+
+
+[2]
+
+Package natbib Warning: Citation `kerschkeAutomatedAlgorithmSelection2019' on page 3 undefined on input line 41.
+
+
+Package natbib Warning: Citation `blomInfluenceFeatureComputation2026' on page 3 undefined on input line 47.
+
+
+Package natbib Warning: Citation `guoAutomatedAlgorithmSelection2025' on page 3 undefined on input line 49.
+
+
+Underfull \hbox (badness 1062) in paragraph at lines 51--59
+\T1/stix/m/n/10 com-pares ex-e-cut-ing and skip-ping the same pre-spec-i-fied
+ []
+
+
+Underfull \hbox (badness 2913) in paragraph at lines 51--59
+\T1/stix/m/n/10 the re-duced con-tin-u-a-tion bud-get rather than a sec-ond
+ []
+
+
+Underfull \hbox (badness 2401) in paragraph at lines 51--59
+\T1/stix/m/n/10 penalty; nor-mal-ized time is pe-nal-ized ex-plic-itly, while
+ []
+
+
+Underfull \hbox (badness 3108) in paragraph at lines 51--59
+\T1/stix/m/n/10 mem-ory is re-ported and ex-am-ined only in sen-si-tiv-ity
+ []
+
+
+Package natbib Warning: Citation `jankovicTrajectorybasedAlgorithmSelection2022' on page 3 undefined on input line 66.
+
+
+Package natbib Warning: Citation `kostovskaPerrunAlgorithmSelection2022' on page 3 undefined on input line 72.
+
+
+Package natbib Warning: Citation `renauUtilityProbingTrajectories2024' on page 3 undefined on input line 86.
+
+
+Package natbib Warning: Citation `renauAlgorithmSelectionProbing2025b' on page 3 undefined on input line 89.
+
+
+
+
+Package natbib Warning: Citation `ochoaSearchTrajectoryNetworks2021' on page 3 undefined on input line 102.
+
+
+Package natbib Warning: Citation `cenikjDynamoRepTrajectoryBasedPopulation2023' on page 3 undefined on input line 106.
+
+
+Package natbib Warning: Citation `korosecOpt2VecContinuousOptimization2024' on page 3 undefined on input line 106.
+
+
+Package natbib Warning: Citation `haywardDeterminingMetaheuristicSimilarity2025' on page 3 undefined on input line 116.
+
+
+Package natbib Warning: Citation `mbassoHowMetaheuristicsExploit2026' on page 3 undefined on input line 121.
+
+
+Package natbib Warning: Citation `haywardSurveyAnalysisMetaheuristic2026' on page 3 undefined on input line 131.
+
+
+Package natbib Warning: Citation `sallamLandscapebasedAdaptiveOperator2017' on page 3 undefined on input line 139.
+
+
+Package natbib Warning: Citation `zhouAdaptiveMultipopulationArtificial2024' on page 3 undefined on input line 139.
+
+
+Package natbib Warning: Citation `jankovicAdaptiveLandscapeAnalysis2019a' on page 3 undefined on input line 142.
+
+
+Package natbib Warning: Citation `guoDeepReinforcementLearning2024b' on page 3 undefined on input line 152.
+
+
+Package natbib Warning: Citation `eimerDACBenchBenchmarkLibrary2021' on page 3 undefined on input line 157.
+
+
+Package natbib Warning: Citation `gomespereiradelacerdaSystematicLiteratureReview2021' on page 3 undefined on input line 160.
+
+
+Package natbib Warning: Citation `yangMetablackboxOptimizationEvolutionary2025' on page 3 undefined on input line 160.
+
+
+Package natbib Warning: Citation `peiAdaptiveOperatorSelection2025' on page 3 undefined on input line 164.
+
+
+
+[3]
+
+Package natbib Warning: Citation `kerschkeAutomatedAlgorithmSelection2019' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `guoAutomatedAlgorithmSelection2025' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `jankovicTrajectorybasedAlgorithmSelection2022' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `kostovskaPerrunAlgorithmSelection2022' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `renauUtilityProbingTrajectories2024' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `renauAlgorithmSelectionProbing2025b' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `guoDeepReinforcementLearning2024b' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `eimerDACBenchBenchmarkLibrary2021' on page 4 undefined on input line 225.
+
+
+Package natbib Warning: Citation `cenikjLandscapeFeaturesSingleobjective2025' on page 4 undefined on input line 234.
+
+
+Package natbib Warning: Citation `cenikjSurveyFeaturesUsed2026' on page 4 undefined on input line 237.
+
+
+Package natbib Warning: Citation `petelinPitfallsBenchmarkingAlgorithm2025' on page 4 undefined on input line 247.
+
+
+
+) (./sections/03_problem_formulation.tex
+
+[4]
+Underfull \hbox (badness 4084) in paragraph at lines 50--56
+[]\T1/stix/m/n/10 The de-fault is the fold-specific sin-gle best solver
+ []
+
+
+Underfull \hbox (badness 4279) in paragraph at lines 50--56
+\T1/stix/m/n/10 by equally weighted ag-gre-ga-tion over runs, prob-lems
+ []
+
+
+Underfull \hbox (badness 1721) in paragraph at lines 50--56
+\T1/stix/m/n/10 gap. In the pri-mary pop-u-la-tion, the pre-fix and de-fault
+ []
+
+
+
+
+Underfull \hbox (badness 1275) in paragraph at lines 96--105
+\T1/stix/m/n/10 path's ter-mi-nal gap, ob-served first hit, target-hit sta-tus,
+ []
+
+
+Overfull \hbox (0.8135pt too wide) detected at line 119
+ $\LS1/stixscr/m/n/10 l[] \LS1/stix/m/n/10 = [][]  [] \LS1/stix/m/it/10 ;  k \LS1/stix/m/n/10 Ë ^\LS1/stix/m/it/10 s; q; b\LS1/stix/m/n/10 `\LS1/stix/m/it/10 :$  
+ []
+
+
+
+[5]
+
+
+
+[6]
+Overfull \hbox (6.36441pt too wide) detected at line 254
+[]
+ []
+
+) (./sections/04_method.tex
+Underfull \hbox (badness 10000) in paragraph at lines 6--7
+[]\T1/stix/m/n/10 Decision-before-Feature is trained of-fline. Na-tive
+ []
+
+
+Underfull \hbox (badness 2980) in paragraph at lines 6--7
+\T1/stix/m/n/10 op-ti-mizer tra-jec-to-ries are first col-lected un-der a fixed
+ []
+
+
+Underfull \hbox (badness 2644) in paragraph at lines 6--7
+\T1/stix/m/n/10 planned FE, ef-fec-tive FE, and fail-ure sta-tus. Stage B
+ []
+
+
+Underfull \hbox (badness 1297) in paragraph at lines 6--7
+\T1/stix/m/n/10 freezes their se-lected ac-tions and ex-e-cutes the se-lected
+ []
+
+
+Underfull \hbox (badness 1735) in paragraph at lines 6--7
+\T1/stix/m/n/10 Skip, Query, and Behavior-only state-to-terminal fu-ture
+ []
+
+
+Underfull \hbox (badness 1205) in paragraph at lines 6--7
+\T1/stix/m/n/10 raw time and role-specific time-out; the re-plays pro-vide
+ []
+
+
+Underfull \hbox (badness 1226) in paragraph at lines 6--7
+\T1/stix/m/n/10 A, and the al-ready ex-e-cuted shared pre-fix is ex-cluded.
+ []
+
+
+Underfull \hbox (badness 2564) in paragraph at lines 6--7
+\T1/stix/m/n/10 con-sis-tency among com-pleted re-plays, and Stage-A-to-
+ []
+
+
+Underfull \hbox (badness 1259) in paragraph at lines 6--7
+\T1/stix/m/n/10 completed-replay con-sis-tency are checked sep-a-rately, as
+ []
+
+
+Underfull \hbox (badness 1102) in paragraph at lines 6--7
+\T1/stix/m/n/10 com-ple-tion in-sta-bil-ity. Rep-e-ti-tions are never se-lected or
+ []
+
+
+Underfull \hbox (badness 3260) in paragraph at lines 6--7
+\T1/stix/m/n/10 pa-ram-e-ter up-date, and its sep-a-rate FE-zero-to-terminal
+ []
+
+
+
+
+Package natbib Warning: Citation `ochoaSearchTrajectoryNetworks2021' on page 7 undefined on input line 13.
+
+
+Package natbib Warning: Citation `korosecOpt2VecContinuousOptimization2024' on page 7 undefined on input line 13.
+
+
+Package natbib Warning: Citation `cenikjSurveyFeaturesUsed2026' on page 7 undefined on input line 13.
+
+
+Underfull \hbox (badness 1226) in paragraph at lines 8--15
+[]\T1/stix/m/n/10 Figure [][]1[][] sum-ma-rizes the sep-a-ra-tion be-tween of-fline
+ []
+
+
+Underfull \hbox (badness 3396) in paragraph at lines 8--15
+\T1/stix/m/n/10 data con-struc-tion, query-specific down-stream se-lec-tion,
+ []
+
+
+Underfull \hbox (badness 1178) in paragraph at lines 8--15
+\T1/stix/m/n/10 decision-model freez-ing, and on-line ex-e-cu-tion. The use
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 8--15
+\T1/stix/m/n/10 of trajectory-derived sum-maries fol-lows the gen-eral
+ []
+
+
+Underfull \hbox (badness 5374) in paragraph at lines 8--15
+\T1/stix/m/n/10 ob-ser-va-tion that op-ti-mizer his-to-ries carry in-for-ma-tion
+ []
+
+File: ../assets/figures/decision-before-feature-architecture-elsevier.png Graphic file (type bmp)
+<../assets/figures/decision-before-feature-architecture-elsevier.png>
+
+Underfull \hbox (badness 10000) in paragraph at lines 49--54
+[]\T1/stix/m/n/10 Behavior vec-tors are eval-u-ated only at ac-cepted
+ []
+
+
+Underfull \hbox (badness 4739) in paragraph at lines 49--54
+\T1/stix/m/n/10 triggered op-por-tu-ni-ties, rearm-ing rules, and per-phase
+ []
+
+
+Underfull \hbox (badness 4518) in paragraph at lines 49--54
+\T1/stix/m/n/10 quo-tas are spec-i-fied in Sec-tion [][]5[][]; op-por-tu-nity la-bels
+ []
+
+
+
+[7]
+
+
+Package natbib Warning: Citation `cenikjDynamoRepTrajectoryBasedPopulation2023' on page 8 undefined on input line 114.
+
+
+Package natbib Warning: Citation `haywardDeterminingMetaheuristicSimilarity2025' on page 8 undefined on input line 118.
+
+
+Package natbib Warning: Citation `mbassoHowMetaheuristicsExploit2026' on page 8 undefined on input line 118.
+
+
+
+[8]
+Underfull \hbox (badness 1360) in paragraph at lines 141--141
+[]|\T1/lmss/m/n/9 Progress, di-ver-sity, set and fitness-distribution
+ []
+
+
+Underfull \hbox (badness 2600) in paragraph at lines 148--149
+[]\T1/stix/m/n/10 Search Ma-tu-rity de-notes three de-ter-min-is-tic, study-
+ []
+
+
+
+
+Underfull \hbox (badness 7273) in paragraph at lines 196--204
+\T1/stix/m/n/10 A query-adjusted state-only se-lec-tor omits $\LS1/stix/m/it/10 ^^^[]$ \T1/stix/m/n/10 while
+ []
+
+
+Underfull \hbox (badness 1895) in paragraph at lines 196--204
+\T1/stix/m/n/10 se-lec-tor uses B3 Be-hav-ior and $\LS1/stix/m/n/10 .\LS1/stix/m/it/10 B \LS1/stix/m/n/10 * \LS1/stix/m/it/10 e[]\LS1/stix/m/n/10 /_\LS1/stix/m/it/10 B$ \T1/stix/m/n/10 to pre-dict
+ []
+
+
+Underfull \hbox (badness 1527) in paragraph at lines 196--204
+\T1/stix/m/n/10 uses a fourth, query-only se-lec-tor at $\LS1/stix/m/it/10 e[] \LS1/stix/m/n/10 = 0$ \T1/stix/m/n/10 and no
+ []
+
+
+Underfull \hbox (badness 1571) in paragraph at lines 212--216
+[]\T1/stix/m/n/10 For each se-lected ac-tion, three re-la-tions dis-tin-guish
+ []
+
+
+Underfull \hbox (badness 1635) in paragraph at lines 212--216
+\T1/stix/m/n/10 and whether a hand-off is re-quired. Writ-ing $\LS1/stix/m/it/10 h[]$ \T1/stix/m/n/10 for the
+ []
+
+
+
+[9]
+Overfull \hbox (29.3845pt too wide) detected at line 278
+ $\LS1/stix/m/it/10 ^^\[] \LS1/stix/m/n/10 Ë [] [] [][]  []$  
+ []
+
+
+
+) (./sections/05_experimental_setup.tex
+
+Package natbib Warning: Citation `cenikjLandscapeFeaturesSingleobjective2025' on page 10 undefined on input line 40.
+
+
+
+[10]
+Underfull \hbox (badness 1881) in paragraph at lines 55--64
+[]\T1/stix/m/n/10 BBOB val-i-da-tion is a pre-vi-ously in-spected in-ter-nal
+ []
+
+
+Underfull \hbox (badness 3291) in paragraph at lines 55--64
+\T1/stix/m/n/10 tun-ing, and ab-la-tion work ex-am-ined its out-comes, so
+ []
+
+
+
+
+
+[11]
+Underfull \hbox (badness 4048) in paragraph at lines 153--168
+\T1/stix/m/n/10 nei-ther the sam-ple nor the ac-tion out-comes. Shar-ing
+ []
+
+
+Underfull \hbox (badness 4686) in paragraph at lines 153--168
+\T1/stix/m/n/10 the sam-ple yields a paired com-par-i-son of de-scrip-tor
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 153--168
+\T1/stix/m/n/10 com-prises PCA, nearest-better clus-ter-ing, dis-per-sion,
+ []
+
+
+Underfull \hbox (badness 4120) in paragraph at lines 153--168
+\T1/stix/m/n/10 information-content, and ELA-distribution groups. The
+ []
+
+
+Underfull \hbox (badness 2547) in paragraph at lines 153--168
+\T1/stix/m/n/10 fitness--distance-correlation groups, while ex-clud-ing the
+ []
+
+
+Underfull \hbox (badness 2409) in paragraph at lines 153--168
+\T1/stix/m/n/10 tar-get, de-ci-sion model, thresh-old, base-line com-par-i-son,
+ []
+
+
+
+
+
+[12]
+Underfull \hbox (badness 4752) in paragraph at lines 214--222
+[]\T1/stix/m/n/10 The anal-y-sis pairs all al-ter-na-tives at an iden-ti-cal
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 214--222
+\T1/stix/m/n/10 permutation-invariant be-hav-ior, the shared $\LS1/stix/m/n/10 50\LS1/stix/m/it/10 d$ \T1/stix/m/n/10 and
+ []
+
+
+Underfull \hbox (badness 4859) in paragraph at lines 214--222
+\T1/stix/m/n/10 in-de-pen-dent $\LS1/stix/m/n/10 100\LS1/stix/m/it/10 d$ \T1/stix/m/n/10 LHS sam-ples, the three de-scrip-tor
+ []
+
+
+Underfull \hbox (badness 3989) in paragraph at lines 214--222
+\T1/stix/m/n/10 rep-re-sen-ta-tions, and the query-budget-specific out-come
+ []
+
+
+Underfull \hbox (badness 1496) in paragraph at lines 230--256
+[]\T1/stix/m/n/10 Offline gen-er-a-tion is ex-plic-itly two-stage. The four-
+ []
+
+
+Underfull \hbox (badness 1314) in paragraph at lines 230--256
+\T1/stix/m/n/10 action ma-tri-ces and FE=0 four-algorithm out-comes are
+ []
+
+
+Underfull \hbox (badness 2980) in paragraph at lines 230--256
+\T1/stix/m/n/10 pre-spec-i-fied Stage-A ex-e-cu-tions also fix ter-mi-nal gap,
+ []
+
+
+Underfull \hbox (badness 7963) in paragraph at lines 230--256
+\T1/stix/m/n/10 ob-served first hit, target-hit sta-tus, path com-ple-tion,
+ []
+
+
+Underfull \hbox (badness 5924) in paragraph at lines 230--256
+\T1/stix/m/n/10 completion-conditioned end-point suc-cess, planned FE,
+ []
+
+
+Underfull \hbox (badness 4084) in paragraph at lines 230--256
+\T1/stix/m/n/10 ex-e-cu-tion and three Stage-B tim-ing re-plays from FE
+ []
+
+
+Underfull \hbox (badness 2512) in paragraph at lines 230--256
+\T1/stix/m/n/10 and fail-ure di-ag-nos-tics; it can-not over-write a Stage-A
+ []
+
+
+Underfull \hbox (badness 1635) in paragraph at lines 230--256
+\T1/stix/m/n/10 Path-identity con-sis-tency, con-sis-tency among com-pleted
+ []
+
+
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 269--270
+[]\T1/stix/b/n/10 Matched-rate Ran-dom Anal-y-sis\T1/stix/m/n/10 : freeze the
+ []
+
+
+Underfull \hbox (badness 2050) in paragraph at lines 269--270
+\T1/stix/m/n/10 a call is planned; if so, a tar-get ra-tio is drawn
+ []
+
+
+Underfull \hbox (badness 1406) in paragraph at lines 269--270
+\T1/stix/m/n/10 and the first el-i-gi-ble op-por-tu-nity not ear-lier than
+ []
+
+
+Underfull \hbox (badness 1178) in paragraph at lines 269--270
+\T1/stix/m/n/10 be-fore prob-lem/function ag-gre-ga-tion; they are not
+ []
+
+
+
+[13]
+Underfull \hbox (badness 1057) in paragraph at lines 272--273
+\T1/stix/m/n/10 complete-budget clipped $[][]$ gap over op-ti-mizer
+ []
+
+
+Underfull \hbox (badness 1275) in paragraph at lines 274--275
+[]\T1/stix/b/n/10 Self-thresholded Behavior-only Se-lec-tion\T1/stix/m/n/10 : fit the
+ []
+
+
+
+
+Underfull \hbox (badness 3826) in paragraph at lines 300--305
+\T1/stix/m/n/10 for Ridge; clas-si-fi-ca-tion prob-a-bil-i-ties and dis-crim-i-nant
+ []
+
+
+Underfull \hbox (badness 2111) in paragraph at lines 300--305
+\T1/stix/m/n/10 scores are not com-pared with con-tin-u-ous util-ity us-ing
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 306--313
+[]\T1/stix/m/n/10 Training outer OOF out-comes se-lect among the
+ []
+
+
+Underfull \hbox (badness 2922) in paragraph at lines 306--313
+\T1/stix/m/n/10 three pre-spec-i-fied can-di-dates and sup-port de-vel-op-ment
+ []
+
+
+Underfull \hbox (badness 7012) in paragraph at lines 306--313
+\T1/stix/m/n/10 di-ag-nos-tics only. Once the largest-OOF can-di-date is
+ []
+
+
+Underfull \hbox (badness 1132) in paragraph at lines 306--313
+\T1/stix/m/n/10 se-lected, the same OOF out-comes are not an un-bi-ased
+ []
+
+
+
+[14]
+Underfull \hbox (badness 2495) in paragraph at lines 357--369
+\T1/stix/m/n/10 (ERT), to-tal and query FEs, FE-zero-to-terminal wall-
+ []
+
+
+Underfull \hbox (badness 2384) in paragraph at lines 357--369
+\T1/stix/m/n/10 time, query sam-pling and descriptor-computation time,
+ []
+
+
+Underfull \hbox (badness 1354) in paragraph at lines 357--369
+\T1/stix/m/n/10 downstream-selection la-tency, and peak mem-ory. These
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 372--380
+\T1/stix/m/n/10 function--dimension--instance prob-lem, static prob-lems
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 393--400
+[]\T1/stix/m/n/10 Primary in-ter-vals use 10,000 con-di-tional paired
+ []
+
+
+
+
+Underfull \hbox (badness 1917) in paragraph at lines 401--413
+[]\T1/stix/m/n/10 ERT uses a ded-i-cated paired ra-tio boot-strap rather
+ []
+
+
+Underfull \hbox (badness 1152) in paragraph at lines 401--413
+\T1/stix/m/n/10 is deleted, and ei-ther makes the cor-re-spond-ing in-ter-val
+ []
+
+
+Underfull \hbox (badness 2941) in paragraph at lines 401--413
+\T1/stix/m/n/10 un-estab-lished. The suite-level con-sumer must com-bine
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 414--425
+[]\T1/stix/m/n/10 The nu-mer-i-cal margins---mean Util-ity dif-fer-ence
+ []
+
+
+Underfull \hbox (badness 4582) in paragraph at lines 414--425
+\LS1/stix/m/n/10 [*0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 01\LS1/stix/m/it/10 ; \LS1/stix/m/n/10 0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 01]$\T1/stix/m/n/10 , mean $[][]$-gap dif-fer-ence $\LS1/stix/m/n/10 [*0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 05\LS1/stix/m/it/10 ; \LS1/stix/m/n/10 0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 05]$\T1/stix/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 1394) in paragraph at lines 414--425
+\T1/stix/m/n/10 geometric-mean run-time ra-tio $\LS1/stix/m/n/10 [0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 95\LS1/stix/m/it/10 ; \LS1/stix/m/n/10 1\LS1/stix/m/it/10 :\LS1/stix/m/n/10 05]$\T1/stix/m/n/10 , and ab-so-lute
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 414--425
+\T1/stix/m/n/10 call/target-hit-rate dif-fer-ence $\LS1/stix/m/n/10 [*0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 05\LS1/stix/m/it/10 ; \LS1/stix/m/n/10 0\LS1/stix/m/it/10 :\LS1/stix/m/n/10 05]$\T1/stix/m/n/10 ---are study-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 414--425
+\T1/stix/m/n/10 specific op-er-a-tional tol-er-ances, not domain-grounded
+ []
+
+
+
+[15]) (./sections/06_results.tex
+Overfull \hbox (339.6824pt too wide) in alignment at lines 39--39
+[][][][][][][][] 
+ []
+
+
+
+
+
+[16]
+Overfull \hbox (128.03984pt too wide) in alignment at lines 109--109
+[][][][][][][] 
+ []
+
+
+Overfull \hbox (464.56024pt too wide) in alignment at lines 171--171
+[][][][][][][][] 
+ []
+
+
+
+
+
+[17]
+Overfull \hbox (196.3074pt too wide) in alignment at lines 237--237
+[][][][][][][] 
+ []
+
+
+
+
+
+[18]
+
+Package tabularx Warning: X Columns too narrow (table too wide)
+(tabularx)                 on input line 292.
+
+
+Overfull \hbox (15.11757pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Added
+ []
+
+
+Overfull \hbox (0.8194pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 in-
+ []
+
+
+Overfull \hbox (4.18747pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 for-
+ []
+
+
+Overfull \hbox (5.62491pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 ma-
+ []
+
+
+Overfull \hbox (5.70132pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 tion| 
+ []
+
+
+Overfull \hbox (1.60405pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 FE
+ []
+
+
+Overfull \hbox (1.43758pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 ra-
+ []
+
+
+Overfull \hbox (0.92368pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 tio
+ []
+
+
+Overfull \hbox (6.62508pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 only| 
+ []
+
+
+Overfull \hbox (8.29878pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Core
+ []
+
+
+Overfull \hbox (40.99928pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 permutation-
+ []
+
+
+Overfull \hbox (24.11801pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 invariant
+ []
+
+
+Overfull \hbox (4.11789pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 Be-
+ []
+
+
+Overfull \hbox (7.31956pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 hav-
+ []
+
+
+Overfull \hbox (38.56207pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Longitudinal
+ []
+
+
+Overfull \hbox (1.74733pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 set
+ []
+
+
+Overfull \hbox (2.87508pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 dy-
+ []
+
+
+Overfull \hbox (10.40256pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 nam-
+ []
+
+
+Overfull \hbox (0.6154pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 ics| 
+ []
+
+
+Overfull \hbox (13.22887pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Three
+ []
+
+
+Overfull \hbox (4.83066pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 set-
+ []
+
+
+Overfull \hbox (17.67332pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 motion
+ []
+
+
+Overfull \hbox (10.35136pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 fields| 
+ []
+
+
+Overfull \hbox (13.22887pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Three
+ []
+
+
+Overfull \hbox (2.72205pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 de-
+ []
+
+
+Overfull \hbox (4.44432pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 ter-
+ []
+
+
+Overfull \hbox (8.1664pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 min-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 292--292
+\T1/lmss/m/n/9 is-
+ []
+
+
+Overfull \hbox (6.3609pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 Ma-
+ []
+
+
+Overfull \hbox (1.95132pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 tu-
+ []
+
+
+Overfull \hbox (3.46541pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 rity
+ []
+
+
+Overfull \hbox (11.17522pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 bases| 
+ []
+
+
+Overfull \hbox (18.40932pt too wide) in paragraph at lines 292--292
+[]|\T1/lmss/m/n/9 Motion
+ []
+
+
+Overfull \hbox (4.74988pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 and
+ []
+
+
+Overfull \hbox (6.3609pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 Ma-
+ []
+
+
+Overfull \hbox (1.95132pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 tu-
+ []
+
+
+Overfull \hbox (3.46541pt too wide) in paragraph at lines 292--292
+\T1/lmss/m/n/9 rity| 
+ []
+
+
+Overfull \hbox (201.41403pt too wide) in alignment at lines 292--292
+[][][][][][][] 
+ []
+
+
+
+
+
+[19] [20]
+Underfull \hbox (badness 10000) in paragraph at lines 349--349
+[]|\T1/lmss/m/n/9 Complete par-al-lel chains
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 349--349
+\T1/lmss/m/n/9 for \T1/zi4/m/n/9 descriptor_cheap_invariant\T1/lmss/m/n/9 ,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 349--349
+\T1/zi4/m/n/9 pflacco_standard_invariant\T1/lmss/m/n/9 , and
+ []
+
+
+Underfull \hbox (badness 4001) in paragraph at lines 349--349
+[]|\T1/lmss/m/n/9 OOF state-only ver-sus full-query se-lected
+ []
+
+
+Overfull \hbox (34.03377pt too wide) in alignment at lines 349--349
+[][][] 
+ []
+
+) (./sections/07_discussion.tex
+
+
+
+[21]
+Underfull \hbox (badness 1221) in paragraph at lines 63--91
+[]\T1/stix/m/n/10 The pri-mary es-ti-mand is query-specific: it con-cerns
+ []
+
+
+Underfull \hbox (badness 1515) in paragraph at lines 63--91
+\T1/stix/m/n/10 sam-ple nor its FE cost. The pre-spec-i-fied stan-dard and
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 63--91
+\T1/stix/m/n/10 but can-not jus-tify claims about untested land-scape
+ []
+
+
+Underfull \hbox (badness 3514) in paragraph at lines 63--91
+\T1/stix/m/n/10 ran-dom-ness. More-over, stan-dard ver-sus broad changes
+ []
+
+
+Underfull \hbox (badness 1168) in paragraph at lines 63--91
+\T1/stix/m/n/10 path like-wise pre-vents descriptor-only at-tri-bu-tion of $\LS1/stix/m/it/10 I[]$\T1/stix/m/n/10 .
+ []
+
+
+Underfull \hbox (badness 2027) in paragraph at lines 63--91
+\T1/stix/m/n/10 main De-ci-sion Model is trained of-fline with a BBOB
+ []
+
+) (./sections/08_reproducibility.tex
+Underfull \hbox (badness 10000) in paragraph at lines 92--1
+\T1/stix/m/n/10 through tra-jec-tory and action-loss cov-er-age, query-
+ []
+
+
+Package natbib Warning: Citation `cenikjSurveyFeaturesUsed2026' on page 22 undefined on input line 12.
+
+
+Underfull \hbox (badness 1755) in paragraph at lines 14--21
+[]\T1/stix/m/n/10 The main im-ple-men-ta-tion tar-gets Python 3.12. The
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 14--21
+\T1/stix/m/n/10 with \T1/zi4/m/n/10 pflacco==1.2.2\T1/stix/m/n/10 , \T1/zi4/m/n/10 numpy==1.24.3\T1/stix/m/n/10 , \T1/zi4/m/n/10 pandas==2.0.3\T1/stix/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 3977) in paragraph at lines 14--21
+\T1/zi4/m/n/10 scipy==1.10.1\T1/stix/m/n/10 , and \T1/zi4/m/n/10 scikit-learn==1.2.2\T1/stix/m/n/10 . The de-scrip-tor
+ []
+
+
+Underfull \hbox (badness 4647) in paragraph at lines 14--21
+\T1/stix/m/n/10 ex-trac-tor re-ceives only the pre-vi-ously eval-u-ated LHS
+ []
+
+
+Underfull \hbox (badness 2726) in paragraph at lines 14--21
+\T1/stix/m/n/10 sam-ple. It nei-ther im-ports a bench-mark nor calls the
+ []
+
+
+
+
+Underfull \hbox (badness 2050) in paragraph at lines 24--33
+[]\T1/stix/m/n/10 All sci-en-tific ran-dom streams are con-structed from
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 24--33
+\T1/stix/m/n/10 ex-plicit in-te-gers through \T1/zi4/m/n/10 numpy.random.SeedSequence\T1/stix/m/n/10 .
+ []
+
+
+Underfull \hbox (badness 7981) in paragraph at lines 24--33
+\T1/stix/m/n/10 Op-ti-mizer streams com-bine the con-fig-ured op-ti-mizer
+ []
+
+
+Underfull \hbox (badness 1418) in paragraph at lines 24--33
+\T1/stix/m/n/10 seed with in-te-ger iden-ti-fiers for the run and stochas-tic
+ []
+
+
+Underfull \hbox (badness 1005) in paragraph at lines 24--33
+\T1/stix/m/n/10 event. Query sam-pling ad-di-tion-ally uses in-te-ger stream,
+ []
+
+
+Underfull \hbox (badness 1337) in paragraph at lines 24--33
+\T1/stix/m/n/10 seed, de-ci-sion FE, and rep-e-ti-tion in-dices. Ex-per-i-men-tal
+ []
+
+
+
+[22]
+
+
+
+[23]) (./sections/09_conclusion.tex
+
+
+Underfull \hbox (badness 3407) in paragraph at lines 20--23
+[][]\T1/stix/b/n/10 TBD[] \T1/stix/m/n/10 Whether algorithm-agnostic be-hav-ior pre-dicts
+ []
+
+
+Underfull \hbox (badness 1629) in paragraph at lines 20--23
+\T1/stix/m/n/10 pend-ing nested grouped-by-function OOF ev-i-dence and
+ []
+
+)
+No file main.bbl.
+
+Package natbib Warning: There were undefined citations.
+
+
+
+[24] (./main.aux)
+ ***********
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-01-18>
+ ***********
+Package rerunfilecheck Info: File `main.out' has not changed.
+(rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
+ ) 
+Here is how much of TeX's memory you used:
+ 16689 strings out of 473832
+ 254239 string characters out of 5729481
+ 649676 words of memory out of 5000000
+ 39432 multiletter control sequences out of 15000+600000
+ 686252 words of font info for 194 fonts, out of 8000000 for 9000
+ 1348 hyphenation exceptions out of 8191
+ 87i,13n,93p,2064b,485s stack positions out of 10000i,1000n,20000p,200000b,200000s
+
+Output written on main.pdf (25 pages).

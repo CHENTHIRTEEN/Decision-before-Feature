@@ -237,11 +237,18 @@ Decision Model 活动候选固定为：
 
 模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。不得继续增加 Random Forest、XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
 
-Selection Reference 固定使用四个互不重复动作：`continue_current` 加其余三个 portfolio algorithms。模型使用多输出 `RandomForestRegressor`，输入为 query features、算法无关 behavior 与连续 `remaining_budget_ratio`，目标变换固定为 `statewise_minmax_observed_action_loss`：
+所有顺序策略的活动单位是完整 trajectory。每条 trajectory 最多执行一次 query；机会按整数 `FE` 排序，同一 FE 若存在多行再按 `decision_opportunity_index` 排序。给定 threshold，只在最早满足 `score > threshold` 的机会触发；未触发 run 的政策 Utility 为 0，首次触发后的状态在该策略下不可达。模型选择、inner/full-train threshold、validation、baseline、call rate、precision、Utility capture 和全部策略指标必须使用这一 run-level first-trigger 规则；逐状态 AUROC、Average Precision、Spearman 和 Ridge RMSE 只能作辅助 score 诊断。
+
+Selection Reference 固定使用四个互不重复动作：`continue_current` 加其余三个 portfolio algorithms。模型使用多输出 `RandomForestRegressor`，输入为 query features、算法无关 behavior 与连续 `remaining_budget_ratio`。主目标变换固定为 `clipped_log10_gap_advantage_vs_continue_current`：
 
 $$
-\widetilde L_a=\frac{L_a-\min_b L_b}{\max(\max_b L_b-\min_b L_b,10^{-12})}.
+Y_{s,a}=\log_{10}\!\left(\operatorname{clip}(L_{s,a},g_{\min},g_{\max})\right)
+-\log_{10}\!\left(\operatorname{clip}(L_{s,\mathrm{continue}},g_{\min},g_{\max})\right).
 $$
+
+`continue_current` 的主 target 恒为 0。原 `statewise_minmax_observed_action_loss` 只作预设 Selector target 敏感性分析，不得生成主 selected action、Utility、Decision label 或政策评价。
+
+正式 Utility 必须同时物化且逐状态配对五条路径：`skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget`。主 estimand 是 `query_joint` 相对 `skip` 的 query+selector 联合策略效用；`behavior_only_full_budget` 使用 query 前 Behavior、`FE_query=0` 和完整剩余预算的四动作 Selector。`query_matched_state_only` 与 `query_joint` 使用相同 query realization、sample endpoint、query-adjusted 四动作 outcome 和剩余预算，只移除 query descriptors；`sampling_only_continue_current` 执行同一 query acquisition 后原生继续当前算法。五路径分解只表示固定模型、预算和 transition rule 下的操作性分解，不作因果解释。
 
 Selection Reference、Utility、Decision dataset 与在线输出必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；其中 `handoff_required = not selected_equals_prefix`，并与 `handoff_type == population_transfer_initialization` 逐行一致。不得生成 `label_source` 或以 `same_algorithm/changed_algorithm` 代替这些显式关系。
 
@@ -277,13 +284,14 @@ Function Family Split。
 
 # 4. ELA Utility
 
-定义：
+令 $\ell_k$ 为路径 $k$ 的 suite-specific floor/cap 截断后 terminal `log10_gap`，$T_k$ 为同一 decision state 到 terminal 的三次删失 wall-clock 中位数。主 `lambda_time=1` 时：
 
 $$
-U_{ELA}=(P_{skip}-P_{ELA})-\lambda C_{ELA}
+U_{query}^{joint}=(\ell_{skip}-\ell_{query})
+-\lambda_T\log_{10}(T_{query}/T_{skip}).
 $$
 
-标签必须离线生成。
+主 Decision target 固定为 `u_query_joint_lamT_1`，标签必须离线生成。还必须保存 Behavior-only Utility、Query 相对 Behavior-only 的 `query_operational_increment_lamT_1`、matched-acquisition descriptor-use increment、state-only-vs-sampling increment 和 sampling-direct increment，并逐行满足五路径加法分解。联合效用、操作性增量和 query-feature 预测诊断不得互相替代。
 
 ---
 

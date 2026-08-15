@@ -16,6 +16,7 @@ from landscape_queries.specs import DESCRIPTOR_CHEAP_COLUMNS, MAIN_QUERY_ID, get
 FEATURE_METADATA_COLUMNS = (
     "split",
     "problem_id",
+    "function_id",
     "family",
     "function",
     "instance",
@@ -29,9 +30,26 @@ FEATURE_METADATA_COLUMNS = (
     "sample_seed",
     "sample_size",
     "FE_query",
+    "FE_query_planned",
     "runtime_query_sampling",
     "runtime_query_evaluation",
     "runtime_sampling_evaluation",
+    "benchmark_reference_value",
+    "success_gap_target",
+    "query_success",
+    "query_first_hit_offset",
+    "query_best_gap",
+    "sample_status",
+    "sample_path_completed",
+    "sample_planned_FE",
+    "sample_effective_FE",
+    "sample_observed_first_hit_FE",
+    "sample_target_hit_observed",
+    "sample_target_hit_before_failure",
+    "sample_endpoint_success",
+    "sample_timed_out",
+    "sample_failure_type",
+    "sample_failure_message",
     "runtime_feature_computation",
     "runtime_query_feature_computation",
     "runtime_query",
@@ -68,8 +86,6 @@ def extract_descriptor_features(
 
     output_rows = []
     for row in rows:
-        if row.get("sample_status") != "ok":
-            raise ValueError(f"cannot extract features from failed sample row: {row['problem_id']}")
         if str(row["sample_design_id"]) != spec.sample_design_id:
             raise ValueError(f"{spec.query_id} requires sample design {spec.sample_design_id}")
         if str(row["sampling_protocol"]) != spec.sample_design.protocol:
@@ -77,21 +93,31 @@ def extract_descriptor_features(
         started = perf_counter()
         group_status: dict[str, dict[str, object]] = {}
         failures: list[str] = []
-        try:
-            raw_features = calculate_descriptor_cheap(
-                np.asarray(row["X"], dtype=float),
-                np.asarray(row["y"], dtype=float),
-                np.asarray(row["lower_bounds"], dtype=float),
-                np.asarray(row["upper_bounds"], dtype=float),
-            )
-        except Exception as exc:
+        if str(row.get("sample_status", "")) != "ok":
             raw_features = {column: float("nan") for column in spec.feature_columns}
-            message = f"{type(exc).__name__}: {exc}"
+            message = str(row.get("sample_failure", "query sample failed"))
             failures.append(message)
+            group_status_name = "not_computed_sample_failed"
+        else:
+            group_status_name = "ok"
+            try:
+                raw_features = calculate_descriptor_cheap(
+                    np.asarray(row["X"], dtype=float),
+                    np.asarray(row["y"], dtype=float),
+                    np.asarray(row["lower_bounds"], dtype=float),
+                    np.asarray(row["upper_bounds"], dtype=float),
+                )
+            except Exception as exc:
+                raw_features = {column: float("nan") for column in spec.feature_columns}
+                message = f"{type(exc).__name__}: {exc}"
+                failures.append(message)
+                group_status_name = "failed"
         runtime_feature = perf_counter() - started
+        if str(row.get("sample_status", "")) != "ok":
+            runtime_feature = 0.0
         nonfinite = [column for column, value in raw_features.items() if not np.isfinite(float(value))]
         group_status["descriptor_cheap"] = {
-            "status": "failed" if failures else "ok",
+            "status": group_status_name,
             "runtime_seconds": float(runtime_feature),
             "nonfinite_columns": nonfinite,
             "warnings": [],
@@ -108,6 +134,7 @@ def extract_descriptor_features(
                     for name in (
                         "split",
                         "problem_id",
+                        "function_id",
                         "family",
                         "function",
                         "instance",
@@ -118,9 +145,26 @@ def extract_descriptor_features(
                         "sample_seed",
                         "sample_size",
                         "FE_query",
+                        "FE_query_planned",
                         "runtime_query_sampling",
                         "runtime_query_evaluation",
                         "runtime_sampling_evaluation",
+                        "benchmark_reference_value",
+                        "success_gap_target",
+                        "query_success",
+                        "query_first_hit_offset",
+                        "query_best_gap",
+                        "sample_status",
+                        "sample_path_completed",
+                        "sample_planned_FE",
+                        "sample_effective_FE",
+                        "sample_observed_first_hit_FE",
+                        "sample_target_hit_observed",
+                        "sample_target_hit_before_failure",
+                        "sample_endpoint_success",
+                        "sample_timed_out",
+                        "sample_failure_type",
+                        "sample_failure_message",
                     )
                 },
                 "query_id": spec.query_id,
@@ -154,6 +198,7 @@ def feature_schema(feature_columns: tuple[str, ...]) -> pa.Schema:
     fields = [
         ("split", pa.string()),
         ("problem_id", pa.string()),
+        ("function_id", pa.string()),
         ("family", pa.string()),
         ("function", pa.int32()),
         ("instance", pa.int32()),
@@ -167,9 +212,26 @@ def feature_schema(feature_columns: tuple[str, ...]) -> pa.Schema:
         ("sample_seed", pa.int64()),
         ("sample_size", pa.int64()),
         ("FE_query", pa.int64()),
+        ("FE_query_planned", pa.int64()),
         ("runtime_query_sampling", pa.float64()),
         ("runtime_query_evaluation", pa.float64()),
         ("runtime_sampling_evaluation", pa.float64()),
+        ("benchmark_reference_value", pa.float64()),
+        ("success_gap_target", pa.float64()),
+        ("query_success", pa.bool_()),
+        ("query_first_hit_offset", pa.int64()),
+        ("query_best_gap", pa.float64()),
+        ("sample_status", pa.string()),
+        ("sample_path_completed", pa.bool_()),
+        ("sample_planned_FE", pa.int64()),
+        ("sample_effective_FE", pa.int64()),
+        ("sample_observed_first_hit_FE", pa.int64()),
+        ("sample_target_hit_observed", pa.bool_()),
+        ("sample_target_hit_before_failure", pa.bool_()),
+        ("sample_endpoint_success", pa.bool_()),
+        ("sample_timed_out", pa.bool_()),
+        ("sample_failure_type", pa.string()),
+        ("sample_failure_message", pa.string()),
         ("runtime_feature_computation", pa.float64()),
         ("runtime_query_feature_computation", pa.float64()),
         ("runtime_query", pa.float64()),
@@ -186,7 +248,7 @@ def feature_schema(feature_columns: tuple[str, ...]) -> pa.Schema:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract the fixed 16-dimensional descriptor_cheap query.")
+    parser = argparse.ArgumentParser(description="Extract the fixed 14-dimensional descriptor_cheap query.")
     parser.add_argument("--samples", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")

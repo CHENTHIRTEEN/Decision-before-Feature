@@ -29,6 +29,7 @@ class StreamingBehaviorState:
         self,
         *,
         problem_id: str,
+        function_id: str,
         family: str,
         dimension: int,
         algorithm: str,
@@ -37,6 +38,7 @@ class StreamingBehaviorState:
         sampling_protocol: str | None = None,
     ) -> None:
         self.problem_id = str(problem_id)
+        self.function_id = str(function_id)
         self.family = str(family)
         self.dimension = int(dimension)
         self.algorithm = str(algorithm)
@@ -128,6 +130,7 @@ class StreamingBehaviorState:
     ) -> None:
         record = TrajectoryRecord.from_arrays(
             problem_id=self.problem_id,
+            function_id=self.function_id,
             family=self.family,
             dimension=self.dimension,
             algorithm=self.algorithm,

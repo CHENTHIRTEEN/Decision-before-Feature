@@ -1,4 +1,5 @@
 suite: cec2017
+function_family_protocol: cec2017_unassigned_landscape_family_v1
 split: cec2017_test
 functions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
 instances: [1]
@@ -9,6 +10,16 @@ FE_total_by_dimension:
   30: 30000
   50: 50000
 population_size: 40
+failure_loss_cap: 1.0e20
+log10_gap_floor: 1.0e-12
+log10_gap_cap: 1.0e20
+success_gap_target: 1.0e-8
+action_timeout_seconds: 3600
+timing_replay_timeout_seconds: 3600
+policy_timeout_seconds: 3600
+first_hit_recording: every_objective_evaluation
+timing_repetitions: 3
+timing_order_protocol: cyclic_complete_path_v1
 algorithms: [de, pso, cmaes, shade]
 sampling_protocol: phase1_dynamic_budget_event_v1
 output: results/phase1_cec2017_test/cec2017_test

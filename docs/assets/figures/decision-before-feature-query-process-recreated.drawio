@@ -82,7 +82,7 @@
         <mxCell id="A_query" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;spacing=3;strokeWidth=1.2;fillColor=#FFFFFF;strokeColor=#173B76;fontColor=#111111;strokeColor=#6B94C7;fillColor=#F1F7FF;fontSize=9;" value="Run Fixed&lt;br&gt;Landscape&lt;br&gt;Descriptor Query" vertex="1">
           <mxGeometry height="62" width="104" x="511" y="320" as="geometry" />
         </mxCell>
-        <mxCell id="A_qfeat" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;spacing=3;strokeWidth=1.2;fillColor=#FFFFFF;strokeColor=#173B76;fontColor=#111111;strokeColor=#6B94C7;fillColor=#F1F7FF;fontSize=9;" value="&lt;b&gt;16-D&lt;/b&gt;&lt;br&gt;descriptor&lt;sub&gt;cheap&lt;/sub&gt;&lt;br&gt;Features" vertex="1">
+        <mxCell id="A_qfeat" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;spacing=3;strokeWidth=1.2;fillColor=#FFFFFF;strokeColor=#173B76;fontColor=#111111;strokeColor=#6B94C7;fillColor=#F1F7FF;fontSize=9;" value="&lt;b&gt;14-D&lt;/b&gt;&lt;br&gt;descriptor&lt;sub&gt;cheap&lt;/sub&gt;&lt;br&gt;Features" vertex="1">
           <mxGeometry height="62" width="93" x="630" y="320" as="geometry" />
         </mxCell>
         <mxCell id="A_qref" parent="1" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;spacing=3;strokeWidth=1.2;fillColor=#FFFFFF;strokeColor=#173B76;fontColor=#111111;strokeColor=#6B94C7;fillColor=#F1F7FF;" value="Query-specific&lt;br&gt;Selection&lt;br&gt;Reference" vertex="1">

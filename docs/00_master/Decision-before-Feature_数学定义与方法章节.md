@@ -1,598 +1,325 @@
 # Decision-before-Feature 数学定义与方法章节
 
-## 1. 方法定位
+> 唯一活动版本（2026-08-14）。本文定义第一篇论文的数学对象与信息边界。主 query 为 `descriptor_cheap_invariant`；`pflacco_standard_invariant` 与 `pflacco_broad_invariant` 只作预定义配置稳健性。旧 max-scale performance、线性 relative-time Utility、逐状态 threshold、重建式 continuation 和四组消融全部失效。
 
-本文研究的问题不是传统的“如何利用 landscape features 选择算法”，而是进一步研究：
+## 1. 问题与信息时间
 
-> 在执行预先定义的 landscape-analysis query 之前，是否值得执行该固定 query。
+给定连续黑盒最小化问题 $p\in\mathcal P$：
 
-第一篇论文的主 query 是 `descriptor_cheap`，即 16 维自定义低成本描述符；它不代表完整 ELA 或完整 pflacco。`pflacco_standard` 与 `pflacco_broad` 仅用于预先定义的配置稳健性实验。
-
-因此，将问题定义为Analysis Selection Problem。
-
-传统Automated Algorithm Selection流程：
-
-    Optimization Problem
-            |
-            v
-    Query Feature Extraction
-            |
-            v
-    Algorithm Selection
-            |
-            v
-    Optimizer
-
-本文提出：
-
-    Optimization Problem
-
-    |
-            v
-
-    Cheap Search Behavior Observation
-
-    |
-            v
-
-    Decision-before-Feature
-
-|                       |
-| --------------------- |
-|                       |
-| No-query      Run Query |
-
-    |              |
-
-    Default      Algorithm Selection
-
-    Optimizer
-
-核心思想：
-
-Feature extraction本身也是一种需要优化的资源消耗。
-
----
-
-# 2. Problem Formulation
-
-## 2.1 Optimization Problem
-
-设黑盒优化问题为：
-
-$$
-p \in \mathcal{P}
-$$
-
-目标：
-
-$$
-\min f_p(x)
-$$
-
-其中：
-
-- (p)：问题实例
-- (x)：决策变量
-- (f_p)：未知目标函数
-
----
-
-## 2.2 Traditional Algorithm Selection
-
-传统方法：
-
-首先计算：
-
-$$
-\phi(p)
-$$
-
-其中：
-
-$$
-\phi
-$$
-
-表示query feature extractor。
-
-在本文的在线状态任务中，固定下游 Selection Reference 还接收 permutation-invariant 搜索行为和连续剩余预算，并预测每个候选动作的连续 loss：
-
-$$
-\widehat{\boldsymbol L}(s_t)
-=S\!\left(\phi(p),\operatorname{behavior}(s_t),B_t/FE_{total}\right),
 $$
-
-$$
-\hat a_t=\arg\min_a\widehat L(s_t,a).
+\min_{x\in\mathcal X_p} f_p(x),
 $$
-
-离线监督由同一共享状态上的 `continue_current` 与其余 portfolio actions 真实 continuation 产生；不使用静态 problem label 或 nearest performance bucket。
-
-该流程对应已有 feature-based algorithm selection 范式：先获取 landscape features，再用监督学习模型从算法组合中选择优化器。本文不把该 selector 作为新贡献，而是把它作为固定下游 Selection Reference；本文研究的是调用该 selector 之前是否值得执行所评估的固定 query。
-
----
 
-## 2.3 Limitation
+总 objective-evaluation 预算为 $B=FE_{total}$。Portfolio 固定为
 
-固定 query 存在额外成本：
-
 $$
-C_{query}
+\mathcal A=\{\mathrm{DE},\mathrm{PSO},\mathrm{CMA\mbox{-}ES},\mathrm{SHADE}\}.
 $$
-
-包括：
-
-- Function Evaluation Cost
-- CPU Time
-- Memory Cost
-
-因此：
-
-不能默认：
 
-$$
-U_{query}(p)>0
-$$
+在整数 FE 为 $FE_t$ 的完整 checkpoint 上，状态 $S_t$ 包含 population、fitness、best-so-far、generation/native-update 计数、算法内部动态量和 RNG state。论文的 Decision 输入不是 $S_t$ 全部内容，而是 query 前可得的 permutation-invariant Behavior 向量 $X_t$。
 
----
+严格禁止进入 Decision $X_t$：
 
-# 3. Analysis Selection Problem
+- query descriptors 或 query samples；
+- function/suite/instance/dimension/algorithm identity；
+- optimizer-specific parameters、internal dynamics 或 RNG；
+- benchmark reference、known optimum、所有 gap 字段；
+- action losses、Selector predictions/regret、Utility 或未来 trajectory。
 
-定义决策变量：
+算法 identity、dimension 和上述运行信息只作 metadata、split 或分层报告。
 
-$$
-d\in\{0,1\}
-$$
+## 2. Analysis-selection decision
 
-其中：
+在仍可达的在线机会 $t$ 定义：
 
 $$
-d=1
+d_t\in\{0,1\},\qquad
+d_t=1\ \text{表示执行固定 query},\quad d_t=0\ \text{表示继续观察。}
 $$
 
-表示执行固定 query。
+策略按整数 $FE_t$ 和 `decision_opportunity_index` 排序，每 run 最多一次 first trigger：
 
 $$
-d=0
+t_r^*=\min\{t:z_\theta(X_{r,t})>\tau\}.
 $$
 
-表示不执行 query。
+若集合为空，该 run 不调用 query；一旦触发，后续状态在该策略下不可达。未触发 run 的 joint decision Utility 为 0，触发 run 只使用 $t_r^*$ 的 Utility 和 terminal outcome。
 
-目标：
+这一定义是预测性 policy，不是在线训练 controller，也不表示潜在结果意义上的反事实干预。
 
-最大化：
+## 3. Default、共享状态与动作
 
-$$
-U(d,p)
-$$
+SBS 只在相应 fit functions 的完整预算 outcomes 上计算。每个 run 的 raw gap 先按 suite 配置截断并取 `log10_gap`，再按 run → static problem（function × dimension × instance）→ fixed dimension stratum → function 等权聚合；选择 function 等权均值最低算法，并列顺序固定为 `de,pso,cmaes,shade`。
 
-即：
+主 population 满足
 
 $$
-U=Performance-Cost
+a_{prefix}=a_{default}=SBS_{fold}.
 $$
-
----
-
-# 4. Query Utility Label
-
-为了训练Decision Module，需要构造监督信号。
-
-## 4.1 No-query performance
 
-直接优化：
+因此 Skip 从完整 SBS state 原生继续；不重启、不修改参数。共享状态上的唯一动作集合是
 
 $$
-P_{skip}
+\mathcal A(S_t)=\{\texttt{continue\_current}\}\cup
+\{a\in\mathcal A:a\ne a_{prefix}\}.
 $$
 
-表示：
+同算法动作恢复完整 state；跨算法动作只继承算法无关的 population、fitness 和 best-so-far，并执行一次 `population_transfer_initialization`。必须逐行保存：
 
-不执行 query 时的性能。
-
----
-
-## 4.2 Query-based performance
-
-执行：
-
-$$
-Problem \rightarrow Fixed\ Query \rightarrow Algorithm
-Selection
-$$
+```text
+selected_equals_default
+selected_equals_prefix
+handoff_required
+handoff_type
+```
 
-得到：
+并满足
 
 $$
-p_{query}
+\texttt{handoff\_required}
+=\neg\texttt{selected\_equals\_prefix}
+=\mathbb I[\texttt{handoff\_type}=\texttt{population\_transfer\_initialization}].
 $$
 
----
+不得生成 `label_source`，也不得用 `same_algorithm/changed_algorithm` 替代这些显式关系。
 
-## 4.3 Utility
+## 4. 两套动作预算与三个 Selectors
 
-定义：
+Query 路径执行固定 sample 后，四动作 continuation 预算为
 
 $$
-G=P_{skip}-p_{query}
+B_q=B-FE_t-FE_q.
 $$
-
-表示固定 query 路径相对 No-query 路径的性能差。
 
-最终：
+Behavior-only full-budget 路径不执行 query，四动作预算为
 
 $$
-U_{query}=G-\lambda_T C_T-\lambda_M C_M.
+B_b=B-FE_t.
 $$
 
-主协议采用等总 FE；query sampling FE 通过减少 Query continuation budget 进入 $p_{query}$，不得再次扣除。$C_T$ 表示两条路径的时间差，$C_M$ 表示尚未进入 performance loss 的额外内存成本。
+两套真实 action outcomes 不得互相冒充。对状态 $S_t$ 与动作 $a$，保存 observed continuation terminal loss $L_a(S_t)$，并在各矩阵内部变换：
 
-主时间成本使用两条完整路径的有符号 wall-clock 相对差。令 $T_{query,total}$ 包含 query 采样、样本目标评价、特征计算、选择、必要的 population transfer 初始化与 Query 后续优化，$T_{skip,total}$ 包含 No-query 必要的 transfer 初始化与后续优化，则
-
 $$
-C_T=\frac{T_{query,total}-T_{skip,total}}{\max(T_{skip,total},10^{-12})}.
+\widetilde L_a=
+\frac{L_a-\min_b L_b}
+{\max(\max_b L_b-\min_b L_b,10^{-12})}.
 $$
 
-因此 query 样本评价时间进入 Query 总时间，但 Query 分支因等总 FE 而少执行的后续优化时间也被抵消。纯 feature/selection/handoff 计算开销只作诊断分解，不替代主 $C_T$。
+`best observed action` 是本次已运行动作中 loss 最小者，不称为 oracle。
 
-令：
-
-$$
-P_{best\ observed}=\min_{a\in\mathcal A(s_t)}L(s_t,a),
-$$
+活动 Selectors 均为多输出 `RandomForestRegressor`：
 
-则：
+1. full Query Selector：query descriptors、Behavior、连续 query-adjusted remaining-budget ratio；
+2. `query_adjusted_state_only_selector`：Behavior、同一 query-adjusted remaining-budget ratio；
+3. Behavior-only full-budget Selector：Behavior、full-budget remaining-budget ratio。
 
-$$
-G=(P_{skip}-P_{best\ observed})-(p_{query}-P_{best\ observed}).
-$$
+Traditional `pre_run_aas_fe0` 另有 FE=0 query-only Selector，只用 query descriptors 和静态 remaining-budget ratio，从原生 initialization 选择一个算法；它不等于在线 Always Query。
 
-第一项是逐状态潜在性能差，第二项是 selector regret。Population Transfer 的影响已经包含在 observed action loss 中，不作为独立成本重复相减。
+## 5. Terminal endpoint 与 query sample
 
-决策：
+Query sample 不进入 optimizer population，但每个 sample point 是实际 objective evaluation。令：
 
 $$
-U_{query}>0
+g_s=\text{Skip terminal best gap},
 $$
-
-执行固定 query。
-
-否则：
 
-不执行 query。
-
----
-
-# 5. Search Behavior State Representation
-
-Decision-before-Feature不能使用query feature作为输入，否则产生循环。
-
-因此输入必须来自低成本搜索行为。
-
-定义：
-
 $$
-s_t
+g_q=\min\{\text{query-sample best gap},\text{selected-continuation best gap}\},
 $$
 
-表示时间t的搜索状态。
-
-组成：
-
 $$
-s_t=[B_t,P_t]
+g_b=\text{Behavior-only selected-continuation best gap}.
 $$
-
-其中：
 
-B：
+预指定 Stage-A 对每条路径只运行一次，并由该行固定 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、planned FE、effective FE、ERT contribution 与科学失败状态。其中 `target_hit_observed := observed_first_hit_FE != null`，`target_hit_before_failure := target_hit_observed and not path_completed`，`endpoint_success := target_hit_observed and path_completed`；标准 ERT 使用 `target_hit_observed`。Query 路径的性能端点使用 $g_q$；sample 内首次达到 success target 时保存 `query_first_hit_offset`。同时保存：
 
-Behavior information。
+- `gap_query_continuation_only`；
+- `query_sample_best_contribution_log10_gap`；
+- sample 与 continuation 各自的 first-hit/terminal metadata。
 
-P：
+这样可区分 sample 直接找到更优点与 query descriptors 改善动作选择的来源。
 
-Progress information。
+## 6. Utility 与 query 操作性增量
 
----
+对 $k\in\{s,q,b\}$，使用 suite 预先冻结的 raw-gap floor/cap：
 
-# 6. Behavior Features
-
-## 6.1 Diversity
-
-描述种群空间分布。
-
-例如：
-
-平均距离：
-
 $$
-D_t
+\ell_k=\log_{10}\left(\min\{\max(g_k,10^{-12}),10^{20}\}\right).
 $$
 
----
-
-## 6.2 Improvement Rate
-
-描述优化收益：
-
-$$
-r_t=\frac{FE_t}{FE_{max}}
-$$
+Stage-B 将 `skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget` 五条 selected 路径从同一 decision state/RNG 到 terminal 真实执行预定三次，但只用于计时；按 `cyclic_complete_path_v1` 交错顺序。每次保留 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 的 censored time 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数。raw observed median 只作诊断，旧 failure-worst-case 字段只作同一 censored 值的兼容别名。每次保存 status、observed hit、path completion、endpoint success、effective FE 与失败字段。路径身份、completed replays 内部 endpoint 和 Stage-A 到 completed replay 的 endpoint 一致性分别保存；Stage-B 内部 status instability 与 Stage-A/Stage-B completion instability 也分别保存。任何 replay 都不得改写 Stage-A 科学端点或被选择性补跑。共享 prefix 视为 sunk cost；FE=0→terminal online policy wall-clock 另作政策端点，不进入 Utility。
 
-令 anchor 为逐次完整原生 update 历史中满足下式的最近 update：
+主配置 $\lambda_T=1,\lambda_M=0$：
 
 $$
-r_a \le r_t-w
+U_q^{joint}
+=(\ell_s-\ell_q)
+-\lambda_T(\log_{10}T_q-\log_{10}T_s),
 $$
 
-则：
-
 $$
-I_t^{(w)}=
-\frac{f_{best}(a)-f_{best}(t)}
-{\max(\operatorname{IQR}(f_{init}),\epsilon)}
-\cdot
-\frac{1}{r_t-r_a}
+U_b
+=(\ell_s-\ell_b)
+-\lambda_T(\log_{10}T_b-\log_{10}T_s),
 $$
-
-其中 $f_{init}$ 是优化器初始化后、任何原生 update 前已评估 population 的 fitness 向量。该 IQR 也是所有 shift-invariant fitness-change rate 的共享稳健尺度。
-
----
-
-## 6.3 Permutation-invariant Population Change
-
-令当前与anchor种群分别为等权经验分布 $P_t$ 与 $P_a$，种群规模为 $N$。跨checkpoint不假定行号表示同一个体。
 
-空间分布变化使用经验Wasserstein-1：
-
 $$
-W_t^{(w)}=
-\frac{1}{r_t-r_a}
-\min_{\pi\in S_N}
-\frac{1}{N}\sum_{i=1}^{N}
-\frac{\lVert x_i^{(a)}-x_{\pi(i)}^{(t)}\rVert_2}{\sqrt d}.
+I_q
+=(\ell_b-\ell_q)
+-\lambda_T(\log_{10}T_q-\log_{10}T_b)
+=U_q^{joint}-U_b.
 $$
 
-centroid shift rate定义为：
+`u_query_joint_lamT_1` 是主 Decision target；其二元标签为
 
 $$
-G_t^{(w)}=
-\frac{\lVert \mu_t-\mu_a\rVert_2}
-{\sqrt d\,(r_t-r_a)}.
+y_q=\mathbb I[U_q^{joint}>0].
 $$
 
-centroid shift coherence为未除预算间隔的centroid shift与Wasserstein distance之比；无集合变化时取0，其余限制在 $[0,1]$。
+`query_operational_increment_lamT_1` 比较两条可操作路径，包含 query sample FE、sample best、预算差、Selector 和 runtime，不得称为纯信息效应或 causal effect。
 
-当前种群的协方差谱集中度使用特征值的归一化Herfindahl concentration。令 $q=\min(d,N-1)$，则：
+另定义 query-feature 预测诊断：
 
 $$
-C_t=
-\frac{q\frac{\sum_j\lambda_j^2}{(\sum_j\lambda_j)^2}-1}{q-1}.
+\Delta_{pred}
+=\ell_{\text{state-only selected, continuation-only}}
+-\ell_{\text{full-query selected, continuation-only}},
 $$
-
-退化协方差取0。上述统计只依赖种群集合，不依赖个体身份或亲子关系。
 
----
+对应 `query_feature_predictive_increment_log10_gap`。两种 Selector 使用同一 query-budget outcomes，均取 OOF prediction；该量不新增 action losses、不纳入 sample best，也不扣 query acquisition cost。
 
-## 6.4 Stagnation
+`lambda_time in {0,0.25,0.5,1,2}` 是完整敏感性集合。$\lambda_T=1$ 表示 gap 与 runtime 的十进制数量级变化等权，不代表通用资源偏好。所有主表必须同时报告 Utility、terminal `log10_gap` 和 runtime ratio。
 
-描述连续无改善时间。
+## 7. Selector decomposition
 
-令：
+在同一动作矩阵中，令
 
 $$
-r_{last}
+L^*=\min_{a\in\mathcal A(S_t)}L_a,
 $$
 
-表示最近一次best-fitness严格改善对应的FE ratio，则：
-
 $$
-S_t^{(w)}=
-\frac{\min(\max(r_t-r_{last},0),w)}{w}
+\text{potential gain}=L_{skip}-L^*,
 $$
-
----
-
-## 6.5 Distance Decay
 
-描述population向当前population-best收缩的程度。
-
-令：
-
 $$
-d_t=\frac{1}{N}\sum_i\frac{\|x_i-x_{best,t}\|_2}{\sqrt d}
+\text{selector regret}=L_{selected}-L^*,
 $$
 
-则：
-
 $$
-DD_t^{(w)}=
-\frac{d_a-d_t}{\max(d_a,\epsilon)}
+L_{skip}-L_{selected}
+=\text{potential gain}-\text{selector regret}.
 $$
 
-其中：
+Population transfer 已包含在 observed $L_a$ 和 path runtime 中；query FE 已通过 $B_q$ 以及 terminal outcome 进入比较，二者都不能在 Utility 里再次扣除。
 
-$$
-x_{best,t}
-$$
+## 8. Behavior representation
 
-是当前population中的best solution，不是真实全局最优。
+Decision state 由 query 前 Behavior 构成。活动输出共 34 个唯一 `bf_*` 字段：31 个正式输入、3 个诊断字段。正式输入按以下六组冻结：
 
----
+| 组 | 内容 | 字段数 |
+|---|---|---:|
+| T0 | 仅实际 `bf_fe_ratio=FE_t/B` | 1 |
+| B1 | core permutation-invariant Behavior | 19 |
+| B2 | B1 + longitudinal set dynamics | 25 |
+| B2+Motion | B2 + set-motion | 28 |
+| B2+Maturity | B2 + Maturity basis | 28 |
+| B3 | B2 + Motion + Maturity | 31 |
 
-## 6.6 Convergence Rate
+### 8.1 Native-update windows
 
-描述种群diversity下降速度：
+名义窗口 $W\in\{0.02,0.05,0.10\}$。若目标 $FE_t-\operatorname{round}(WB)$ 不在完整 update 边界，选不晚于目标的最近完整 native update 作为 anchor $a$，使：
 
 $$
-CR_t^{(w)}=
-\frac{D_a-D_t}{\max(D_a,\epsilon)}
-\cdot
-\frac{1}{r_t-r_a}
+\operatorname{round}(WB)
+\le FE_t-FE_a
+<\operatorname{round}(WB)+N,
 $$
-
----
-
-## 6.7 Relation to Prior Behavioral Metrics
-
-上述指标来自已有metaheuristic behavior analysis的启发，但不是逐式复现。
-
-与 *How do metaheuristics exploit?* 的区别：
-
-- 该论文指标用于late-stage exploitation behavior diagnostics/control；
-- 本文指标用于预测Query Utility；
-- 该论文可使用iteration窗口、exploitation phase划分和reference optimum；
-- 本文使用FE-ratio窗口，不使用真实全局最优、function identity或query feature。
 
-与 *Determining Metaheuristic Similarity Using Behavioral Analysis* 的区别：
+其中 $N$ 为 population size。所有 rate/slope 使用实际 $(FE_t-FE_a)/B$；实际 FE、ratio 与 native-update 数只作 metadata，不进入 Decision $X$。
 
-- 该论文构造whole-run behavioral footprint，用于algorithm similarity clustering；
-- 本文构造checkpoint-level behavior state，用于Analysis Selection；
-- 本文仅保留diversity change、improvement、convergence、distance/locality等可低成本改写的行为语义；
-- 本文不使用whole-run knee-point extraction、STN locality指标、IN communication指标、DBSCAN clustering或frequency map。
+### 8.2 Permutation invariance
 
-论文表述应采用：
+跨 checkpoint 不把 population 行号当个体身份。空间变化用等权经验 Wasserstein、centroid shift/coherence 与 covariance summaries；fitness 变化用排序经验分位数。任何依赖 row-wise displacement、individual ID、ancestry 或 CMA-ES 样本身份的字段均不进入活动协议。
 
-> budget-normalized behavior states inspired by prior behavioral analysis metrics
+## 9. Search Maturity basis
 
-而不是：
+由既有 Behavior 确定性得到 $ES_t,XS_t,E_t,X_t$，活动基函数为：
 
-> the same exploitation or similarity metrics as prior work.
-
----
-
-## 6.8 Communication Behavior
-
-适用于群智能算法：
-
-描述个体之间的信息传播。
-
----
-
-# 7. Search Maturity
-
-## 7.1 Definition
-
-Search Maturity定义：
-
-> 当前搜索过程是否已经产生足够的信息，使进一步Landscape
-> Analysis具有价值。
-
-区别：
-
-  概念                       含义
-
----
-
-  Convergence                是否接近最优
-  Exploration/Exploitation   当前搜索行为
-  Search Maturity            分析价值是否形成
-
----
-
-# 7.2 Two-factor formulation
-
-搜索成熟度不是单调增长。
-
-因此定义两个因素。
-
-## Exploration Stabilization
-
-$$
-ES_t
 $$
-
-表示探索是否由随机状态转向结构化。
-
----
-
-## Exploitation Saturation
-
-$$
-XS_t
+M_t=ES_t(1-XS_t),
 $$
 
-表示开发是否过度。
-
----
-
-定义：
-
 $$
-M_t=ES_t(1-XS_t)
+M_t^{linear}=\frac{ES_t+(1-XS_t)}{2},
 $$
-
-解释：
-
-低成熟：
 
-信息不足。
-
-中成熟：
-
-最适合分析。
-
-高成熟：
-
-可能已经过度收缩。
-
----
-
-# 8. Decision Module
-
-定义：
-
 $$
-\hat U=f_\theta(s_t)
+R_t^{EE}=\frac{E_t}{X_t+10^{-12}}.
 $$
 
-输入：
+字段为：
 
-搜索行为状态。
+```text
+bf_search_maturity
+bf_search_maturity_linear
+bf_explore_exploit_ratio
+```
 
-输出：
+它们不增加原始信息，只是预设非线性基函数。Search Maturity 不是独立观测、latent state、收敛判据、因果中介或 Utility 标签；不定义早/中/晚类别，也不预设单调、U 形或倒 U 形关系。
 
-Query Utility。
+## 10. Decision learning 与完整嵌套
 
-训练目标：
+活动候选固定为 LDA、Logistic Regression 与 Ridge。每个 fit fold 内独立拟合 median imputer、scaler 和模型；训练 fold 整列缺失时停止，不从 holdout/validation 补值。
 
-$$
-\min_{\theta}(U_{query}-\hat U)^2
-$$
+每个 grouped-by-function outer holdout 的链为：
 
----
+```text
+outer-fit functions
+-> SBS_outer
+-> cross-fitted/fitted Query, Behavior-only and FE=0 Selectors
+-> outer-fit Utility labels
+-> inner-function OOF Decision scores and first-trigger threshold
+-> fitted Decision model
+-> one outer-holdout evaluation
+```
 
-# 9. Algorithm
+每个 inner fold 又必须只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 和 Decision。不得先用完整 BBOB-train 生成标签，再对 Decision 单独 OOF。
 
-    Input:
-    Black-box problem p
+主模型选择指标为拼接 outer holdout 后，按 first-trigger policy 重建的 run-level mean `u_query_joint_lamT_1`。AUROC、Average Precision 和 Spearman 只作辅助；连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已在旧流程中用于模型比较、调参与消融，不能再作为未查看评价集或 selected procedure 的无偏性能估计；当前流程仍禁止用其继续拟合或重选。
 
-    1. Run cheap probing optimization
+主拟合权重依次使 function、固定 dimension stratum、static problem 与 optimizer run 等权，再把每个 run 的权重均分给其 eligible states，并缩放到平均 row weight 为 1。旧 `sample_weight=1` 只作敏感性。现有 estimator wiring 尚未闭合该权重，闭合前不得启动正式拟合。
 
-    2. Collect search behavior
+完整 BBOB-train 的 threshold 和 matched-rate Random calibration也来自 fold-specific 上游 OOF：
 
-    3. Extract behavior state
+- Proposed：`oof_utility_first_trigger` threshold；
+- Time-only 与六个 feature groups：各自 train-only first-trigger threshold；
+- Behavior-only：对 $U_b$ 的自身 train-only threshold；
+- Random：Proposed OOF run call rate 与 first-trigger FE-ratio 经验分布。
 
-    4. Predict fixed-query utility
+## 11. Time-only、ablation 与部署
 
-    5. If utility > 0:
+主 Behavior-versus-time 比较只使用 12 个 mandatory milestones：`milestone_only_T0` 与 milestone-restricted B3 的行完全相同。事件 opportunity 的产生受 Behavior 条件影响，因此完整 dynamic schedule 的 T0 只能作为 `schedule_conditioned_T0` sensitivity。另做预先按 dimension 分层、每层仍只输入 FE ratio 的 `dimension_stratified_T0`，用于控制 dimension/绝对预算这一调用前静态上下文；它不把 dimension 加入主 Decision X。
 
-    Execute the fixed query
+RQ5 的六个 groups 使用 RQ2 在 B3 上选定的同一模型家族，预设 contrasts 为：
 
-    Run algorithm selection
+```text
+B1 - T0
+B2 - B1
+B2+Motion - B2
+B2+Maturity - B2
+B3 - (B2+Motion)
+B3 - (B2+Maturity)
+```
 
-    Else:
+部署时原生 SBS 持续推进；在每个合格机会计算 Behavior score。首次越阈值则执行一次固定 query 和 full Query Selector，否则继续原生搜索。部署中不在线更新模型、不重复选择 query type。
 
-    Run default optimizer
+## 12. 失败、统计与解释边界
 
-    6. Return solution
+BBOB train/validation 与 CEC2017 冻结：raw-gap floor/cap `1e-12/1e20`、`failure_loss_cap=1e20`、`success_gap_target=1e-8`、action timeout `3600 s`、Stage-A 每次 objective evaluation 记录 first hit、Stage-B 三次 decision-state future-path timing-only replay 和独立 FE=0 policy wall-clock。Stage-A timeout/failed path 的 final-gap endpoint按失败 cap 保留；若失败前已经命中 target，standard ERT 仍保留 observed first hit，而 `endpoint_success=false` 明确路径未完成。未命中项的 ERT contribution 计完整 planned budget。Stage-B timeout/failure 用删失 runtime 进入主时间成本，并另进入 timing failure/instability sensitivity，但不改写 Stage-A gap 或 path completion。
 
----
+function 是最高聚合层。BBOB-validation estimand 是六个已见固定 functions、固定 dimensions 与 instances 1/2/3 上的等权有限集均值；10,000 次条件 bootstrap 固定全部六函数、dimensions 与 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；RQ1 对每个抽中 seed/run 保留完整有序 state 序列。function-resampling 只作函数组成敏感性，不作 function 或 transformed-instance 超总体推断。六函数 sign-flip 还要求 signs 可交换；RQ3 与 RQ5 的六 contrast Holm families 数学上不能在 0.05 下拒绝，只作假设敏感辅助。RQ4 按 suite/endpoint 分开，不构造跨 suite 的四 contrast Holm family。有限集效应量、逐 function/problem 结果和条件区间是主证据。Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内预设 operational tolerance。
 
-# 10. Expected Contributions
+ERT 不使用通用算术均值 bootstrap。每个 replicate 固定每个 `function × dimension` stratum 内的 static problems，只在每个 problem 内联合配对重抽 optimizer runs，分别重算两政策的 FE numerator 与 target-hit count，再形成 `log10(ERT_treatment/ERT_reference)`；固定 dimensions 和 functions 依次等权。单方零命中保留为有符号无穷，双方零命中及同一聚合层同时出现两种无穷时记为 undefined，均不得删除。undefined mass 按预设规则保守分配到两侧尾部；`interval_established` 只由观测 contrast 与扩展实数分位点是否有定义决定，无界区间仍可建立。
 
-1. 提出Analysis Selection Problem。
-2. 提出Decision-before-Feature框架。
-3. 建立搜索行为与所评估固定 query 效用之间的关系。
-4. 提供资源感知的自动算法选择流程。
+本方法只能建立：在固定 query、Selector、portfolio、预算、transition rule 和目标状态分布下的预测与操作性性能差。它不能单独建立 query descriptors 的因果价值、Search Maturity 的真实存在或任意 benchmark/representation 的普遍规律。
