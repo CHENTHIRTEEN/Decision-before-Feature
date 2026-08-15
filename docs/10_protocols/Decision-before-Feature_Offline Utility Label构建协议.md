@@ -231,6 +231,6 @@ complete trajectory + final outcome
 -> outer holdout policy outcomes
 ```
 
-当前 offline decision-state-to-terminal runner、grouped-by-function cross-fitted Selector artifact 持久化与路由尚未实现；在三者闭合且 replay plan 物化核对前，Stage-B 与最终 Utility 均不可执行。
+当前 offline decision-state-to-terminal runner、`cv_group_id = function_id` cross-fitted Selector artifact 持久化与路由尚未实现；在三者闭合且 replay plan 物化核对前，Stage-B 与最终 Utility 均不可执行。
 
 旧单一 `u_query_lamT_*`、旧 max-scale/relative-time Utility、静态 problem/budget bucket Selection Reference、重建式 continuation、一次计时复制、非嵌套 labels 和逐状态 policy summary 无正式证据资格。基础 trajectory 仅在 trajectory/snapshot/seed/time-truncation 检查通过后可作为新链输入。

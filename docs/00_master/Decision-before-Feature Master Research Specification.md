@@ -554,7 +554,7 @@ random instance split。
 
 采用：
 
-grouped-by-function / function-level split。历史字段 `family=bbob_fNNN` 仅是 function-ID grouping key，不是经典 landscape family；论文不得据此声称跨 landscape-family 泛化。
+`cv_group_id = function_id` / function-level split。历史字段 `family=bbob_fNNN` 仅是景观 taxonomy 字段，不是 CV 分组键；论文不得据此声称跨 landscape-family 泛化。
 
 ---
 

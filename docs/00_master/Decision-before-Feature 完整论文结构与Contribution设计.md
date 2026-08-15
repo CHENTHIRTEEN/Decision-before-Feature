@@ -98,7 +98,7 @@ Search Maturity 只是由既有 Behavior 变量确定性计算的三维非线性
 
 ### Contribution 3：End-to-end leakage-controlled evaluation
 
-SBS、Query/Behavior-only/FE=0 Selectors、Utility、Decision preprocessing/model、first-trigger threshold 与 Random calibration 全部进入 grouped-by-function nested split。每个 outer fold 重算 `SBS_outer` 和全部上游组件；每个 inner fold又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。这里的 group 是 function ID，不是经典 landscape-family taxonomy；禁止先在完整 train 制成 labels 再执行 Decision-only OOF。
+SBS、Query/Behavior-only/FE=0 Selectors、Utility、Decision preprocessing/model、first-trigger threshold 与 Random calibration 全部进入 `cv_group_id = function_id` nested split。每个 outer fold 重算 `SBS_outer` 和全部上游组件；每个 inner fold又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。这里的 group 是 function ID（即 `cv_group_id`），不是经典 landscape-family taxonomy；禁止先在完整 train 制成 labels 再执行 Decision-only OOF。
 
 Decision Model 活动候选固定为 LDA、Logistic Regression 与 Ridge。模型主选择使用 BBOB-train outer-holdout run-level first-trigger mean `u_query_joint_lamT_1`；AUROC、Average Precision、Spearman 是辅助指标，连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已被旧模型比较、调参与消融查看，只能作已见内部评价；CEC2017 也只能作已见外部开发评价。当前没有独立确认性结果。
 
@@ -180,7 +180,7 @@ handoff_required = not selected_equals_prefix
 
 ### Section 5 Experimental Setup
 
-冻结 grouped-by-function split、SBS/VBS 聚合、baseline、Stage-A 科学失败端点、Stage-B 三次 decision-state future-path timing-only replay、raw/censored runtime、observed hit/path completion/endpoint success、三类一致性、两类 instability、FE=0 policy wall-clock、禁止选择性重跑、固定六函数条件 bootstrap、函数组成敏感性和项目内 operational tolerance。BBOB-validation 的 estimand 只是已见固定六函数有限集均值；RQ3--RQ5 在该集合上采用估计性分析，sign-flip/Holm 仅作假设敏感的辅助描述。
+冻结 `cv_group_id = function_id` split、SBS/VBS 聚合、baseline、Stage-A 科学失败端点、Stage-B 三次 decision-state future-path timing-only replay、raw/censored runtime、observed hit/path completion/endpoint success、三类一致性、两类 instability、FE=0 policy wall-clock、禁止选择性重跑、固定六函数条件 bootstrap、函数组成敏感性和项目内 operational tolerance。BBOB-validation 的 estimand 只是已见固定六函数有限集均值；RQ3--RQ5 在该集合上采用估计性分析，sign-flip/Holm 仅作假设敏感的辅助描述。
 
 ### Section 6 Results
 

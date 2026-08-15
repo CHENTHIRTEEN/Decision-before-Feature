@@ -70,7 +70,7 @@ U_{query}^{joint}(s_t)=
 
 T0 主比较只用 12 个预算 milestones，称为 `milestone_only_T0`。B3 与 T0 的直接对比也在同一 milestone rows 上重算。event-only opportunity 的出现依赖 Behavior，因此完整动态 schedule 上的 `schedule_conditioned_T0` 只能作 sensitivity。
 
-T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性静态上下文诊断 `dimension_stratified_T0`：在 BBOB 的 10D、20D、40D 内分别执行同一 grouped-by-function OOF/threshold 链，每层模型仍只输入 `bf_fe_ratio`。当前 `FE_total=1000d`，所以 `log(dimension)` 与 `log(FE_total)` 完全共线；主 cheap query 的 planned query-cost ratio 恒为 0.05，也不能形成可识别输入。只有 B3 相对 `milestone_only_T0` 与 `dimension_stratified_T0` 的有限集效应方向均一致时，才可写“Behavior 的预测信息超过单纯调用阶段，且该观察不能仅由已评估维度层解释”；该诊断不进入主 Decision X，也不外推到未训练维度。
+T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性静态上下文诊断 `dimension_stratified_T0`：在 BBOB 的 10D、20D、40D 内分别执行同一 `cv_group_id = function_id` OOF/threshold 链，每层模型仍只输入 `bf_fe_ratio`。当前 `FE_total=1000d`，所以 `log(dimension)` 与 `log(FE_total)` 完全共线；主 cheap query 的 planned query-cost ratio 恒为 0.05，也不能形成可识别输入。只有 B3 相对 `milestone_only_T0` 与 `dimension_stratified_T0` 的有限集效应方向均一致时，才可写“Behavior 的预测信息超过单纯调用阶段，且该观察不能仅由已评估维度层解释”；该诊断不进入主 Decision X，也不外推到未训练维度。
 
 ## 4. 活动模型
 
@@ -99,7 +99,7 @@ T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性
 
 outer 或 inner holdout 均不得参与其评价链中的 SBS、Selector、Utility label、imputation、scaling、model、threshold、Random calibration、score-neighborhood 或 feature-group decision。不得先用完整 BBOB-train 生成 Utility labels 再仅对 Decision Model 分 folds，并把所得分数称为端到端 nested OOF。
 
-外层 fold 数和内层 fold 数只由 BBOB-train function-ID groups 与预设 GroupKFold 规则确定；同一 transformed instance 或 seed 不得跨 function group 作为独立 holdout。该设计统一称为 `grouped-by-function` 或 function-level split。代码中历史字段名 `family=bbob_fNNN` 只表示 BBOB function grouping key，不表示经典 landscape family taxonomy，也不支持跨 landscape-family 泛化表述。
+外层 fold 数和内层 fold 数只由 BBOB-train function-ID groups 与预设 GroupKFold 规则确定；同一 transformed instance 或 seed 不得跨 function group 作为独立 holdout。该设计统一称为 `cv_group_id = function_id` 或 function-level split。代码中字段 `cv_group_id` 等于 `function_id`（如 `bbob_f001`），是 CV 分组键；字段 `family`（如 `bbob_separable_f01_f05`）是景观 taxonomy 字段，不用于 CV 分组，也不支持跨 landscape-family 泛化表述。
 
 ## 6. First-trigger threshold 与模型选择
 

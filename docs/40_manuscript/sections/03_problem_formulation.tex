@@ -26,15 +26,16 @@ and random-number-generator state, and $e_t$ is the exact number of consumed
 FEs.  Every continuation starts from this complete state; a population-only
 reconstruction is not treated as native continuation.
 
-The analysis-selection decision is
+The primary acquisition decision is
 \begin{equation}
   d_t=
   \begin{cases}
-    0, & \text{continue without acquiring query }q,\\
+    0, & \text{choose the best available no-query policy},\\
     1, & \text{acquire }q\text{ and invoke its selector}.
   \end{cases}
   \label{eq:analysis-decision}
 \end{equation}
+The no-query side is represented operationally by the best available comparator among native Skip and full-budget Behavior-only, with Behavior-only serving as the main no-query policy in the theory and experiments.
 The primary query, \query{}, comprises 14 fixed, permutation-invariant,
 low-cost descriptors computed from an independent Latin-hypercube sample of
 size $50d$.  It consumes $FE_q=50d=0.05B$ objective evaluations.  Two response
@@ -81,15 +82,26 @@ budgets,
   \label{eq:behavior-budget}
 \end{align}
 The four observed outcomes in either matrix supervise a multi-output action-loss
-regressor through the within-state transformation
+regressor through the within-state target
 \begin{equation}
-  \widetilde L_a=
-  \frac{L_a-\min_c L_c}
-       {\max\!\left(\max_c L_c-\min_c L_c,10^{-12}\right)}.
+  y_{s,a}
+  =\ell_{s,a}-\ell_{s,a_0},
+  \qquad
+  a_0=\texttt{continue\_current},
   \label{eq:selector-target-transform}
 \end{equation}
-The minimum over actions that were actually run is called the \emph{best
-observed action}, not an oracle.
+where
+\begin{equation}
+  \ell_{s,a}
+  =\log_{10}\!\left[
+    \min\!\left(\max(g_{s,a},g_{\min}),g_{\max}\right)
+  \right].
+  \label{eq:selector-target-loggap}
+\end{equation}
+This choice keeps the continuation action fixed at zero, makes negative values
+mean that action $a$ improves on continue-current, and aligns the selector
+with the decision rule used downstream.  The minimum over actions that were
+actually run is called the \emph{best observed action}, not an oracle.
 
 \subsection{Terminal endpoints and decision-state future-path timing}
 
@@ -118,7 +130,7 @@ log transformed,
   \label{eq:clipped-log-gap}
 \end{equation}
 After the relevant fold-specific selector has been fitted, Stage B executes
-each selected Skip, Query, and Behavior-only path from the same decision state
+each selected path from the same decision state for the five-path protocol
 to termination three prespecified times under a cyclic path order.  These
 replays determine timing only; they never replace the Stage-A scientific
 endpoints.  Each repetition retains its status, effective FE, timeout,
@@ -196,7 +208,7 @@ acquisition over the full-budget Behavior-only path.
 
 The marginal predictive contribution of query descriptors is a separate
 diagnostic.  A state-only selector and the full Query selector use the same
-query-budget four-action outcomes; their OOF-selected continuation-only gaps
+query-budget outcomes for the five paths; their OOF-selected continuation-only gaps
 define
 \begin{equation}
   \Delta_{q,\mathrm{pred}}
@@ -206,18 +218,22 @@ define
 \end{equation}
 This comparison adds no action runs, excludes the sample best, and does not
 charge acquisition cost.  It cannot replace Eq.~\eqref{eq:operational-increment}.
-Because the protocol does not include a matched-acquisition state-only fourth
-path, neither comparison separately identifies the operational contribution of
-the descriptors from sampling, sample-best, FE, runtime, and budget effects.
+The active protocol contains five paths: Skip, Behavior-only,
+sampling-only, query-matched state-only, and full Query.  Their operational
+decomposition provides the component increments $D_q$, $S_q$, and $A_q$ whose
+sum equals $U_q^{\mathrm{joint}}$.  Neither comparison separately identifies
+a causal contribution of the descriptors, because sampling, sample-best, FE,
+runtime, and budget effects are entangled.  The five-path decomposition is
+an interpretation tool; the binary label itself uses $I_q$ so that the
+query is judged against the best available no-query policy.
 
-The continuous joint utility is retained, with binary target
+The continuous joint utility is retained, but the binary label is aligned with
+query acquisition against the best available no-query policy:
 \begin{equation}
-  y_q(S_t)=\mathbf{1}\!\left[U_q^{\mathrm{joint}}(S_t)>0\right].
+  y_q(S_t)=\mathbf{1}\!\left[I_q(S_t)>0\right],
   \label{eq:query-label}
 \end{equation}
-The Decision input contains only information available before the query.  It
-excludes query descriptors, benchmark and algorithm identity, optimizer
-parameters, known-optimum gaps, action outcomes, and future states.
+with \(I_q\) defined in Eq.~\eqref{eq:operational-increment}.  This choice means a state is positive only when the query path improves on the best available no-query comparator, not merely on native Skip.  The Decision input contains only information available before the query.  It excludes query descriptors, benchmark and algorithm identity, optimizer parameters, known-optimum gaps, action outcomes, and future states.
 
 \subsection{First-trigger policy}
 

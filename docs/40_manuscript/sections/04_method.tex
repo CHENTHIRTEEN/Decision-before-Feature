@@ -3,7 +3,7 @@
 
 \subsection{Overview}
 
-Decision-before-Feature is trained offline.  Native optimizer trajectories are first collected under a fixed sampling protocol.  Each accepted state is converted into a permutation-invariant Behavior vector available before landscape descriptors are computed.  Stage A runs each query-adjusted and full-budget four-action outcome once to supervise fold-specific Query and Behavior-only selectors and to fix the scientific gap, observed first hit, target hit, path completion, completion-conditioned endpoint success, planned FE, effective FE, and failure status.  Stage B freezes their selected actions and executes the selected Skip, Query, and Behavior-only state-to-terminal future paths three prespecified times under cyclic path order.  A completed replay retains its raw observed time, whereas a timed-out or failed replay contributes the larger of its raw time and role-specific timeout; the replays provide the median of these three censored conditional wall-clock values in Eqs.~\eqref{eq:query-utility}--\eqref{eq:operational-increment}.  The raw median is diagnostic only.  The performance and FE terms remain those of Stage A, and the already executed shared prefix is excluded.  Repeated action components do not replace selected future paths.  Every Stage-B repetition retains its status, observed hit, effective FE, timeout, and completion.  Path identity, consistency among completed replays, and Stage-A-to-completed-replay consistency are checked separately, as are within-Stage-B status instability and Stage-A/Stage-B completion instability.  Repetitions are never selected or rerun after their time or status is observed.  A lightweight Decision Model then maps pre-query Behavior alone to a query score.  The deployed controller performs no online parameter update, and its separate FE-zero-to-terminal wall-clock follows the same separation between a Stage-A scientific execution and three Stage-B timing replays.
+Decision-before-Feature is trained offline.  Native optimizer trajectories are first collected under a fixed sampling protocol.  Each accepted state is converted into a permutation-invariant Behavior vector available before landscape descriptors are computed.  Stage A runs each query-adjusted and full-budget action outcome once to supervise fold-specific Query and Behavior-only selectors and to fix the scientific gap, observed first hit, target hit, path completion, completion-conditioned endpoint success, planned FE, effective FE, and failure status.  Stage B freezes their selected actions and executes the selected Skip, Behavior-only, sampling-only, query-matched state-only, and full Query state-to-terminal future paths three prespecified times under cyclic path order.  A completed replay retains its raw observed time, whereas a timed-out or failed replay contributes the larger of its raw time and role-specific timeout; the replays provide the median of these three censored conditional wall-clock values in Eqs.~\eqref{eq:query-utility}--\eqref{eq:operational-increment}.  The raw median is diagnostic only.  The performance and FE terms remain those of Stage A, and the already executed shared prefix is excluded.  Repeated action components do not replace selected future paths.  Every Stage-B repetition retains its status, observed hit, effective FE, timeout, and completion.  Path identity, consistency among completed replays, and Stage-A-to-completed-replay consistency are checked separately, as are within-Stage-B status instability and Stage-A/Stage-B completion instability.  Repetitions are never selected or rerun after their time or status is observed.  A lightweight Decision Model then maps pre-query Behavior alone to a query score.  The deployed controller performs no online parameter update, and its separate FE-zero-to-terminal wall-clock follows the same separation between a Stage-A scientific execution and three Stage-B timing replays.  In the main formulation, the query gate is interpreted against the best available no-query policy, with Behavior-only as the primary comparator and native Skip retained as the other no-query reference.
 
 Figure~\ref{fig:framework} summarizes the separation between offline data
 construction, query-specific downstream selection, decision-model freezing,
@@ -181,10 +181,10 @@ The B3 group also contains the bounded linear alternative $c[(ES_t+1-XS_t)/2]$ a
 
 For every eligible shared state, all actions in Eq.~\eqref{eq:state-action-set}
 are run once under both budgets in Eqs.~\eqref{eq:query-budget} and
-\eqref{eq:behavior-budget}.  Their targets use the within-state transform in
-Eq.~\eqref{eq:selector-target-transform}.  The fixed estimator is a multi-output
-random-forest regressor with 200 trees, minimum leaf size two, training-fold
-median imputation, and random seed 1701.
+\eqref{eq:behavior-budget}.  Their targets use the within-state clipped-log-gap
+form in Eqs.~\eqref{eq:selector-target-transform}--\eqref{eq:selector-target-loggap}.
+The fixed estimator is a multi-output random-forest regressor with 200 trees,
+minimum leaf size two, training-fold median imputation, and random seed 1701.
 
 The full Query selector predicts the four query-budget losses from B3 Behavior,
 the current query descriptors, and continuous query-adjusted remaining budget,
@@ -198,6 +198,8 @@ A query-adjusted state-only selector omits $\phi_q$ while using the same
 outcomes and budget; its OOF-selected continuation-only gap supplies
 Eq.~\eqref{eq:query-feature-predictive-increment}.  The Behavior-only selector
 uses B3 Behavior and $(B-e_t)/B$ to predict the distinct full-budget matrix.
+All selector targets remain relative clipped log-gaps against
+\texttt{continue\_current}, not statewise min-max scores.
 Traditional pre-run AAS uses a fourth, query-only selector at $e_t=0$ and no
 trajectory Behavior.  These fitted references are downstream experimental
 components, not the proposed contribution.

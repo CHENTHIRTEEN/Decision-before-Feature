@@ -214,14 +214,20 @@ def fit_fold_selectors(
     holdout_split: str = TRAIN_SPLIT,
     fold_role: str,
 ) -> FoldSelectorViews:
+    """Fit fold-specific selectors using ``cv_group_id`` as the grouping field.
+
+    The ``fit_families`` / ``holdout_families`` parameter names are retained
+    for backward compatibility but now carry CV group IDs (function IDs).
+    """
     fit_family_set = set(str(value) for value in fit_families)
     holdout_family_set = set(str(value) for value in holdout_families)
     if not fit_family_set or not holdout_family_set:
-        raise ValueError("fold-specific learning requires non-empty fit and holdout family sets")
+        raise ValueError("fold-specific learning requires non-empty fit and holdout CV groups")
     if fit_split == holdout_split and fit_family_set.intersection(holdout_family_set):
-        raise ValueError("fold-specific fit and holdout families overlap")
+        raise ValueError("fold-specific fit and holdout CV groups overlap")
+    group_column = "cv_group_id" if "cv_group_id" in inputs.performance.columns else "family"
     performance_fit = inputs.performance[
-        inputs.performance["family"].astype(str).isin(fit_family_set)
+        inputs.performance[group_column].astype(str).isin(fit_family_set)
     ].copy()
     sbs_algorithm = single_best_solver(performance_fit, portfolio_order=inputs.portfolio)
     query_fit = _fold_state_view(
@@ -272,7 +278,7 @@ def fit_fold_selectors(
             states=query_fit,
             portfolio=inputs.portfolio,
             predictions=cross_predictions,
-            prediction_source=f"{fold_role}_fit_cross_family",
+            prediction_source=f"{fold_role}_fit_cross_cv_group",
             runtime_selection=runtime_selection,
             selector_input_mode=selector_input_mode,
             selection_reference_protocol=selector_protocol,
@@ -291,7 +297,7 @@ def fit_fold_selectors(
             _selector_performance_summary(
                 fit_rows,
                 selector_input_mode=selector_input_mode,
-                evaluation_role="fit_cross_family",
+                evaluation_role="fit_cross_cv_group",
                 fold_role=fold_role,
                 sbs_algorithm=sbs_algorithm,
             )
@@ -317,7 +323,7 @@ def fit_fold_selectors(
         states=behavior_fit,
         portfolio=inputs.portfolio,
         predictions=behavior_cross_predictions,
-        prediction_source=f"{fold_role}_fit_cross_family",
+        prediction_source=f"{fold_role}_fit_cross_cv_group",
         runtime_selection=behavior_runtime,
     )
     behavior_holdout_rows = behavior_only_selection_rows(
@@ -331,7 +337,7 @@ def fit_fold_selectors(
         _selector_performance_summary(
             behavior_fit_rows,
             selector_input_mode=BEHAVIOR_ONLY_FULL_BUDGET_INPUT,
-            evaluation_role="fit_cross_family",
+            evaluation_role="fit_cross_cv_group",
             fold_role=fold_role,
             sbs_algorithm=sbs_algorithm,
         )
@@ -384,7 +390,7 @@ def fit_fold_selectors(
             states=pre_run_fit,
             portfolio=inputs.portfolio,
             predictions=pre_run_cross_predictions,
-            prediction_source=f"{fold_role}_fit_cross_family",
+            prediction_source=f"{fold_role}_fit_cross_cv_group",
             runtime_selection=pre_run_runtime,
         )
         pre_run_holdout_rows = pre_run_selection_rows(
@@ -398,7 +404,7 @@ def fit_fold_selectors(
             _selector_performance_summary(
                 pre_run_fit_rows,
                 selector_input_mode=PRE_RUN_QUERY_ONLY_INPUT,
-                evaluation_role="fit_cross_family",
+                evaluation_role="fit_cross_cv_group",
                 fold_role=fold_role,
                 sbs_algorithm=sbs_algorithm,
             )
@@ -420,7 +426,7 @@ def fit_fold_selectors(
                 behavior_rows=behavior_fit_rows,
                 state_only_rows=state_only_fit_rows,
                 sampling_only_rows=sampling_only_fit_rows,
-                learning_fold_role=f"{fold_role}_fit_cross_family",
+                learning_fold_role=f"{fold_role}_fit_cross_cv_group",
             ),
             _selected_complete_path_replay_plan(
                 query_rows=query_holdout_rows,
@@ -481,7 +487,7 @@ def build_fold_utility_labels(
         sampling_only_selection=selector_views.sampling_only_fit_rows,
         complete_path_timings=_fold_timing_view(
             inputs.complete_path_timings,
-            learning_fold_role=f"{selector_views.fold_role}_fit_cross_family",
+            learning_fold_role=f"{selector_views.fold_role}_fit_cross_cv_group",
             split=selector_views.fit_split,
             families=fit_family_set,
         ),
@@ -544,7 +550,11 @@ def family_fold_partitions(
     families: tuple[str, ...],
     requested_folds: int,
 ) -> tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]:
-    """Create grouped folds that hold out complete landscape families."""
+    """Create grouped folds that hold out complete landscape families.
+
+    Retained for the leave-one-landscape-family-out secondary robustness
+    analysis.  The main experiment uses :func:`cv_group_fold_partitions`.
+    """
     ordered_families = tuple(sorted(set(str(value) for value in families)))
     n_splits = min(int(requested_folds), len(ordered_families))
     if n_splits < 2:
@@ -562,18 +572,46 @@ def family_fold_partitions(
     return tuple(partitions)
 
 
+def cv_group_fold_partitions(
+    *,
+    cv_groups: tuple[str, ...],
+    requested_folds: int,
+) -> tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]:
+    """Create grouped folds that hold out complete CV groups (function IDs)."""
+    ordered_groups = tuple(sorted(set(str(value) for value in cv_groups)))
+    n_splits = min(int(requested_folds), len(ordered_groups))
+    if n_splits < 2:
+        raise ValueError("CV-group folds require at least two groups")
+    group_frame = pd.DataFrame({"cv_group_id": ordered_groups})
+    groups = group_frame["cv_group_id"].to_numpy(dtype=str)
+    partitions: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+    splitter = GroupKFold(n_splits=n_splits)
+    for fit_index, holdout_index in splitter.split(group_frame, groups=groups):
+        fit = tuple(sorted(group_frame.iloc[fit_index]["cv_group_id"].astype(str)))
+        holdout = tuple(sorted(group_frame.iloc[holdout_index]["cv_group_id"].astype(str)))
+        if set(fit).intersection(holdout):
+            raise RuntimeError("CV-group fold partition overlaps")
+        partitions.append((fit, holdout))
+    return tuple(partitions)
+
+
 def build_required_replay_plan(
     *,
     inputs: PreparedNestedLearningInputs,
     outer_folds: int,
     inner_folds: int,
 ) -> pd.DataFrame:
+    group_column = (
+        "cv_group_id"
+        if "cv_group_id" in inputs.query_adjusted_states.columns
+        else "family"
+    )
     train_families = tuple(
         sorted(
             set(
                 inputs.query_adjusted_states.loc[
                     inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
-                    "family",
+                    group_column,
                 ].astype(str)
             )
         )
@@ -583,7 +621,7 @@ def build_required_replay_plan(
             set(
                 inputs.query_adjusted_states.loc[
                     inputs.query_adjusted_states["split"].astype(str).eq(VALIDATION_SPLIT),
-                    "family",
+                    group_column,
                 ].astype(str)
             )
         )
@@ -598,8 +636,8 @@ def build_required_replay_plan(
             fold_role="full_train_final",
         ).replay_plan
     ]
-    outer_partitions = family_fold_partitions(
-        families=train_families,
+    outer_partitions = cv_group_fold_partitions(
+        cv_groups=train_families,
         requested_folds=outer_folds,
     )
     for outer_fold, (outer_fit_families, outer_holdout_families) in enumerate(
@@ -614,8 +652,8 @@ def build_required_replay_plan(
                 fold_role=outer_role,
             ).replay_plan
         )
-        inner_partitions = family_fold_partitions(
-            families=outer_fit_families,
+        inner_partitions = cv_group_fold_partitions(
+            cv_groups=outer_fit_families,
             requested_folds=inner_folds,
         )
         for inner_fold, (inner_fit_families, inner_holdout_families) in enumerate(
@@ -989,18 +1027,24 @@ def _fold_state_view(
     families: set[str],
     sbs_algorithm: str,
 ) -> pd.DataFrame:
+    """Filter states by split, SBS algorithm, and CV group membership.
+
+    The ``families`` parameter carries CV group IDs.  Filtering uses
+    ``cv_group_id`` when present, falling back to ``family`` for legacy data.
+    """
+    group_column = "cv_group_id" if "cv_group_id" in states.columns else "family"
     view = states[
         states["split"].astype(str).eq(str(split))
-        & states["family"].astype(str).isin(families)
+        & states[group_column].astype(str).isin(families)
         & states["prefix_algorithm"].astype(str).eq(str(sbs_algorithm))
     ].copy()
     if view.empty:
         raise ValueError(
-            f"no all-prefix states remain for split={split}, SBS={sbs_algorithm}, families={sorted(families)}"
+            f"no all-prefix states remain for split={split}, SBS={sbs_algorithm}, CV groups={sorted(families)}"
         )
-    if set(view["family"].astype(str)) != families:
-        missing = sorted(families.difference(set(view["family"].astype(str))))
-        raise ValueError(f"fold-specific SBS view is missing families: {missing}")
+    if set(view[group_column].astype(str)) != families:
+        missing = sorted(families.difference(set(view[group_column].astype(str))))
+        raise ValueError(f"fold-specific SBS view is missing CV groups: {missing}")
     view["default_algorithm"] = str(sbs_algorithm)
     view["no_query_algorithm"] = str(sbs_algorithm)
     if not view["prefix_algorithm"].astype(str).eq(str(sbs_algorithm)).all():
@@ -1056,9 +1100,11 @@ def _check_performance_coverage(
     missing = sorted(required.difference(performance.columns))
     if missing:
         raise ValueError(f"SBS performance table is missing columns: {missing}")
-    train_families = set(states.loc[states["split"].astype(str) == TRAIN_SPLIT, "family"].astype(str))
-    if set(performance["family"].astype(str)) != train_families:
-        raise ValueError("SBS performance families must equal BBOB-train outcome families")
+    perf_group_column = "cv_group_id" if "cv_group_id" in performance.columns else "family"
+    states_group_column = "cv_group_id" if "cv_group_id" in states.columns else "family"
+    train_families = set(states.loc[states["split"].astype(str) == TRAIN_SPLIT, states_group_column].astype(str))
+    if set(performance[perf_group_column].astype(str)) != train_families:
+        raise ValueError("SBS performance CV groups must equal BBOB-train outcome CV groups")
     train_functions = set(
         states.loc[
             states["split"].astype(str) == TRAIN_SPLIT,
@@ -1121,10 +1167,11 @@ def _check_label_family_role(
     families: set[str],
     role: str,
 ) -> None:
+    group_column = "cv_group_id" if "cv_group_id" in labels.columns else "family"
     if set(labels["split"].astype(str)) != {split}:
         raise RuntimeError(f"{role} Utility label view uses the wrong split")
-    if set(labels["family"].astype(str)) != families:
-        raise RuntimeError(f"{role} Utility label view uses the wrong landscape families")
+    if set(labels[group_column].astype(str)) != families:
+        raise RuntimeError(f"{role} Utility label view uses the wrong CV groups")
 
 
 def _read_complete_path_timings(paths: list[Path]) -> pd.DataFrame:
@@ -1228,18 +1275,19 @@ def _fold_timing_view(
     split: str,
     families: set[str],
 ) -> pd.DataFrame:
+    group_column = "cv_group_id" if "cv_group_id" in timings.columns else "family"
     view = timings[
         timings["learning_fold_role"].astype(str).eq(str(learning_fold_role))
         & timings["split"].astype(str).eq(str(split))
-        & timings["family"].astype(str).isin(families)
+        & timings[group_column].astype(str).isin(families)
     ].copy()
     if view.empty:
         raise ValueError(
             "missing fold-specific complete-path timings for "
-            f"role={learning_fold_role}, split={split}, families={sorted(families)}"
+            f"role={learning_fold_role}, split={split}, CV groups={sorted(families)}"
         )
-    if set(view["family"].astype(str)) != families:
-        raise ValueError("fold-specific complete-path timings do not cover every requested family")
+    if set(view[group_column].astype(str)) != families:
+        raise ValueError("fold-specific complete-path timings do not cover every requested CV group")
     return view.drop(columns="learning_fold_role").reset_index(drop=True)
 
 
@@ -1265,13 +1313,14 @@ def _pre_run_fold_view(
     families: set[str],
     sbs_algorithm: str,
 ) -> pd.DataFrame:
+    group_column = "cv_group_id" if "cv_group_id" in states.columns else "family"
     view = states[
         states["split"].astype(str).eq(str(split))
-        & states["family"].astype(str).isin(families)
+        & states[group_column].astype(str).isin(families)
     ].copy()
-    if view.empty or set(view["family"].astype(str)) != families:
+    if view.empty or set(view[group_column].astype(str)) != families:
         raise ValueError(
-            f"pre-run outcomes do not cover split={split}, families={sorted(families)}"
+            f"pre-run outcomes do not cover split={split}, CV groups={sorted(families)}"
         )
     view["default_algorithm"] = str(sbs_algorithm)
     view["no_query_algorithm"] = str(sbs_algorithm)

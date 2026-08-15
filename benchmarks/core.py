@@ -23,10 +23,13 @@ class Problem:
     objective: Objective
     reference_value: float | None = None
     close_callback: CloseCallback | None = None
+    cv_group_id: str = ""
 
     def __post_init__(self) -> None:
         if not str(self.problem_id) or not str(self.function_id) or not str(self.family):
             raise ValueError("problem_id, function_id, and family must be non-empty")
+        if not str(self.cv_group_id):
+            object.__setattr__(self, "cv_group_id", str(self.function_id))
         for name in ("suite_code", "function_number", "instance_number"):
             value = int(getattr(self, name))
             if value <= 0:

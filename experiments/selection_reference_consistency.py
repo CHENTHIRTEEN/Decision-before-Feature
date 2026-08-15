@@ -332,16 +332,16 @@ def _check_query_specific_regression(
         states=cross_probe_states,
         portfolio=observed_portfolio,
         predictions=cross_probe_predictions,
-        prediction_source="cross_family_main_prefix",
+        prediction_source="cross_cv_group_main_prefix",
         runtime_selection=measure_online_selection_runtime(selector, cross_probe_states),
     )
     reference = pd.concat([main_reference, cross_probe_reference], ignore_index=True)
-    if len(reference) != 4 or source != "cross_family":
-        raise ValueError("query-specific selector did not produce cross-family predictions")
+    if len(reference) != 4 or source != "cross_cv_group":
+        raise ValueError("query-specific selector did not produce cross-CV-group predictions")
     if set(cross_probe_reference["selector_prediction_source"].astype(str)) != {
-        "cross_family_main_prefix"
+        "cross_cv_group_main_prefix"
     }:
-        raise ValueError("cross-probe states did not use main-prefix cross-family fits")
+        raise ValueError("cross-probe states did not use main-prefix cross-CV-group fits")
     expected_handoff = ~reference["selected_equals_prefix"].astype(bool)
     if not np.array_equal(reference["handoff_required"].to_numpy(dtype=bool), expected_handoff.to_numpy()):
         raise ValueError("selection reference handoff_required is inconsistent")

@@ -30,6 +30,18 @@
 
 协议文档已统一到上述口径，但源码、配置、数据生产器和资源排期仍需逐项核对。任何正式运行都必须等第 10 节 blocker 关闭后开始。
 
+## 1.1 当前更新（2026-08-15）
+
+本轮已继续同步以下更新：
+
+- 将仓库中的 `audit`/`审计` 普通步骤命名逐步替换为 `verification` / `consistency check` / `validation` / `check` 口径；
+- 新增 Stage 0 资源一致性检查命令 `stage0-resource-check`，用于核对配置级资源估算；
+- 新增 `tiny-end-to-end-check` 与 `.github/workflows/ci.yml`，用于轻量 CI 和最小端到端验证；
+- 冻结 prospective 外部集配置 `configs/prospective_suites.yaml`，当前包含 `cec2022` 与 `ma_bbob`；
+- `P0-08`、`P0-09`、`P0-10` 已在验证清单中标记完成。
+
+上述更新只改变命名、最小验证与文档同步，不改变当前研究问题与实验协议边界。
+
 ## 2. 研究对象与结论边界
 
 研究问题是：在连续黑盒优化的预定义在线状态分布上，执行一个固定 landscape-descriptor query 并调用其下游 Selector，相比原生继续 fold-specific SBS，是否改善成本调整后的终点性能；仅使用 query 前算法无关行为，能否改善这个调用决策。

@@ -21,7 +21,7 @@ unit.
     RQ & Question & Evaluation criteria \\
     \midrule
     RQ1 & Statewise value of the primary query & State--run--static-problem--fixed-dimension-stratum--function-balanced Utility distribution and decomposition; proportion with $U_q\le0$; effect intervals. \\
-    RQ2 & Information beyond elapsed budget & Grouped-by-function training OOF candidate selection and diagnostics; the prespecified milestone-matched B3--T0 contrast is reported as a previously inspected BBOB-validation internal estimate and separately on each eligible external suite. \\
+    RQ2 & Information beyond elapsed budget & `cv_group_id = function_id` training OOF candidate selection and diagnostics; the prespecified milestone-matched B3--T0 contrast is reported as a previously inspected BBOB-validation internal estimate and separately on each eligible external suite. \\
     RQ3 & End-to-end policy trade-off & First-trigger call quality, final performance, FE use, runtime, and paired comparisons with all required policies. \\
     RQ4 & Transport of the frozen procedure & Separate previously inspected BBOB and CEC2017 development estimates and prospective CEC2022 and engineering estimates, including coverage and prespecified failures. \\
     RQ5 & Behavioral associations with query value & Milestone-matched behavior increments, maturity-separated ablations, parameter stability, and prespecified strata. \\
@@ -29,7 +29,7 @@ unit.
   \end{tabularx}
 \end{table*}
 
-\subsection{Internal benchmark and grouped-by-function partition}
+\subsection{Internal benchmark and `cv_group_id = function_id` partition}
 
 The internal benchmark is the noiseless BBOB suite.  The training set comprises
 functions 1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, and 23;
@@ -67,11 +67,9 @@ based on a $p$-value threshold.
 External evaluation is organized as non-pooled, suite-specific analyses.  The
 current CEC2017 configuration specifies dimensions 10, 30, and 50, seeds
 $1,\ldots,30$, population size 40, and budget $B=1000d$.  Its function list is
-not yet an executable manuscript commitment: the current F1--F29 list includes
-F2 and excludes F30, while the project contains no source establishing that
-choice for the implementation in use.  The F2/F30 treatment must be reconciled
-with the implementation and benchmark definition before any further evaluation
-under the current protocol.  The four-algorithm portfolio and dynamic opportunity protocol remain
+now frozen to the official 29-problem set F1, F3--F30, with F2 removed.  The
+benchmark definition and the implementation are aligned before any further
+evaluation under the current protocol.  The four-algorithm portfolio and dynamic opportunity protocol remain
 unchanged, and all learned components are then held fixed at their
 BBOB-training estimates.
 
@@ -271,8 +269,8 @@ observations, or policy rewards.
   \item \textbf{SBS}: use the training-derived static default defined above.  In the primary population, the prefix and default are this same SBS, so its native complete-budget path coincides with Never Query; the separate name preserves its role as the standard algorithm-selection reference rather than introducing another online trajectory.
   \item \textbf{VBS}: for each static problem defined by function, instance, and dimension, average each algorithm's complete-budget clipped $\log_{10}$ gap over optimizer seeds, select the algorithm with the smallest mean (ties follow DE, PSO, CMA-ES, SHADE), and then retain that algorithm's paired seed-level outcomes for aggregation.  It never chooses an algorithm separately for each seed.  It is a non-deployable problem-level hindsight reference, does not necessarily upper-bound a dynamic policy run by run, and is distinct from the statewise best observed action.
   \item \textbf{Milestone-only Time Controller}: use the selected Decision Model family and the same training-only threshold procedure as the full controller, with input restricted to $\{FE/B\}$.  It is fitted and checked only at the twelve mandatory milestones and stops after its first trigger.
-  \item \textbf{Self-thresholded Behavior-only Selection}: fit the same frozen model family to $U_b$ and obtain its own train-only first-trigger threshold.  At its first crossing, the full-budget Behavior-only selector chooses the continuation or handoff action; query-call rate and query FEs are zero, while trigger and handoff rates remain reportable.
-  \item \textbf{Decision-before-Feature}: use B3 Behavior with the selected model and the threshold estimated from full-training fold-specific upstream OOF predictions; acquire the query only at the first threshold crossing and invoke the full state-plus-query selector once.
+  \item \textbf{Self-thresholded Behavior-only Selection}: fit the same frozen model family to $U_b$ and obtain its own train-only first-trigger threshold.  At its first crossing, the full-budget Behavior-only selector chooses the continuation or handoff action; query-call rate and query FEs are zero, while trigger and handoff rates remain reportable.  This is the primary no-query comparator in the main decision question.
+  \item \textbf{Decision-before-Feature}: use B3 Behavior with the selected model and the threshold estimated from full-training fold-specific upstream OOF predictions; acquire the query only at the first threshold crossing and invoke the full state-plus-query selector once.  This policy is judged against the best available no-query policy, not against native Skip alone.
 \end{itemize}
 In the primary population, Never Query and SBS yield the same native terminal
 outcome and are therefore reported once as \emph{Never Query / SBS}.  The other
@@ -297,7 +295,7 @@ population-transfer rule.  The pre-run AAS and behavior-only selectors are
 
 \subsection{Evaluation measures}
 
-Decision-model family selection uses nested grouped-by-function OOF mean decision
+Decision-model family selection uses nested `cv_group_id = function_id` OOF mean decision
 utility.  AUROC, average precision, and Spearman correlation are secondary
 score-level measures.  Continuous-utility RMSE is reported only for Ridge;
 classification probabilities and discriminant scores are not compared with

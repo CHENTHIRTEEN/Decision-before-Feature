@@ -664,7 +664,7 @@ configs
 oracle
 tests
 schema_registry
-audit
+verification
 ```
 
 ## 16.1 算法切换后的初始化口径

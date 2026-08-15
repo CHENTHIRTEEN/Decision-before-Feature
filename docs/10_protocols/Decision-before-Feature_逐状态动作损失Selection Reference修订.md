@@ -175,8 +175,8 @@ L_{noquery}-L_{selector}=V_{potential}-R_{selector}.
 
 ## 8. 数据泄漏控制
 
-- BBOB train 与 validation 继续按 function-ID split 隔离；该设计只称 grouped-by-function，不声称经典 landscape-family 泛化；
-- train utility labels 使用 grouped-by-function selector predictions，不使用对同一 function 的 in-sample predictions；
+- BBOB train 与 validation 继续按 function-ID split 隔离；该设计只称 `cv_group_id = function_id`，不声称经典 landscape-family 泛化；
+- train utility labels 使用 `cv_group_id = function_id` selector predictions，不使用对同一 function 的 in-sample predictions；
 - Decision outer holdout function 不参与该 fold 的 `SBS_outer`、两类 Selector、Utility、Decision、inner threshold 或 Random calibration；每个 inner holdout 同样不参与其评价链的 `SBS_inner`、Selector、Utility 或 preprocessing；
 - validation、CEC2017、CEC2022 和工程问题不参与 selector、Decision Model、preprocessing 或 threshold 拟合；
 - 逐状态最佳已观测动作、observed action losses 和 selector regret 只作为离线标签或诊断字段，不进入可部署模型输入；

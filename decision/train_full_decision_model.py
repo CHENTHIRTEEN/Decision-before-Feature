@@ -47,6 +47,7 @@ from decision.nested_learning import (
     PreparedNestedLearningInputs,
     build_required_replay_plan,
     build_fold_learning_views,
+    cv_group_fold_partitions,
     family_fold_partitions,
     prepare_nested_learning_inputs,
 )
@@ -81,6 +82,7 @@ METADATA_COLUMNS = (
     "problem_id",
     "function_id",
     "family",
+    "cv_group_id",
     "dimension",
     "prefix_algorithm",
     "seed",
@@ -165,6 +167,7 @@ FORBIDDEN_X_NAME_FRAGMENTS = (
     "family",
     "problem",
     "dimension",
+    "group",
 )
 TOP_K_FRACTIONS = (0.05, 0.10, 0.20)
 EPS = 1e-12
@@ -173,6 +176,7 @@ RUN_KEY_COLUMNS = (
     "problem_id",
     "function_id",
     "family",
+    "cv_group_id",
     "dimension",
     "prefix_algorithm",
     "seed",
@@ -410,7 +414,7 @@ def train_full_decision_models(
                 "objective": spec.objective,
                 "threshold_mode": threshold_mode,
                 "threshold": float(threshold),
-                "threshold_source": "fixed_zero" if threshold_mode == "zero" else "full_train_family_oof",
+                "threshold_source": "fixed_zero" if threshold_mode == "zero" else "full_train_cv_group_oof",
                 "fit_split": "fixed" if threshold_mode == "zero" else TRAIN_SPLIT,
                 "oof_folds": 0 if threshold_mode == "zero" else FULL_TRAIN_OOF_FOLDS,
                 "in_sample_train_rows_used_for_threshold_fit": 0,
@@ -428,7 +432,7 @@ def train_full_decision_models(
                 "threshold_neighborhood_source": (
                     "not_applicable"
                     if threshold_mode == "zero"
-                    else "full_train_family_oof_absolute_score_margin"
+                    else "full_train_cv_group_oof_absolute_score_margin"
                 ),
                 "validation_rows_used_for_neighborhood_fit": 0,
             }
@@ -618,7 +622,7 @@ def train_full_decision_models(
                 "policy_target": "behavior_only_full_budget",
                 "threshold_mode": BEHAVIOR_FROZEN_THRESHOLD_MODE,
                 "threshold": float(behavior_frozen_threshold),
-                "threshold_source": "fold_specific_upstream_full_train_family_oof",
+                "threshold_source": "fold_specific_upstream_full_train_cv_group_oof",
                 "fit_split": TRAIN_SPLIT,
                 "oof_folds": FULL_TRAIN_OOF_FOLDS,
                 "in_sample_train_rows_used_for_threshold_fit": 0,
@@ -768,7 +772,7 @@ def train_full_decision_models(
         "models_trained": list(ACTIVE_MODEL_NAMES),
         "model_selection_metric": MODEL_SELECTION_METRIC,
         "selected_model_name": selected_model_name,
-        "selected_model_source": "nested_landscape_family_oof_on_bbob_train",
+        "selected_model_source": "nested_cv_group_oof_on_bbob_train",
         "model_selection_tie_break": "function_balanced_utility_then_frozen_candidate_order",
         "threshold_modes": ["zero", FROZEN_THRESHOLD_MODE],
         "behavior_only_policy": {
@@ -786,7 +790,7 @@ def train_full_decision_models(
             "model_path": str(behavior_model_path),
         },
         "oof_protocol": {
-            "group_column": "family",
+            "group_column": "cv_group_id",
             "outer_folds": OUTER_OOF_FOLDS,
             "inner_folds": INNER_OOF_FOLDS,
             "full_train_threshold_folds": FULL_TRAIN_OOF_FOLDS,
@@ -808,7 +812,7 @@ def train_full_decision_models(
             "threshold_tie_break": "lower_hierarchically_weighted_call_rate_then_larger_threshold",
             "fixed_dimension_coverage_required": True,
             "threshold_neighborhood": {
-                "definition": "Q10(abs(full-train landscape-family OOF score - fixed oof_utility threshold))",
+                "definition": "Q10(abs(full-train CV-group OOF score - fixed oof_utility threshold))",
                 "quantile": THRESHOLD_NEIGHBORHOOD_QUANTILE,
                 "role": "optional_post-training_online_review_only",
                 "validation_rows_used": 0,
@@ -876,8 +880,8 @@ def train_full_decision_models(
             "query_features_used_by_query_selector": True,
             "model_selection_uses_validation_rows": False,
             "threshold_selection_uses_validation_rows": False,
-            "oof_preprocessing_is_fit_within_each_family_fold": True,
-            "oof_sbs_selectors_and_utility_are_rebuilt_within_each_family_fold": True,
+            "oof_preprocessing_is_fit_within_each_cv_group_fold": True,
+            "oof_sbs_selectors_and_utility_are_rebuilt_within_each_cv_group_fold": True,
             "validation_rows_used_for_imputer_scaler_model_or_threshold_fit": 0,
         },
     }
@@ -1250,22 +1254,27 @@ def _family_oof_scores(
     fold_role: str,
     outer_fold: int | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame]:
-    groups = frame["family"].astype(str).to_numpy()
+    groups = (
+        frame["cv_group_id"].astype(str).to_numpy()
+        if "cv_group_id" in frame.columns
+        else frame["family"].astype(str).to_numpy()
+    )
     unique_groups = np.unique(groups)
     n_splits = min(int(requested_folds), len(unique_groups))
     if n_splits < 2:
-        raise ValueError(f"{fold_role} requires at least two landscape families")
+        raise ValueError(f"{fold_role} requires at least two CV groups")
     scores = np.full(len(frame), np.nan, dtype=float)
     fold_rows: list[dict[str, Any]] = []
     splitter = GroupKFold(n_splits=n_splits)
     for fold_index, (fit_index, holdout_index) in enumerate(splitter.split(frame, groups=groups)):
         fit_frame = frame.iloc[fit_index]
         holdout_frame = frame.iloc[holdout_index]
-        fit_families = sorted(set(fit_frame["family"].astype(str)))
-        holdout_families = sorted(set(holdout_frame["family"].astype(str)))
+        group_col = "cv_group_id" if "cv_group_id" in frame.columns else "family"
+        fit_families = sorted(set(fit_frame[group_col].astype(str)))
+        holdout_families = sorted(set(holdout_frame[group_col].astype(str)))
         overlap = sorted(set(fit_families).intersection(holdout_families))
         if overlap:
-            raise RuntimeError(f"landscape-family OOF fold overlap: {overlap}")
+            raise RuntimeError(f"CV-group OOF fold overlap: {overlap}")
         fitted, used_constant_classifier, fit_positive_rows, fit_negative_rows = _fit_model(
             clone(spec.estimator),
             fit_frame,
@@ -1446,12 +1455,17 @@ def _function_balanced_run_mean(
 
 
 def _train_family_values(inputs: PreparedNestedLearningInputs) -> tuple[str, ...]:
+    group_column = (
+        "cv_group_id"
+        if "cv_group_id" in inputs.query_adjusted_states.columns
+        else "family"
+    )
     return tuple(
         sorted(
             set(
                 inputs.query_adjusted_states.loc[
                     inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
-                    "family",
+                    group_column,
                 ].astype(str)
             )
         )
@@ -1470,8 +1484,8 @@ def _end_to_end_family_oof_scores(
     auxiliary_label_column: str,
     expected_dimensions: Sequence[int],
 ) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
-    partitions = family_fold_partitions(
-        families=_train_family_values(inputs),
+    partitions = cv_group_fold_partitions(
+        cv_groups=_train_family_values(inputs),
         requested_folds=requested_folds,
     )
     holdout_frames: list[pd.DataFrame] = []
@@ -1528,8 +1542,9 @@ def _end_to_end_family_oof_scores(
     scores = np.concatenate(holdout_scores).astype(float, copy=False)
     if len(frame) != len(scores) or not np.isfinite(scores).all():
         raise RuntimeError(f"{fold_role} did not produce one finite score per held-out row")
-    if set(frame["family"].astype(str)) != set(_train_family_values(inputs)):
-        raise RuntimeError(f"{fold_role} does not cover every BBOB-train landscape family")
+    group_col = "cv_group_id" if "cv_group_id" in frame.columns else "family"
+    if set(frame[group_col].astype(str)) != set(_train_family_values(inputs)):
+        raise RuntimeError(f"{fold_role} does not cover every BBOB-train CV group")
     return frame, scores, pd.DataFrame(fold_rows)
 
 
@@ -1541,8 +1556,8 @@ def _nested_family_oof_predictions(
     opportunity_scope: str,
     expected_dimensions: Sequence[int],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    outer_partitions = family_fold_partitions(
-        families=_train_family_values(inputs),
+    outer_partitions = cv_group_fold_partitions(
+        cv_groups=_train_family_values(inputs),
         requested_folds=OUTER_OOF_FOLDS,
     )
     prediction_frames: list[pd.DataFrame] = []
@@ -1565,8 +1580,8 @@ def _nested_family_oof_predictions(
 
         inner_frames: list[pd.DataFrame] = []
         inner_scores: list[np.ndarray] = []
-        inner_partitions = family_fold_partitions(
-            families=outer_fit_families,
+        inner_partitions = cv_group_fold_partitions(
+            cv_groups=outer_fit_families,
             requested_folds=INNER_OOF_FOLDS,
         )
         for inner_fold, (inner_fit_families, inner_holdout_families) in enumerate(
@@ -1683,15 +1698,16 @@ def _nested_family_oof_predictions(
                         "family_overlap_count": 0,
                         "validation_rows_used": 0,
                         "threshold": float(threshold),
-                        "threshold_source": "inner_fold_specific_upstream_family_oof",
+                        "threshold_source": "inner_fold_specific_upstream_cv_group_oof",
                         "upstream_components_refit_within_fold": True,
                     }
                 ]
             )
         )
     predictions = pd.concat(prediction_frames, ignore_index=True)
-    if set(predictions["family"].astype(str)) != set(_train_family_values(inputs)):
-        raise RuntimeError("nested OOF predictions do not cover every BBOB-train family")
+    pred_group_col = "cv_group_id" if "cv_group_id" in predictions.columns else "family"
+    if set(predictions[pred_group_col].astype(str)) != set(_train_family_values(inputs)):
+        raise RuntimeError("nested OOF predictions do not cover every BBOB-train CV group")
     return predictions, pd.concat(fold_frames, ignore_index=True)
 
 
@@ -1918,25 +1934,25 @@ def _nested_model_selection_summary(
                 "call_utility",
                 expected_dimensions=expected_dimensions,
             ),
-            "nested_family_oof_decision_utility_sum": float(np.sum(decision_utility)),
-            "nested_family_oof_runs": int(len(run_summary)),
-            "nested_family_oof_query_call_rate": float(np.mean(calls)),
-            "nested_family_oof_precision_u_gt_zero_under_calls": float(
+            "nested_cv_group_oof_decision_utility_sum": float(np.sum(decision_utility)),
+            "nested_cv_group_oof_runs": int(len(run_summary)),
+            "nested_cv_group_oof_query_call_rate": float(np.mean(calls)),
+            "nested_cv_group_oof_precision_u_gt_zero_under_calls": float(
                 np.sum(captured_positive) / max(int(np.sum(calls)), 1)
             ),
-            "nested_family_oof_utility_capture_rate": (
+            "nested_cv_group_oof_utility_capture_rate": (
                 captured_positive_utility_sum / positive_utility_sum if positive_utility_sum > 0.0 else 0.0
             ),
-            "nested_family_oof_auroc": _finite_binary_metric(positive, scores, roc_auc_score),
-            "nested_family_oof_average_precision": _finite_binary_metric(
+            "nested_cv_group_oof_auroc": _finite_binary_metric(positive, scores, roc_auc_score),
+            "nested_cv_group_oof_average_precision": _finite_binary_metric(
                 positive,
                 scores,
                 average_precision_score,
             ),
-            "nested_family_oof_spearman": _finite_metric(
+            "nested_cv_group_oof_spearman": _finite_metric(
                 lambda: pd.Series(observed).corr(pd.Series(scores), method="spearman")
             ),
-            "nested_family_oof_rmse": (
+            "nested_cv_group_oof_rmse": (
                 float(mean_squared_error(observed, scores) ** 0.5) if spec.supports_utility_rmse else None
             ),
             "rmse_applicable": bool(spec.supports_utility_rmse),
@@ -2356,8 +2372,8 @@ def _markdown_report(
             "- Dataset: formal phase1 refined sampling materialized Decision dataset.",
             "- Train split: `bbob_train`; validation split: `bbob_validation`.",
             "- Active candidates are fixed to LDA, Logistic Regression, and Ridge.",
-            "- Model selection uses nested landscape-family OOF decision utility on BBOB-train only.",
-            "- Fixed thresholds use full BBOB-train landscape-family OOF scores; validation is evaluation only.",
+            "- Model selection uses nested CV-group (function-ID) OOF decision utility on BBOB-train only.",
+            "- Fixed thresholds use full BBOB-train CV-group OOF scores; validation is evaluation only.",
             "- Metadata is used only for reporting, splitting, and error analysis.",
             f"- Feature group: `{summary['feature_group']}` with {summary['feature_count']} input columns.",
             f"- Selected model: `{summary['selected_model_name']}`.",
@@ -2559,7 +2575,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Fit fold-specific SBS/Selectors/Utility labels and train the frozen "
-            "three-candidate Decision protocol with nested landscape-family OOF."
+            "three-candidate Decision protocol with nested CV-group OOF."
         )
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)

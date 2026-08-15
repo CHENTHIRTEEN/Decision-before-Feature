@@ -141,7 +141,7 @@ decision.nested_learning  (由模型训练/比较 CLI 直接调用)
 
 每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`、cross-fit/拟合 Query 和 Behavior-only Selectors。每个 inner fold 再只用 inner-fit functions 计算 `SBS_inner`、cross-fit/拟合 Selectors并生成 inner Decision labels。Selector 主 target 是相对 `continue_current` 的 `clipped_log10_gap_advantage_vs_continue_current`；旧 statewise min-max target 只作敏感性分析。Utility 使用 selected observed gap 与 state-to-terminal future-path 时间，不直接使用 Selector target。
 
-当前实现尚未持久化 outer/inner grouped-by-function cross-fitted Selector artifacts，也未在 replay plan 中提供历史 `fold role/family -> Selector artifact` key 路由；offline decision-state-to-terminal runner 同样尚未实现。三项均是 Stage-B blocker，未关闭前不得生成最终 Utility。
+当前实现尚未持久化 outer/inner `cv_group_id = function_id` cross-fitted Selector artifacts，也未在 replay plan 中提供历史 `fold role/cv_group_id -> Selector artifact` key 路由；offline decision-state-to-terminal runner 同样尚未实现。三项均是 Stage-B blocker，未关闭前不得生成最终 Utility。
 
 Query-adjusted state-only 与 full Selector 在同一 action matrix 上的 OOF selected continuation-only `log10_gap` 差输出为 `query_feature_predictive_increment_log10_gap`，排除 query sample best，只作预测诊断。
 

@@ -272,7 +272,7 @@ bf_explore_exploit_ratio
 
 活动候选固定为 LDA、Logistic Regression 与 Ridge。每个 fit fold 内独立拟合 median imputer、scaler 和模型；训练 fold 整列缺失时停止，不从 holdout/validation 补值。
 
-每个 grouped-by-function outer holdout 的链为：
+每个 `cv_group_id = function_id` outer holdout 的链为：
 
 ```text
 outer-fit functions

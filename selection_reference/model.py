@@ -62,6 +62,7 @@ PRE_RUN_STATE_KEY_COLUMNS = (
     "problem_id",
     "function_id",
     "family",
+    "cv_group_id",
     "dimension",
     "seed",
     "FE",
@@ -1090,8 +1091,9 @@ def fit_selector_with_cross_family_predictions(
     y = states[[f"target_selector_loss_{algorithm}" for algorithm in portfolio]].to_numpy(
         dtype=float
     )
-    unique_families = states["family"].astype(str).nunique()
-    if unique_families >= 2:
+    group_column = "cv_group_id" if "cv_group_id" in states.columns else "function_id"
+    unique_groups = states[group_column].astype(str).nunique()
+    if unique_groups >= 2:
         cross_predictions = predict_with_main_prefix_cross_family_fits(
             training_states=states,
             prediction_states=states,
@@ -1099,7 +1101,7 @@ def fit_selector_with_cross_family_predictions(
             query_spec=query_spec,
             selector_input_mode=selector_input_mode,
         )
-        prediction_source = "cross_family"
+        prediction_source = "cross_cv_group"
     else:
         diagnostic_model = _make_model()
         fit_pipeline_with_weights(
@@ -1109,9 +1111,9 @@ def fit_selector_with_cross_family_predictions(
             cluster_balanced_row_weights(states),
         )
         cross_predictions = np.asarray(diagnostic_model.predict(x), dtype=float)
-        prediction_source = "in_sample_insufficient_families"
+        prediction_source = "in_sample_insufficient_cv_groups"
     if not np.isfinite(cross_predictions).all():
-        raise ValueError("cross-family selector predictions contain missing or non-finite values")
+        raise ValueError("cross-CV-group selector predictions contain missing or non-finite values")
     final_model = _make_model()
     fit_pipeline_with_weights(
         final_model,
@@ -1174,9 +1176,17 @@ def predict_with_main_prefix_cross_family_fits(
     query_spec: LandscapeQuerySpec,
     selector_input_mode: str = QUERY_FULL_INPUT,
 ) -> np.ndarray:
-    """Predict each state with a model that excludes its complete landscape family."""
+    """Predict each state with a model that excludes its complete CV group.
+
+    The CV grouping field is ``cv_group_id`` (set equal to ``function_id`` in the
+    main experiment), not ``family``.  This ensures the selector is evaluated
+    on unseen functions rather than unseen landscape families.
+    """
+    group_column = "cv_group_id" if "cv_group_id" in training_states.columns else "function_id"
+    if group_column not in prediction_states.columns:
+        raise ValueError(f"prediction states are missing the CV group column: {group_column}")
     if training_states.empty or prediction_states.empty:
-        raise ValueError("cross-family selector prediction requires non-empty state tables")
+        raise ValueError("cross-CV-group selector prediction requires non-empty state tables")
     feature_columns = selector_feature_columns(query_spec, selector_input_mode)
     missing_training = set(feature_columns).difference(training_states.columns)
     missing_prediction = set(feature_columns).difference(prediction_states.columns)
@@ -1189,36 +1199,36 @@ def predict_with_main_prefix_cross_family_fits(
     if missing_targets:
         raise ValueError(f"selector training states are missing targets: {sorted(missing_targets)}")
 
-    training_families = training_states["family"].astype(str).to_numpy()
-    prediction_families = prediction_states["family"].astype(str).to_numpy()
-    unique_training_families = np.unique(training_families)
-    if len(unique_training_families) < 2:
-        raise ValueError("cross-family selector prediction requires at least two training families")
-    unknown_prediction_families = sorted(
-        set(prediction_families).difference(unique_training_families)
+    training_groups = training_states[group_column].astype(str).to_numpy()
+    prediction_groups = prediction_states[group_column].astype(str).to_numpy()
+    unique_training_groups = np.unique(training_groups)
+    if len(unique_training_groups) < 2:
+        raise ValueError("cross-CV-group selector prediction requires at least two training groups")
+    unknown_prediction_groups = sorted(
+        set(prediction_groups).difference(unique_training_groups)
     )
-    if unknown_prediction_families:
+    if unknown_prediction_groups:
         raise ValueError(
-            "cross-family prediction states contain families absent from main-prefix training: "
-            f"{unknown_prediction_families}"
+            "cross-CV-group prediction states contain groups absent from training: "
+            f"{unknown_prediction_groups}"
         )
 
     x_training = training_states[list(feature_columns)]
     y_training = training_states[target_columns].to_numpy(dtype=float)
     x_prediction = prediction_states[list(feature_columns)]
     predictions = np.full((len(prediction_states), len(portfolio)), np.nan, dtype=float)
-    splitter = GroupKFold(n_splits=min(5, len(unique_training_families)))
+    splitter = GroupKFold(n_splits=min(len(unique_training_groups), len(unique_training_groups)))
     for fit_indices, held_indices in splitter.split(
         x_training,
         y_training,
-        groups=training_families,
+        groups=training_groups,
     ):
-        fit_families = set(training_families[fit_indices])
-        held_families = set(training_families[held_indices])
-        if fit_families.intersection(held_families):
-            raise RuntimeError("selector landscape-family cross-fitting fold contains group overlap")
+        fit_groups = set(training_groups[fit_indices])
+        held_groups = set(training_groups[held_indices])
+        if fit_groups.intersection(held_groups):
+            raise RuntimeError("selector CV-group cross-fitting fold contains group overlap")
         prediction_indices = np.flatnonzero(
-            np.isin(prediction_families, tuple(sorted(held_families)))
+            np.isin(prediction_groups, tuple(sorted(held_groups)))
         )
         if len(prediction_indices) == 0:
             continue
@@ -1233,7 +1243,7 @@ def predict_with_main_prefix_cross_family_fits(
             x_prediction.iloc[prediction_indices]
         )
     if not np.isfinite(predictions).all():
-        raise ValueError("cross-family selector predictions contain missing or non-finite values")
+        raise ValueError("cross-CV-group selector predictions contain missing or non-finite values")
     return predictions
 
 

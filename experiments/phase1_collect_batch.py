@@ -68,6 +68,7 @@ def _run_one(
             problem_id=problem_id,
             function_id=function_id_name(suite, function),
             family=landscape_family_name(suite, function),
+            cv_group_id=function_id_name(suite, function),
             dimension=dimension,
             algorithm=algorithm,
             seed=seed,

@@ -66,6 +66,7 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
         problem_id=problem_id,
         function_id=bbob_function_id(function),
         family=bbob_landscape_family(function),
+        cv_group_id=bbob_function_id(function),
         dimension=dimension,
         suite_code=1,
         function_number=int(function),
@@ -74,4 +75,5 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
         objective=objective,
         reference_value=reference_value,
         close_callback=close_problem,
+        cv_group_id=bbob_function_id(function),
     )

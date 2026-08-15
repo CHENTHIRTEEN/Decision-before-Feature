@@ -115,7 +115,7 @@ flowchart TD
 | C11  | Query 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
 | C12  | Query 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
 | C12a | 当前 `selection_reference` 是固定下游组件，不是本文贡献点 |    M / O | [R3], [R5], [R5a]  | 文献支持 ELA-based selector 范式；当前实现质量和泛化风险必须由本文诊断报告 |
-| C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、grouped-by-function cross-fitted predictions 和 best-observed-action 分解属于本项目协议 |
+| C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、`cv_group_id = function_id` cross-fitted predictions 和 best-observed-action 分解属于本项目协议 |
 | C12c | 逐状态最小已观测 action loss 不能称为 oracle，也不能在实测 loss 外再次扣除 Population Transfer 影响 | O | 无需外部引用 | 这是术语与代数一致性要求；handoff 已进入 observed action loss，query FE 已进入等总预算路径 |
 | C12d | Query sample 虽不进入 optimizer population，但 sample best 与 first hit 必须进入 Query terminal gap、`target_hit_observed` 与 ERT；`endpoint_success` 另要求 continuation 完成 | O / M | [R10], [R11] | objective evaluation 与 endpoint 记账有 benchmarking 背景；具体 sample/continuation 分解是项目协议 |
 | C12e | `query_operational_increment_lamT_1` 与 `query_feature_predictive_increment_log10_gap` 回答不同问题 | O | 无需外部引用 | 前者是不同预算 operational paths 的净差；后者是同一 query-budget outcomes 上的 OOF continuation-only 预测诊断 |
@@ -170,7 +170,7 @@ flowchart TD
 | C33  | DE、PSO、CMA-ES、SHADE 可作为本项目的四算法连续优化 portfolio          |        D | [R24]–[R27]     | 当前实现是 SHADE，不得写成 L-SHADE；也不能宣称覆盖全部搜索范式 |
 | C34  | BBOB/COCO 可用于规范化黑盒优化评估                                   |        D | [R10], [R11]     | 支持实例、FE 和 anytime 评价                        |
 | C35  | CEC2017 与 CEC2022 可作为跨 benchmark 测试集                         |    D / O | [R30], [R31]     | 技术报告定义 benchmark；将其视作 OOD 是本文实验设计 |
-| C36  | Function-ID grouped split 比随机 instance split 更直接检验未见 function ID，同时阻止同一基础函数泄漏 |    I / O | [R8]–[R10]      | 当前 `family=bbob_fNNN` 不是经典 landscape-family taxonomy，不能据此声称跨函数族泛化 |
+| C36  | Function-ID grouped split 比随机 instance split 更直接检验未见 function ID，同时阻止同一基础函数泄漏 |    I / O | [R8]–[R10]      | 当前 `cv_group_id = function_id`；`family=bbob_fNNN` 不是经典 landscape-family taxonomy，不能据此声称跨函数族泛化 |
 | C37  | 应分别报告跨维度、未见 function ID、跨 benchmark 与留一算法诊断；跨经典函数族只有在补充可复核 taxonomy 后才可命名 |    O / M | [R10], [R11]     | 属于本文分层泛化协议，不把不同层级池化为单一 OOD 结论 |
 
 ---

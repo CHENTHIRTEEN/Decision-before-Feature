@@ -1,24 +1,14 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-This work formulates analysis selection as a decision that precedes the
-execution of a prespecified fixed landscape query. The proposed offline workflow
-links full-state optimizer trajectories, permutation-invariant behavior states,
-statewise observed action losses, a fixed Selection Reference, and a supervised
-Decision Model while preserving equal total FE budgets.  It distinguishes the
-joint Query path utility from both the different-budget Behavior-only
-operational increment and the same-budget continuation-only predictive
-increment of query descriptors.  It also distinguishes decision-state future
-path time from FE-zero-to-terminal policy wall-clock.  These design elements
-define the evaluation; they do not substitute for the empirical
-evidence required by RQ1--RQ5.
+This work formulates analysis selection as a decision that precedes the execution of a prespecified fixed landscape query. The proposed offline workflow links full-state optimizer trajectories, permutation-invariant behavior states, statewise observed action losses, a fixed Selection Reference, and a supervised Decision Model while preserving equal total FE budgets.  It distinguishes the joint Query path utility from both the different-budget Behavior-only operational increment and the same-budget continuation-only predictive increment of query descriptors.  It also distinguishes decision-state future path time from FE-zero-to-terminal policy wall-clock.  In the main decision question, the query path is evaluated against the best available no-query policy, so Behavior-only is the primary comparator and native Skip is the secondary no-query reference.  The five-path decomposition remains the operational interpretation, but the binary label is still Query versus best no-query policy.  These design elements define the evaluation; they do not substitute for the empirical evidence required by RQ1--RQ5.
 
 \TBD{TBD-CONC-RQ1} Whether the primary query has non-positive utility in a
 statistically supported subset of states remains undetermined; the required
 effect size, interval, and query-specific scope are not yet available.
 
 \TBD{TBD-CONC-RQ2} Whether algorithm-agnostic behavior predicts query utility
-beyond FE ratio alone remains undetermined pending nested grouped-by-function
+beyond FE ratio alone remains undetermined pending nested `cv_group_id = function_id`
 OOF evidence and suite-specific evaluation.
 
 \TBD{TBD-CONC-RQ3} Effects on calls with non-positive utility, mean decision

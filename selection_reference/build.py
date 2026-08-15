@@ -85,7 +85,7 @@ def build_selection_reference(
                 states=cross_probe_states,
                 portfolio=portfolio,
                 predictions=cross_probe_predictions,
-                prediction_source="cross_family_main_prefix",
+                prediction_source="cross_cv_group_main_prefix",
                 runtime_selection=measure_online_selection_runtime(
                     selector_model,
                     cross_probe_states,
@@ -313,13 +313,13 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         train["prefix_algorithm"].astype(str) != train["default_algorithm"].astype(str)
     ]
     held_out = reference[reference["split"].astype(str) != "bbob_train"]
-    if main_prefix.empty or set(main_prefix["selector_prediction_source"].astype(str)) != {"cross_family"}:
-        raise ValueError("BBOB-train main-prefix rows must use cross-family selector predictions")
+    if main_prefix.empty or set(main_prefix["selector_prediction_source"].astype(str)) != {"cross_cv_group"}:
+        raise ValueError("BBOB-train main-prefix rows must use cross-CV-group selector predictions")
     if not cross_probe.empty and set(cross_probe["selector_prediction_source"].astype(str)) != {
-        "cross_family_main_prefix"
+        "cross_cv_group_main_prefix"
     }:
         raise ValueError(
-            "BBOB-train cross-probe rows must use main-prefix fits that exclude their landscape family"
+            "BBOB-train cross-probe rows must use main-prefix fits that exclude their CV group"
         )
     if not held_out.empty and set(held_out["selector_prediction_source"].astype(str)) != {"train_fit"}:
         raise ValueError("held-out selector rows must use the complete BBOB-train fit")

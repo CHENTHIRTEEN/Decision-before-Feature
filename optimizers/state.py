@@ -650,7 +650,6 @@ def _start_shade_generation(state: SHADEState, problem: Problem) -> None:
     trials = np.empty_like(population)
     f_values = np.empty(pop_size, dtype=float)
     cr_values = np.empty(pop_size, dtype=float)
-    indices = np.arange(pop_size)
     for i in range(pop_size):
         slot = int(rng.integers(len(state.memory_f)))
         f_value = _sample_cauchy_positive(rng, state.memory_f[slot])
@@ -659,10 +658,12 @@ def _start_shade_generation(state: SHADEState, problem: Problem) -> None:
         cr_values[i] = cr_value
         pbest_limit = max(2, int(np.ceil(rng.uniform(2.0 / pop_size, 0.2) * pop_size)))
         pbest = population[int(rng.choice(rank[:pbest_limit]))]
-        r1 = int(rng.choice(np.delete(indices, i)))
-        r2 = int(rng.integers(len(union)))
-        while r2 == i:
-            r2 = int(rng.integers(len(union)))
+        r1, r2 = _shade_sample_donor_indices(
+            rng=rng,
+            current_index=i,
+            population_size=pop_size,
+            union_size=len(union),
+        )
         mutant = population[i] + f_value * (pbest - population[i]) + f_value * (population[r1] - union[r2])
         mutant = np.clip(mutant, problem.lower_bounds, problem.upper_bounds)
         mask = rng.random(dimension) < cr_value
@@ -819,6 +820,37 @@ def _cmaes_weights(population_size: int) -> np.ndarray:
     mu = population_size // 2
     weights = np.asarray([log(mu + 0.5) - log(index + 1.0) for index in range(mu)], dtype=float)
     return weights / np.sum(weights)
+
+
+def _shade_sample_donor_indices(
+    *,
+    rng: np.random.Generator,
+    current_index: int,
+    population_size: int,
+    union_size: int,
+) -> tuple[int, int]:
+    if population_size < 2:
+        raise ValueError("SHADE requires a population size of at least 2")
+    r1 = int(rng.choice(np.delete(np.arange(population_size), current_index)))
+    if union_size <= 1:
+        raise ValueError("SHADE union must contain at least two candidate donors")
+    if union_size == population_size:
+        allowed = np.delete(np.arange(population_size), [current_index, r1])
+        if len(allowed) == 0:
+            raise ValueError("SHADE donor distinctness cannot be satisfied with population_size < 3")
+        r2 = int(rng.choice(allowed))
+        return r1, r2
+    # When an archive is present, the second donor is sampled from the union while
+    # preserving r2 != current_index and r2 != r1 whenever the union position maps
+    # back to the current population.
+    allowed = np.arange(union_size)
+    while True:
+        r2 = int(rng.choice(allowed))
+        if r2 == current_index:
+            continue
+        if r2 < population_size and r2 == r1:
+            continue
+        return r1, r2
 
 
 def _sample_cauchy_positive(rng: np.random.Generator, center: float) -> float:

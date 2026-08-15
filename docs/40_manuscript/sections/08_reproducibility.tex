@@ -58,14 +58,14 @@ replace exact-FE alignment.
 Complete native-state trajectories and complete-budget terminal outcomes
 define the common analysis population.  Permutation-invariant behavior and the
 three fixed descriptor representations are evaluated at matched states, after
-which the Query-adjusted and Behavior-only full-budget four-action matrices are
+which the Query-adjusted and Behavior-only full-budget five-path matrices are
 each executed once; the primary query also requires separate FE-zero
 four-algorithm outcomes for pre-run AAS.  These prespecified Stage-A executions
 fix the scientific terminal gap, observed first hit, target-hit status, path
 completion, completion-conditioned endpoint success, planned FE, effective FE,
 and failure status, fit fold-specific selectors, and produce an
 outer/inner/full-training replay plan.  Only after the plan is frozen are the
-selected Skip, Query, and Behavior-only paths from their decision states to
+selected Skip, Behavior-only, sampling-only, query-matched state-only, and full Query paths from their decision states to
 termination executed three prespecified times as Stage-B timing replays.  Each
 query configuration has its own cross-fitted selection reference, utility labels,
 Decision Model, threshold, baseline comparison, and suite-specific evaluation.  Only
@@ -98,9 +98,9 @@ evaluated BBOB state tests that the 31 Decision Model inputs, three diagnostic
 variables, and native-window summaries are permutation invariant.
 
 Query-level checks enforce the three descriptor definitions, the shared sample
-for the cheap and standard configurations, four non-duplicated actions,
-continuous remaining budget, query-specific FE accounting, the statewise
-action-loss transformation, and the utility and selector decompositions.
+for the cheap and standard configurations, five-path protocol consistency,
+continuous remaining budget, query-specific FE accounting, the relative
+clipped-log-gap selector target, and the utility and selector decompositions.
 Feature-group failures remain explicit; undefined individual descriptors are
 imputed only from BBOB-training observations.  Model-level checks fit all
 preprocessing within the applicable training function-group fold, restrict the active
@@ -129,8 +129,8 @@ inference, and action choice.  Prediction time is measured separately for the
 T0 and B3 controllers.
 
 The Utility time $T_k$ is the censored median of three real executions from the common
-decision state to termination for
-$k\in\{\mathrm{skip},\mathrm{query},\mathrm{behavior\mbox{-}only}\}$.  It
+decision state to termination for the five paths
+$k\in\{\mathrm{skip},\mathrm{behavior\mbox{-}only},\mathrm{sampling\mbox{-}only},\mathrm{query\mbox{-}state\mbox{-}only},\mathrm{query\mbox{-}joint}\}$.  It
 excludes the already executed common prefix; the Query path includes sampling,
 descriptor computation, selection, any population transfer, and continuation
 after that state.  Policy reporting separately measures wall-clock from FE zero

@@ -11,18 +11,12 @@ query should be skipped or executed in any empirical regime.
 
 \TBD{TBD-DISC-01} The statewise utility distribution has not yet been
 estimated.  Its eventual interpretation is conditional on the evaluated query,
-utility definition, effect direction, interval, and state coverage.  The joint
-Query utility, full-budget Behavior-only utility, and their operational
-increment answer different questions and must be reported separately.  The
-continuation-only predictive increment further excludes the sample best and
-acquisition cost; it cannot replace the operational comparison.  None of these
-quantities can be extended from the fixed low-cost query to landscape analysis
-in general.
+utility definition, effect direction, interval, and state coverage.  The joint Query utility, full-budget Behavior-only utility, and their operational increment answer different questions and must be reported separately.  The continuation-only predictive increment further excludes the sample best and acquisition cost; it cannot replace the operational comparison.  In the main decision question, the query path is evaluated against the best available no-query policy, so Behavior-only is the primary comparator and native Skip is the secondary no-query reference.  The five-path decomposition is therefore an interpretation tool, not a substitute for the binary acquisition label.  None of these quantities can be extended from the fixed low-cost query to landscape analysis in general.
 
 \subsection{Information in algorithm-agnostic search behavior}
 
 \TBD{TBD-DISC-02} The RQ2 comparison between T0 and the behavior groups remains
-undetermined pending nested BBOB-train grouped-by-function OOF estimates and
+undetermined pending nested BBOB-train `cv_group_id = function_id` OOF estimates and
 suite-specific evaluation.  Decision utility, AUROC, Average Precision, Spearman correlation,
 and Ridge RMSE support different aspects of the comparison; disagreement among
 them precludes a single undifferentiated predictive claim.
@@ -71,15 +65,8 @@ about untested landscape representations.  Each problem/sample design uses one
 fixed problem-keyed LHS realization, so inference is conditional on those
 realizations rather than averaged over sampling randomness.  Moreover,
 standard versus broad changes representation, sample size, sample realization,
-and budget together and cannot identify their separate contributions.  The
-absence of a matched-acquisition state-only operational path likewise prevents
-descriptor-only attribution of $I_q$.  The Selection Reference is a fixed
-downstream component rather than a claimed algorithm-selection contribution,
-and its selector regret must remain visible when interpreting query utility.
-The static VBS is selected at the problem level after averaging each algorithm
-over optimizer seeds; it never selects a different algorithm for every seed and
-is distinct from the statewise best observed action.
-The main Decision Model is trained offline with a BBOB grouped-by-function
+and budget together and cannot identify their separate contributions.  The active protocol contains five paths—Skip, Behavior-only, sampling-only, query-matched state-only, and full Query—so the lack of a matched-acquisition state-only operational path in earlier drafts no longer applies.  Descriptor-only attribution remains unavailable because sampling, sample-best, FE, runtime, and budget effects are still entangled.  The Selection Reference is a fixed downstream component rather than a claimed algorithm-selection contribution, and its selector regret must remain visible when interpreting query utility.  The static VBS is selected at the problem level after averaging each algorithm over optimizer seeds; it never selects a different algorithm for every seed and is distinct from the statewise best observed action.
+The main Decision Model is trained offline with a BBOB `cv_group_id = function_id`
 split; the historical grouping key does not denote a classic landscape family.  The
 study does not evaluate online controller training as a primary design.  Its
 primary protocol uses function--dimension--static-problem--run-balanced weights

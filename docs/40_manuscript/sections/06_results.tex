@@ -8,12 +8,7 @@ the withdrawn population-reconstruction pipeline are not admissible here.
 \subsection{RQ1: What is the state-conditional value of the primary query?}
 
 RQ1 concerns \query{} with $\lambda_T=1$ and $\lambda_M=0$ on SBS-prefix states
-emitted by the prespecified dynamic opportunity process.  It reports the joint
-Query utility, Behavior-only utility, and their operational increment together
-with terminal and continuation-only endpoints.  Query terminal gap, observed
-target hit, and ERT include the best point in the query sample; path completion
-and completion-conditioned endpoint success are reported separately.  The sample contribution is
-also shown separately.
+emitted by the prespecified dynamic opportunity process.  It reports the joint Query utility, Behavior-only utility, and their operational increment together with terminal and continuation-only endpoints.  Query terminal gap, observed target hit, and ERT include the best point in the query sample; path completion and completion-conditioned endpoint success are reported separately.  The sample contribution is also shown separately.  In the interpretation of RQ1, the query path is judged against the best available no-query policy, so Behavior-only is the primary comparator and native Skip remains the secondary no-query reference.  The active protocol uses five paths—Skip, Behavior-only, sampling-only, query-matched state-only, and full Query—so any residual four-action wording in earlier drafts should be read as shorthand for the query-acquisition matrix rather than the full operational protocol.
 
 \begin{table*}[t]
   \caption{RQ1 state-distribution summary.  Utility is larger-is-better;
@@ -63,9 +58,7 @@ target state
 distribution, effect direction, endpoint-specific interval, and coverage.  A
 joint advantage alone does not establish a descriptor-information advantage;
 if $I_q\le0$, it supports only the joint path over SBS.  Both all-eligible-state
-and proposed-triggered $I_q$ are required.  Even when they agree, the absent
-matched-acquisition fourth path prevents descriptor-only operational
-attribution.
+and proposed-triggered $I_q$ are required.  Even when they agree, the absent matched-acquisition fourth path prevents descriptor-only operational attribution.  The five-path operational decomposition remains the interpretation layer, but the binary acquisition label itself is Query versus the best available no-query policy, with Behavior-only as the primary comparator.
 
 \FloatBarrier
 
@@ -118,7 +111,7 @@ and does not add dimension to the primary Decision input.
   and previously inspected BBOB validation; dimension-stratified T0 is shown
   separately as a static-context diagnostic.}}
   \caption{RQ2 model-family and Behavior--time comparisons.  Validation is not
-  used to select a model, input group, or threshold.}
+  used to select a model, `cv_group_id = function_id`, or threshold.}
   \label{fig:rq2-oof}
 \end{figure*}
 
@@ -209,11 +202,10 @@ endpoints, is insufficient.
 
 BBOB validation, CEC2017, CEC2022, and engineering problems are separate
 evaluation domains.  BBOB validation and CEC2017 are previously inspected
-internal and external development evaluations, respectively.  CEC2017 remains
-blocked until the F2/F30 convention is
-reconciled.  CEC2022 and engineering evaluations remain blocked until their
-functions/problems, dimensions, budgets, targets, caps, timeouts, and
-constraint-handling rules are fixed.
+internal and external development evaluations, respectively.  CEC2017 is now
+frozen to the official 29-problem set F1, F3--F30.  CEC2022 and engineering
+evaluations remain blocked until their functions/problems, dimensions,
+budgets, targets, caps, timeouts, and constraint-handling rules are fixed.
 
 \begin{table*}[t]
   \caption{RQ4 suite-specific evaluation of the fixed procedure.  Undefined or
@@ -227,7 +219,7 @@ constraint-handling rules are fixed.
     & Runtime ratio & Success/failure \\
     \midrule
     BBOB validation & Previously inspected, 6 functions & -- & -- & -- & -- & -- \\
-    CEC2017 & Blocked: F2/F30 unresolved & -- & -- & -- & -- & -- \\
+    CEC2017 & Frozen: F1, F3--F30 & -- & -- & -- & -- & -- \\
     CEC2022 & Blocked: suite endpoints unresolved & -- & -- & -- & -- & -- \\
     Engineering problems & Blocked: problems/constraints unresolved & -- & -- & -- & -- & -- \\
     \bottomrule

@@ -278,7 +278,7 @@ event-only 的 Stage-A 与 Stage-B 增量分别必须按实际 state/action 调�
 
 1. 阶段 A 的 query artifact 与 action-loss FE 语义按实际 producer 一致；
 2. replay planner 仅有枚举能力；offline decision-state-to-terminal runner 尚未实现，fold-role-complete plan 尚未物化实测并核对，是正式运行 blocker；
-3. outer/inner/full-train grouped-by-function cross-fitted Selectors 必须持久化，replay plan 必须提供历史 `fold role/family -> Selector artifact` key 路由；否则无法真实计入 Selector inference；
+3. outer/inner/full-train `cv_group_id = function_id` cross-fitted Selectors 必须持久化，replay plan 必须提供历史 `fold role/cv_group_id -> Selector artifact` key 路由；否则无法真实计入 Selector inference；
 4. planner 已物化正式 outer/inner/full-train replay plan，并逐角色核对 mandatory/event states、paths、repetitions 与 FE；
 5. Stage-A 科学端点与 Stage-B timing-only replay 使用不同字段；后者逐次保存 status、raw/censored runtime、observed hit、effective FE、timeout/completion、三类一致性与两类 instability，且不存在选择性重跑；
 6. future-path timing 与 FE=0 full-policy wall-clock 使用不同字段且均为真实运行；

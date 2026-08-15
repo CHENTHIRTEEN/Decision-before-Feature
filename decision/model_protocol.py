@@ -20,7 +20,7 @@ ACTIVE_MODEL_NAMES = (
     "logistic_regression_classifier",
     "ridge_regression",
 )
-MODEL_SELECTION_METRIC = "nested_family_oof_first_trigger_decision_mean_utility"
+MODEL_SELECTION_METRIC = "nested_cv_group_oof_first_trigger_decision_mean_utility"
 SELECTED_MODEL_ALIAS = "selected"
 FROZEN_THRESHOLD_MODE = "oof_utility_first_trigger"
 BEHAVIOR_FROZEN_THRESHOLD_MODE = "oof_behavior_utility_first_trigger"

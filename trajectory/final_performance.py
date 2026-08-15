@@ -43,6 +43,7 @@ class FinalPerformanceRecord:
     failure_message: str
     optimizer_state_mode: str
     final_performance_protocol: str
+    cv_group_id: str = ""
 
     @classmethod
     def from_optimizer_state(
@@ -63,6 +64,7 @@ class FinalPerformanceRecord:
         log10_gap_cap: float,
         success_gap_target: float,
         first_hit_fe: int | None,
+        cv_group_id: str = "",
     ) -> "FinalPerformanceRecord":
         if int(fe_total) <= 0 or int(fe) != int(fe_total):
             raise ValueError("final performance must be recorded exactly at FE_total")
@@ -117,6 +119,7 @@ class FinalPerformanceRecord:
             failure_message="",
             optimizer_state_mode=OPTIMIZER_STATE_MODE,
             final_performance_protocol=FINAL_PERFORMANCE_PROTOCOL,
+            cv_group_id=str(cv_group_id or function_id),
         )
 
     @classmethod
@@ -141,6 +144,7 @@ class FinalPerformanceRecord:
         first_hit_fe: int | None,
         failure_type: str,
         failure_message: str,
+        cv_group_id: str = "",
     ) -> "FinalPerformanceRecord":
         planned = int(fe_total)
         effective = int(effective_fe)
@@ -205,6 +209,7 @@ class FinalPerformanceRecord:
             failure_message=message,
             optimizer_state_mode=OPTIMIZER_STATE_MODE,
             final_performance_protocol=FINAL_PERFORMANCE_PROTOCOL,
+            cv_group_id=str(cv_group_id or function_id),
         )
 
 
@@ -213,6 +218,7 @@ FINAL_PERFORMANCE_SCHEMA = pa.schema(
         ("problem_id", pa.string()),
         ("function_id", pa.string()),
         ("family", pa.string()),
+        ("cv_group_id", pa.string()),
         ("dimension", pa.int32()),
         ("algorithm", pa.string()),
         ("seed", pa.int64()),

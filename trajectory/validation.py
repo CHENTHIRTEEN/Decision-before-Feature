@@ -45,6 +45,7 @@ REQUIRED_COLUMNS = {
     "problem_id",
     "function_id",
     "family",
+    "cv_group_id",
     "dimension",
     "algorithm",
     "seed",
@@ -149,6 +150,7 @@ def validate_trajectory_query_file(
         "problem_id",
         "function_id",
         "family",
+        "cv_group_id",
         "dimension",
         "algorithm",
         "seed",
@@ -299,6 +301,10 @@ def _validate_function_metadata(row: dict) -> None:
         raise ValueError("function_id is inconsistent with problem_id")
     if str(row["family"]) != expected_family:
         raise ValueError("landscape family is inconsistent with problem_id")
+    if "cv_group_id" not in row:
+        raise ValueError("cv_group_id is missing; all trajectory and query rows must carry cv_group_id")
+    if str(row["cv_group_id"]) != expected_function_id:
+        raise ValueError("cv_group_id is inconsistent with function_id")
 
 
 def _validate_sampling_metadata(row: dict) -> None:

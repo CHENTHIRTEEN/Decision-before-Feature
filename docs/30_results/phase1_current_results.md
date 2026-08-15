@@ -89,7 +89,7 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 ## 6. 外部评价状态
 
-CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配置，但函数集尚未可信冻结：当前配置列 F1--F29，即包含 F2、排除 F30；项目内没有说明该选择是否与所用实现/官方口径一致。F2/F30 必须在不查看 policy outcome 的前提下核对后冻结。
+CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配置；函数集已按官方 29 题口径冻结为 F1, F3-F30。此前的 F2/F30 blocker 已在不查看 policy outcome 的前提下闭合。
 
 当前已有的在线 CEC2017 结果只用于以下检查：
 
@@ -120,7 +120,7 @@ CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配
 1. 覆盖生成 BBOB train/validation trajectory shards，并通过完整 state、native-update window 与 checkpoint 一致性检查。
 2. 重提取 Behavior，执行 Stage-A 两套四动作 matrices 与 FE=0 outcomes 各一次；用这些单次 outcomes 固定科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 与 planned/effective FE，并由 fold-specific SBS/Selectors 生成 OOF selected actions。
 3. Replay planner 已有枚举能力；下一步实现 offline decision-state-to-terminal runner，物化并核对 plan，对 Skip/Query/Behavior-only 及 FE=0 policy paths 各执行三次 Stage-B timing-only replay，保存逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；将 Stage-A 科学端点和 Stage-B 计时中位数组合成新 Utility。不得用 replay outcome 改写科学端点或选择性补跑。
-4. 对 LDA、Logistic Regression 与 Ridge 重新执行完整 grouped-by-function nested OOF、first-trigger model selection、threshold/Random calibration、六组消融、baselines 与估计性统计分析。BBOB-validation 只作已见固定六函数内部评价。
-5. 核对 CEC2017 F2/F30 后只作已见外部开发评价；CEC2022 和工程问题须在首次 outcome 前冻结 suite endpoints、constraint rule 与分析计划，才可承担前瞻确认。
+4. 对 LDA、Logistic Regression 与 Ridge 重新执行完整 `cv_group_id = function_id` nested OOF、first-trigger model selection、threshold/Random calibration、六组消融、baselines 与估计性统计分析。BBOB-validation 只作已见固定六函数内部评价。
+5. CEC2017 已按官方 29 题口径闭合，只作已见外部开发评价；CEC2022 和工程问题须在首次 outcome 前冻结 suite endpoints、constraint rule 与分析计划，才可承担前瞻确认。
 
-当前额外 blockers 是 grouped-by-function Selector artifact 路由、runner、物化实测 replay plan、Stage-A 共享/复用裁决、BBOB instance-aware online endpoint、cluster-balanced Selector/Decision fit、资源排期与真实 evaluator timing。12 个 mandatory milestones 的平均 prefix ratio 为 0.35；只含这些 states 时，仅跨 matrices 共享的 main cheap 为 215.709732B FE、三档为 350.202636B FE；进一步复用基础 trajectory 时为 210.992292B/345.485196B；保持当前 main producer 时主 query 为 225.144612B FE，三档当前量待枚举。event-only states 尚未计入。现 CEC2017 online evaluator 另需 11.5884B planned FE，已见 BBOB-validation 全 instances 需 5.5944B 但当前不可执行；这些只是 mandatory-only 算术情景，不是严格下界。
+当前额外 blockers 是 `cv_group_id = function_id` Selector artifact 路由、runner、物化实测 replay plan、Stage-A 共享/复用裁决、BBOB instance-aware online endpoint、cluster-balanced Selector/Decision fit、资源排期与真实 evaluator timing。12 个 mandatory milestones 的平均 prefix ratio 为 0.35；只含这些 states 时，仅跨 matrices 共享的 main cheap 为 215.709732B FE、三档为 350.202636B FE；进一步复用基础 trajectory 时为 210.992292B/345.485196B；保持当前 main producer 时主 query 为 225.144612B FE，三档当前量待枚举。event-only states 尚未计入。现 CEC2017 online evaluator 另需 11.5884B planned FE，已见 BBOB-validation 全 instances 需 5.5944B 但当前不可执行；这些只是 mandatory-only 算术情景，不是严格下界。

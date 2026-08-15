@@ -36,6 +36,7 @@ def read_performance(
                 "problem_id",
                 "function_id",
                 "family",
+                "cv_group_id",
                 "dimension",
                 "algorithm",
                 "seed",
@@ -120,6 +121,11 @@ def read_performance(
         }:
             raise ValueError(
                 "final-performance family differs from its configured shard: "
+                f"{shard.final_performance_path}"
+            )
+        if set(frame["cv_group_id"].astype(str)) != {shard.cv_group_id}:
+            raise ValueError(
+                "final-performance cv_group_id differs from its configured shard: "
                 f"{shard.final_performance_path}"
             )
         if set(frame["dimension"].astype(int)) != {int(shard.dimension)}:
@@ -370,6 +376,14 @@ def single_best_solver(
     family_by_problem = performance.groupby("problem_id")["family"].nunique()
     if not bool((function_by_problem == 1).all()) or not bool((family_by_problem == 1).all()):
         raise ValueError("each SBS problem_id must belong to one function and one landscape family")
+    if "cv_group_id" not in performance.columns:
+        raise ValueError("final-performance data must contain cv_group_id; regenerate shards with the current protocol")
+    cv_group_matches = performance.groupby("function_id")["cv_group_id"].nunique()
+    if not bool((cv_group_matches == 1).all()):
+        raise ValueError("cv_group_id must be unique per function_id")
+    cv_group_by_problem = performance.groupby("problem_id")["cv_group_id"].nunique()
+    if not bool((cv_group_by_problem == 1).all()):
+        raise ValueError("each SBS problem_id must belong to one cv_group_id")
     problem_scores = performance.groupby(
         ["function_id", "family", "dimension", "problem_id", "algorithm"],
         as_index=False,

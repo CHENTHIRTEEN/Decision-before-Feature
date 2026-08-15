@@ -58,6 +58,10 @@ class Shard:
         return landscape_family_name(self.suite, self.function)
 
     @property
+    def cv_group_id(self) -> str:
+        return function_id_name(self.suite, self.function)
+
+    @property
     def final_performance_path(self) -> Path:
         return self.output_path.with_name("final_performance.parquet")
 
@@ -262,6 +266,10 @@ def landscape_family_name(suite: str, function: int) -> str:
     if suite_name in {"cec2017", "cec2022"}:
         return f"{suite_name}_unassigned_landscape_family"
     raise ValueError(f"unsupported benchmark suite for landscape family: {suite}")
+
+
+def cv_group_id_name(suite: str, function: int) -> str:
+    return function_id_name(suite, function)
 
 
 def selected_functions(config: dict, only_functions: list[int] | None = None) -> list[int]:
