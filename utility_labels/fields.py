@@ -7,6 +7,16 @@ SCIENTIFIC_PATH_STATUS_PROTOCOL = "stage_a_completed_timed_out_failed_v1"
 TIMING_REPLAY_STATUS_PROTOCOL = "stage_b_completed_timed_out_failed_v1"
 TIMING_REPLAY_STATUSES = frozenset({"completed", "timed_out", "failed"})
 
+EFFICACY_FORMULA_PROTOCOL = "equal_total_fe_log_gap_ratio_v1"
+EFFICACY_COLUMNS = (
+    "g_fe",
+    "g_fe_bounded",
+    "g_fe_gt_zero",
+    "g_fe_gt_practical",
+    "epsilon_p",
+    "delta_practical",
+)
+
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
 UTILITY_VALUE_COLUMNS = (
     "u_query_joint_lamT_0",
@@ -438,4 +448,5 @@ UTILITY_COLUMNS = (
     *QUERY_SAMPLING_DIRECT_INCREMENT_COLUMNS,
     *NEED_QUERY_COLUMNS,
     *NEED_BEHAVIOR_ONLY_COLUMNS,
+    *EFFICACY_COLUMNS,
 )

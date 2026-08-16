@@ -10,37 +10,76 @@
 
 所有项目判断只使用当前仓库。不得从其他目录寻找旧代码、数据或结果。
 
-## 1. 当前状态（2026-08-14）
+## 1. 当前状态（2026-08-16）
 
-当前只有研究协议与方法定义，没有可用于论文结论的正式结果。旧 trajectory 下游产物来自重建式 continuation、依赖 population 行号的 behavior、旧 query 构念、非完整嵌套标签或逐状态 threshold，已全部撤回证据资格。72 个正式 BBOB trajectory shards 尚未启动；BBOB-validation、CEC2017、CEC2022 和工程问题均无当前冻结协议下的正式评价结果。
+当前仓库已经有一套相当完整的源码实现，但仍没有可用于论文结论的正式结果。`trajectory/`、`behavior/`、`landscape_queries/`、`selection_reference/`、`utility_labels/`、`decision/`、`optimizers/`、`benchmarks/` 和 `experiments/` 都已经补齐了主要协议对象、验证逻辑和 CLI 入口；与 2026-08-14 相比，很多“协议已写但代码缺口”的项已经落地。比如：
 
-本轮允许修改此前“冻结”的方案，并已修正以下会改变主结论的设计问题：
+- `stage0-resource-check`、`tiny-end-to-end-check` 与 `.github/workflows/ci.yml` 已经加入；
+- `benchmarks/cec.py` 与 `benchmarks/factory.py` 已经支持 `cec2022`；
+- `decision/nested_learning.py` 已经能枚举 replay plan，并把 fold-specific selector views 和 Utility labels 绑到一起；
+- `selection_reference/build.py`、`selection_reference/action_losses.py`、`decision/train_full_decision_model.py` 已经可以持久化 selector / model artifacts；
+- `decision/online_controller_evaluate.py` 已经实现在线政策评估、Stage-A / Stage-B timing replay、query / behavior-only / milestone-only / matched-random 路径和结果汇总。
 
-- 主 query 从含两个预处理恒量的 16 列缩减为 14 个有效描述符；
-- Utility 从旧 raw-gap/线性相对时间口径改为截断 `log10_gap` 差与 `log10` runtime ratio；
-- 把 Query 联合路径效用、不同预算路径的操作性增量、同预算 query-feature 预测增量分开；
-- SBS 改为与主端点一致的 clipped `log10_gap`、run → static problem → fixed dimension stratum → function 等权聚合，不再使用平均 rank；
-- 模型选择、threshold 和 Random calibration 改为完整 outer/inner grouped-by-function 链，所有上游组件按 fold 重算；历史 `family=bbob_fNNN` 仅是 function-ID group key；
-- 决策评价由逐状态改为每 run 最多一次 first trigger；
-- Random Analysis 改为 train-OOF 匹配 run call rate 和 first-trigger 时机；
-- Time-only 主比较限制在相同 12 个 milestones，避免事件调度本身泄漏 behavior 信息；
-- Always Query 与 FE=0 Traditional AAS 分开；self-thresholded Behavior-only 与 matched-trigger 诊断分开；
-- query sample 的真实 FE、直接找到更优点和 observed first hit 纳入 Query operational endpoint；
-- Utility 数据生成改为 Selector 冻结前后的两阶段执行，不能从一次 action matrix 直接得到带真实三次计时的最终标签。
+但这些实现并不等于正式运行已经闭合。到本次检查为止，仍没有可直接写入论文结论的正式产物；offline decision-state-to-terminal runner 还没有被核对并投入正式生产，BBOB-validation 的完整内部评价链路、72 个 BBOB trajectory shard、ERT suite-level consumer、工程问题 factory/constraint/config，以及 CEC2017 F2/F30 的正式闭合都还没有完成。
 
-协议文档已统一到上述口径，但源码、配置、数据生产器和资源排期仍需逐项核对。任何正式运行都必须等第 10 节 blocker 关闭后开始。
+本轮同步后仍保留的关键结论是：协议已经比上一版更接近可执行状态，但“源码可执行”和“正式实验可发布”之间还有最后几道缺口。任何正式运行都必须继续按 blocker 清单逐项关闭后再启动。
 
-## 1.1 当前更新（2026-08-15）
+## 1.1 当前更新（2026-08-16）
 
-本轮已继续同步以下更新：
+本轮继续同步以下更新：
 
 - 将仓库中的普通检查步骤命名逐步统一为 `verification` / `consistency check` / `validation` / `check` 口径；
 - 新增 Stage 0 资源一致性检查命令 `stage0-resource-check`，用于核对配置级资源估算；
 - 新增 `tiny-end-to-end-check` 与 `.github/workflows/ci.yml`，用于轻量 CI 和最小端到端验证；
 - 冻结未触及外部确认集配置 `configs/prospective_suites.yaml`，当前包含 `cec2022` 与 `ma_bbob`；
-- `P0-08`、`P0-09`、`P0-10` 已在验证清单中标记完成。
+- `P0-08`、`P0-09`、`P0-10` 已在验证清单中标记完成；
+- 本次文档审计把 `trajectory/`、`behavior/`、`landscape_queries/`、`selection_reference/`、`utility_labels/`、`decision/`、`optimizers/`、`benchmarks/` 和 `experiments/` 的源码状态重新对齐到了当前实现。
 
 上述更新只改变命名、最小验证与文档同步，不改变当前研究问题与实验协议边界。
+
+## 1.1.1 方案 A 实现（2026-08-16）
+
+本轮已实现方案 A "等总 FE 性能功效" 的核心代码，主标签从时间加权 `u_query_joint_lamT_1` 改为 `G_FE`：
+
+- 新增 `utility_labels/efficacy.py`：`G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，`epsilon_p = eta * max(E_prefix, S_p, epsilon_0)`，`G_bounded`，`meaningful_efficacy_label`；
+- 在 `utility_labels/fields.py` 新增 `EFFICACY_COLUMNS`（`g_fe`、`g_fe_bounded`、`g_fe_gt_zero`、`g_fe_gt_practical`、`epsilon_p`、`delta_practical`）并加入 `UTILITY_COLUMNS`；
+- 在 `utility_labels/generation.py` 的 `paired_utility_label_view` 中接入 G_FE 计算，与旧 lambda-weighted Utility 并行输出；
+- 新增 `decision/practical_delta.py`：`delta_practical = max(delta_domain, delta_noise)`，`delta_noise` 由共享状态重复 continuation 的功效差分位数估计；
+- 新增 `decision/pilot_coverage.py`：`CoverageMass` 和 `CoverageRun` 覆盖检查，判据 0.95 / 0.90；
+- 新增 `decision/opportunity_ablation.py`：milestones-only / milestones+events / equal-count / dense 四种频率消融；
+- 新增 `decision/schedule_threshold.py`：schedule × threshold 联合冻结，`|T_D| <= 7`；
+- 新增 `decision/conformal.py`：split conformal 预测区间与 grouped conformal calibration；
+- 新增 `decision/skip_defer_query.py`：Query / Skip / Defer 三向决策，Defer 在 fine opportunity 复查、Skip 在 coarse milestone 复查；
+- 更新 `decision/model_protocol.py`：主选择指标改为 `nested_cv_group_oof_first_trigger_mean_g_fe`，threshold 模式改为 `oof_g_fe_first_trigger`；
+- 新增 `configs/phase1_pilot_bbob.yaml`：Pilot 配置（F1/F3/F15/F24, 10D, 3 seeds, 0.10–0.70 扩展网格）。
+
+旧 `u_query_joint_lamT_*` 字段保留为敏感性分析，不再作为主标签。runtime 从主标签中剥离，仅作独立资源维度报告。
+
+## 1.2 blocker 与源码状态逐项对照（2026-08-16）
+
+以下对照基于当前源码、配置与文档的检查结果，不代表正式结果已闭合。
+
+- **Blocker 1** — offline decision-state-to-terminal replay runner：**部分闭合**。`decision/nested_learning.py` 已可物化 replay plan，`decision/train_full_decision_model.py` 支持 `--emit-replay-plan` / `--replay-plan-only`，但仓内还没有独立、已核对的 offline runner。
+- **Blocker 2** — replay plan 物化与核对：**部分闭合**。replay plan 已可生成并写出，但还没有正式 runner/consumer 完成端到端核对。
+- **Blocker 3** — grouped-by-function Selector artifact 路由：**部分闭合**。`selection_reference/build.py`、`selection_reference/model.py`、`decision/train_full_decision_model.py` 已持久化 selector/model artifacts；但 replay 阶段的 artifact 路由和正式消费链仍未完全闭合。
+- **Blocker 4** — online evaluator 支持已见 BBOB-validation 的全部 instances 及 standard/broad：**未闭合**。`decision/online_controller_evaluate.py` 目前仍主要面向 CEC，并限制 `instance=1`；full BBOB-validation / standard / broad 完整在线链路尚未打通。
+- **Blocker 5** — 真实 evaluator timing / 线程 / 缓存 / 内存排期：**未闭合**。源码里有计时与 replay 字段，但尚无正式硬件上的资源排期与测量闭环。
+- **Blocker 6** — 72 个 BBOB trajectory / final-performance pair：**部分闭合**。`trajectory/`、`final_performance.py`、`trajectory/validation.py` 已有实现，但正式 72 shards 尚未完成生成与验收。
+- **Blocker 7** — CEC2017 F2/F30 口径：**未闭合**。`benchmarks/cec.py` 支持 CEC2017/2022，但 `configs/phase1_cec2017_test.yaml` 的函数集与正式口径仍需最终核对。
+- **Blocker 8** — standard / broad 完整 Selector、Decision、baseline、Stage-B：**部分闭合**。query spec、selector 训练与 online timing 入口都存在，但完整三档在线/评估链路尚未闭合。
+- **Blocker 9** — CEC2022 benchmark factory 与正式配置：**部分闭合**。`benchmarks/cec.py` 与 `benchmarks/factory.py` 已支持 `cec2022`，`configs/prospective_suites.yaml` 也已加入候选套件，但确认性协议仍需冻结函数/维度/预算/重复数/endpoint/contrast。
+- **Blocker 10** — Stage-A producer 的共享/复用裁决：**部分闭合**。replay plan 与 selected-path 路由已存在，但"跨 matrices 共享 Skip/Behavior continue_current""逐行证明后复用基础 trajectory""保持未复用 producer"三种实现路径尚未最终定版。
+- **Blocker 11** — raw/censored timing 与三类一致性、两类 instability：**部分闭合**。`decision/online_controller_evaluate.py` 已实现 timing replay 字段、consistency checks 与 instability 汇总，但它仍主要服务在线评估，尚未形成独立的正式 consumer 链。
+- **Blocker 12** — cluster-balanced 主 fit 与 row-weighted sensitivity：**部分闭合**。`decision/cluster_weighting.py` 已实现 `cluster_balanced_row_weights`、`WeightedMedianImputer`、`WeightedLinearDiscriminantAnalysis` 和加权 pipeline；`decision/train_full_decision_model.py` 与 `selection_reference/model.py` 已接入，但正式数据上的全链路验收仍未完成。
+- **Blocker 13** — precision/power 与 repeats 冻结：**未闭合**。BBOB/CEC2017 的开发期采样设计已存在，但 CEC2022 与工程集合仍缺正式重复数与 precision target 冻结。
+- **Blocker 14** — trajectory / final-performance failure materialization：**部分闭合**。`trajectory/final_performance.py` 与相关验证逻辑已实现，但仍需按正式协议完成实际 shard 产物与失败行验收。
+- **Blocker 15** — query sample / feature 的 failure materialization：**部分闭合**。在线 evaluator 已会校验 query sample 与 query feature 行并处理失败回退，但 producer 侧的 failure row 物化仍需继续核对。
+- **Blocker 16** — Decision 异常 fallback → No-query；query 后 feature/Selector 异常 → 保留 query 成本并 `continue_current`：**已闭合于在线评估入口**。`decision/online_controller_evaluate.py` 已明确实现这两条 fallback；仍需在其他入口保持一致。
+- **Blocker 17** — ERT 专用扩展实数 bootstrap consumer：**未闭合**。目前只有相关统计与汇总字段的实现痕迹，还没有正式的 suite-level consumer 闭合。
+- **Blocker 18** — `dimension_stratified_T0`：**未闭合**。源码与入口中尚未看到该正式实现。
+- **Blocker 19** — CEC2022 / 工程集合的顶层有限集单位与约束规则：**未闭合**。候选套件与 benchmark factory 已有部分接口，但正式有限集单位、constraint rule、endpoint 和 contrasts 仍需冻结。
+
+结论：当前仓库已经从"协议先行、源码缺口较大"推进到了"核心模块大多存在，但正式运行闭环仍未完成"。因此，正式数据生成可以进入准备阶段，但还不能直接宣称 blocker 全部解除。
 
 ## 2. 研究对象与结论边界
 

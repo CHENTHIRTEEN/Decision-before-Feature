@@ -8,7 +8,7 @@
 2. 本文档用于解释如何在开发中落实 `AGENTS.md` 和研究文档。
 3. 若 `docs/` 中早期方案与本文档冲突，开发时按本文档执行。
 
-当前状态（2026-08-15）：优化器 continuation 已改为完整状态原生推进。正式方法进一步分开联合策略效用与 query 操作性增量，增加 `behavior_only_full_budget`，并把 SBS、Selector、Utility、Decision 与 inner threshold 纳入同一 outer-function 链；部署和模型选择统一使用 run-level first-trigger。此前由重建式 continuation 或旧逐行 threshold 口径生成的 trajectory 下游产物、utility labels、Decision dataset、模型和评价结果均无正式证据资格，必须从 trajectory/action-loss 依赖位置重新生成。preliminary/MVE 口径仍退出当前运行面。
+当前状态（2026-08-16）：优化器 continuation 已改为完整状态原生推进。正式方法进一步分开联合策略效用与 query 操作性增量，增加 `behavior_only_full_budget`，并把 SBS、Selector、Utility、Decision 与 inner threshold 纳入同一 outer-function 链；部署和模型选择统一使用 run-level first-trigger。源码层面，`trajectory/`、`behavior/`、`landscape_queries/`、`selection_reference/`、`utility_labels/`、`decision/`、`optimizers/`、`benchmarks/` 与 `experiments/` 的主要实现已经补齐，但仍缺少正式结果闭合与若干外部确认前置条件的最终验收。方案 A "等总 FE 性能功效" 已实现：主标签从 `u_query_joint_lamT_1` 改为 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，runtime 从主标签中剥离为独立资源维度；新增 `utility_labels/efficacy.py`、`decision/practical_delta.py`、`decision/pilot_coverage.py`、`decision/opportunity_ablation.py`、`decision/schedule_threshold.py`、`decision/conformal.py`、`decision/skip_defer_query.py`；旧 `u_query_joint_lamT_*` 保留为敏感性分析。此前由重建式 continuation 或旧逐行 threshold 口径生成的 trajectory 下游产物、utility labels、Decision dataset、模型和评价结果均无正式证据资格，必须从 trajectory/action-loss 依赖位置重新生成。preliminary/MVE 口径仍退出当前运行面。
 
 ## 0.1 本轮八项修改的科学影响
 
@@ -454,7 +454,18 @@ T_k = median(runtime_k_censored_rep_1,
 
 其中 `k in {skip, query_joint, query_matched_state_only, sampling_only_continue_current, behavior_only_full_budget}`。`runtime_query_total` 覆盖 query 采样、样本目标评价、特征计算、选择、handoff 与后续优化；`runtime_no_query_total` 覆盖 No-query handoff 与后续优化。纯 feature/selection/handoff 的计算开销只作诊断，不进入主 Utility。
 
-主标签口径：
+主标签口径（方案 A 已实现，2026-08-16）：
+
+主标签已从时间加权 Utility 改为等总 FE 性能功效：
+
+```text
+G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))
+epsilon_p = eta * max(E_prefix, S_p, epsilon_0)
+```
+
+runtime 不进入主标签，仅作独立资源维度报告。旧 `u_query_joint_lamT_*` 保留为敏感性分析。`delta_practical = max(delta_domain, delta_noise)`，`delta_noise` 由共享状态重复 continuation 的功效差分位数估计。
+
+旧 lambda-weighted 标签（保留为敏感性分析）：
 
 ```text
 U_query_joint = (ell_skip - ell_query)
@@ -695,7 +706,7 @@ verification
 
 - 活动候选固定为 LDA、Logistic Regression 和 Ridge，不继续搜索 Random Forest、XGBoost、LightGBM、MLP 或其超参数变体。
 - 三个候选的 preprocessing 与估计器参数均预先固定；imputer 和 scaler 必须在每个 OOF fit fold 内独立拟合。
-- 模型主选择指标固定为 BBOB-train outer-function OOF 的 run-level first-trigger mean `u_query_joint_lamT_1`。逐状态 mean utility 不得作为候选排序指标。
+- 模型主选择指标已改为 BBOB-train outer-function OOF 的 run-level first-trigger mean `G_FE`（方案 A 等总 FE 性能功效）。旧 `u_query_joint_lamT_1` 保留为敏感性分析。逐状态 mean 不得作为候选排序指标。
 - train outer OOF 只用于三个预先固定候选的选择与开发期诊断；选出最大 OOF 候选后，不得把同一 OOF 数值称为 selected procedure 的无偏性能估计。
 - 每个 outer fold 必须只用 outer-fit functions 依次完成：计算 `SBS_outer`；拟合/cross-fit Query Selector 与 `behavior_only_full_budget` Selector；生成 outer-fit Utility；在 outer-fit 内生成 Decision inner-function OOF score 并拟合 first-trigger threshold；拟合 Decision；最后在 outer holdout 上用 `SBS_outer`、outer-fit Selector、outer threshold 生成一次完整评价。outer holdout 不得影响上述任一组件。
 - 每个 inner fold 也必须只用 inner-fit functions 重新计算 `SBS_inner`、两类 Selector、Utility labels 和 Decision preprocessing/model，再在 inner holdout 上产生 first-trigger score 与 Utility。不得在 outer-fit 上先制成一张固定标签表后只对 Decision 做 inner OOF。
@@ -707,7 +718,7 @@ verification
 - 分阶段阈值只能使用 BBOB-train OOF 信息预先拟合并作为稳健性分析；BBOB-validation 不得用于阈值网格选择。
 - 旧 LDA/Ridge/复杂模型数值继续保留在撤回结果说明中，但不得据此预设重生成后的赢家或把 Utility 解释为已证实的分类边界构念。
 - 主训练经验风险改为 `cluster_balanced_fit`：每个 fit fold 内使 functions 等权；每个 function 内固定 dimension strata 等权；每个 function × dimension 内 static problems 等权；每个 static problem 内 optimizer runs 等权；最后把每个 run 的权重等分到其合格 states，并在 fold 内把 row weights 归一化到均值 1。权重不得使用 holdout rows 或 outcome 方向计算。
-- `sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动纠正拟合权重；imputation/scaling 与三个候选 estimator 必须使用同一 fit-fold population，并对 cluster weights 提供兼容实现。该 wiring 尚未完成，是正式模型冻结前 blocker。
+- `sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动纠正拟合权重；imputation/scaling 与三个候选 estimator 必须使用同一 fit-fold population，并对 cluster weights 提供兼容实现。`cluster_balanced_row_weights`、`WeightedMedianImputer`、`WeightedLinearDiscriminantAnalysis` 与 `fit_pipeline_with_weights` 已在 `decision/cluster_weighting.py` 中实现并接入 `decision/train_full_decision_model.py` 和 `selection_reference/model.py`，但全链路在正式数据上的验证尚未完成，是正式模型冻结前 blocker。
 
 ---
 
@@ -715,7 +726,7 @@ verification
 
 证据角色冻结为：BBOB-validation 是已见内部评价集，CEC2017 是已见外部开发集；二者不再提供确认性证据。CEC2022 与工程集合是预定的 untouched external confirmation，但目前尚未闭合：
 
-- CEC2022：benchmark factory 已有接口，但缺少冻结配置；必须先冻结函数范围、维度、预算、seeds/repetitions、reference、success target、timeout/failure rule 与 contrasts。
+- CEC2022：benchmark factory 已有接口（`benchmarks/cec.py` 与 `benchmarks/factory.py` 已支持 `cec2022`），但缺少冻结配置；必须先冻结函数范围、维度、预算、seeds/repetitions、reference、success target、timeout/failure rule 与 contrasts。
 - 工程集合：当前缺少冻结问题清单、配置、factory、预算、重复、reference/gap 定义、constraint-handling rule 与 endpoint；这些内容在任何 outcome 生成或查看前必须一次冻结。
 
 CEC2017 的维度、重复与预算当前写为 10D / 30D / 50D、30 seeds 和 `FE_total=1000D`，但函数集仍是可信有限集估计的 blocker：`configs/phase1_cec2017_test.yaml` 当前列出 F1--F29，即包含 F2、排除 F30；项目内尚无依据说明这是否与所用 CEC2017 实现及官方口径一致。必须核对实现/技术报告并冻结 F2/F30 处理；它即使闭合也仍是已见开发集，不恢复确认性资格。

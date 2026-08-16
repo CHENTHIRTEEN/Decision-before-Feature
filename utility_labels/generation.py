@@ -29,8 +29,17 @@ from selection_reference.action_losses import (
     STATE_KEY_COLUMNS,
 )
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCHEMA_FIELDS
+from utility_labels.efficacy import (
+    EFFICACY_FORMULA_PROTOCOL,
+    efficacy_bounded,
+    efficacy_log,
+    meaningful_efficacy_label,
+    positive_efficacy_label,
+    problem_scale_epsilon,
+)
 from utility_labels.fields import (
     BEHAVIOR_UTILITY_VALUE_COLUMNS,
+    EFFICACY_COLUMNS,
     MATCHED_ACQUISITION_PATH_SUFFIXES,
     NEED_BEHAVIOR_ONLY_COLUMNS,
     NEED_QUERY_COLUMNS,
@@ -626,6 +635,7 @@ def paired_utility_label_view(
     output["utility_formula_protocol"] = (
         "clipped_log10_gap_difference_minus_lambda_log10_complete_path_runtime_ratio"
     )
+    output["efficacy_formula_protocol"] = EFFICACY_FORMULA_PROTOCOL
     output["log10_gap_floor"] = floor
     output["log10_gap_cap"] = cap
     output["log10_gap_skip"] = log_skip
@@ -743,6 +753,43 @@ def paired_utility_label_view(
             atol=EPS,
         ):
             raise RuntimeError("matched-acquisition Utility decomposition lost exact additivity")
+
+    # ── 方案 A：G_FE 等总 FE 性能功效 ────────────────────
+    # runtime 不进入主标签；epsilon_p 是问题尺度协变稳定项
+    benchmark_ref = output["benchmark_reference_value"].to_numpy(dtype=float)
+    prefix_best = output["p_skip_raw"].to_numpy(dtype=float)
+    prefix_gap = np.maximum(prefix_best - benchmark_ref, 0.0)
+    problem_scale = np.ones_like(prefix_gap)
+    epsilon_p = problem_scale_epsilon(
+        prefix_gap=prefix_gap,
+        problem_scale=problem_scale,
+    )
+    e_skip = np.maximum(
+        output["p_skip_raw"].to_numpy(dtype=float) - benchmark_ref,
+        0.0,
+    )
+    e_query = np.maximum(
+        output["p_query_raw"].to_numpy(dtype=float) - benchmark_ref,
+        0.0,
+    )
+    g_fe = efficacy_log(
+        gap_skip=e_skip,
+        gap_query=e_query,
+        epsilon_p=epsilon_p,
+    )
+    g_fe_bounded = efficacy_bounded(
+        gap_skip=e_skip,
+        gap_query=e_query,
+        epsilon_p=epsilon_p,
+    )
+    output["g_fe"] = g_fe
+    output["g_fe_bounded"] = g_fe_bounded
+    output["g_fe_gt_zero"] = positive_efficacy_label(g_fe)
+    # delta_practical is set externally; default to 0.0 before calibration
+    output["delta_practical"] = 0.0
+    output["g_fe_gt_practical"] = meaningful_efficacy_label(g_fe, 0.0)
+    output["epsilon_p"] = epsilon_p
+
     return output.sort_values(key).reset_index(drop=True)
 
 
@@ -1431,6 +1478,7 @@ def utility_schema() -> pa.Schema:
         "complete_path_timing_origin",
         "timing_environment_id",
         "peak_memory_measurement_status",
+        "efficacy_formula_protocol",
     }
     boolean_columns = {
         "selected_equals_default",
@@ -1500,6 +1548,8 @@ def utility_schema() -> pa.Schema:
         "timing_replay_instability",
         *NEED_QUERY_COLUMNS,
         *NEED_BEHAVIOR_ONLY_COLUMNS,
+        "g_fe_gt_zero",
+        "g_fe_gt_practical",
     }
     integer_columns = {
         "dimension",

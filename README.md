@@ -4,7 +4,24 @@
 
 ## 当前状态
 
-截至 2026-08-14，四种优化器已改为完整状态推进：同一算法在 checkpoint 间保留内部状态与 RNG；只有 selector 确实切换算法时，才执行一次显式的 population transfer 初始化。可用 `uv run optimizer-state-check` 在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
+截至 2026-08-16，仓库中的核心实现已经比上一版交接记录更完整。四种优化器已经支持完整状态推进与 checkpoint 恢复；Behavior extractor 已经切换为 permutation-invariant 的种群集合统计；`phase1_dynamic_budget_event_v1` 的动态采样、`final_performance.parquet` 的逐 run 终值表、Query/Selection Reference/Utility/Decision 的主链路、以及在线控制器评估入口都已经在源码中落地。
+
+更具体地说：
+
+- `optimizers/` 已支持 native continuation 与跨算法 `population_transfer_initialization`；
+- `trajectory/` 已支持最终性能表、window statistics、事件采样验证和 failure endpoint 记录；
+- `behavior/` 已支持 permutation-invariant window 特征与多层 feature group；
+- `selection_reference/` 已支持 query-full / state-only / query-only / behavior-only-full-budget / pre-run AAS 的 selector 构建与持久化；
+- `utility_labels/` 已支持 Query-joint、Behavior-only、query-adjusted state-only、sampling-only 和完整 three-repeat timing replay 的 paired Utility 生成；
+- `decision/` 已支持三候选模型、cluster-balanced fit、nested CV-group OOF threshold 与 replay plan 物化；
+- `benchmarks/cec.py`、`benchmarks/factory.py` 已支持 `cec2017` 与 `cec2022`；
+- `decision/online_controller_evaluate.py` 已能执行在线政策评估、Stage-A/Stage-B timing replay、matched-rate Random 与 baseline 汇总。
+
+这些实现意味着项目已经“可以跑”，但还不意味着“可以正式结束实验”。当前仍缺少或尚未闭合的部分主要是：offline decision-state-to-terminal runner 的正式核对、BBOB-validation 的完整内部评价链路、72 个正式 BBOB trajectory shard 的生成与验收、ERT suite-level consumer、工程问题 factory/constraint/config，以及对 CEC2017 F2/F30 与外部确认集重复数的最终冻结。
+
+如果你要开始数据生成，现在更适合先做的是：核对配置、确认 replay plan、检查产物目录、然后分阶段启动正式运行，而不是直接一口气跑完整协议。
+
+`uv run optimizer-state-check` 可以在真实 BBOB 问题上检查连续运行与多次 checkpoint 保存/恢复的一致性。
 
 Behavior extractor 同时已改为 permutation-invariant 的种群集合统计：跨窗口的空间变化使用经验 Wasserstein、centroid shift 和协方差谱集中度，fitness 变化使用经验分位数分布；不再把 population 行号解释为跨代个体身份。运行时逐次记录完整原生 update 的轻量窗口统计，正式 behavior state 的 w02/w05/w10 anchor 不再从稀疏输出状态中选择；若名义 FE 不能整除一次原生 update，则取不晚于目标位置的最近完整 update，误差严格小于一次 update，并保存 `effective_window_ratio_*`、`effective_window_fe_*` 与 `effective_native_updates_*`。所有 rate/slope 使用实际 `ΔFE/FE_total`，这些窗口字段只作 metadata，不进入 Decision 输入。
 
@@ -77,15 +94,17 @@ Replay planner 已有枚举能力，但当前没有 offline decision-state-to-te
 
 主要命令可通过 `uv run <command> --help` 查看参数：
 
-Selection Reference、Utility、Decision、baseline 与外部评价入口均显式区分 `query_id`。Decision 分析命令使用 `--query-id` 从 `results/decision/{query_id}/` 推导默认输入和输出；显式传入的 artifact 仍必须通过 query 协议核对。
+Selection Reference、Utility、Decision、baseline 与外部评价入口均显式区分 `query_id`。Decision 分析命令使用 `--query-id` 从 `results/decision/{query_id}/` 推导默认输入和输出；显式传入的 artifact 仍必须通过 query 协议核对。方案 A 的主标签现在是等总 FE 性能功效 `G_FE`，runtime 只作为独立资源维度报告。
 
 - 数据采集：`phase1-plan-shards`、`phase1-collect-batch`、`phase1-check-trajectory-shards`、`optimizer-state-check`、`behavior-permutation-check`
 - Query 与标签：`query-sample-batch`、`query-extract-cheap`、隔离的 `tools/pflacco_query/extract.py`、`query-consistency`、`selection-reference-check`、`selection-reference-evaluate-actions`、`selection-reference-build`、`utility-labels-generate-batch`
-- Decision 模型：`decision-train-full`、`decision-check-model-protocol`、`decision-compare-feature-groups`
+- Decision 模型：`decision-train-full`（含 `--emit-replay-plan` / `--replay-plan-only`、`G_FE` 主标签与 schedule × threshold 冻结）、`decision-check-model-protocol`、`decision-compare-feature-groups`
 - 决策与基线分析：`decision-threshold-sweep`、`decision-compare-controller-baselines`、`decision-build-static-vbs`
 - 外部评价：`decision-online-controller-evaluate`
+- 方案 A 配套：`decision/practical_delta.py`、`decision/pilot_coverage.py`、`decision/opportunity_ablation.py`、`decision/schedule_threshold.py`、`decision/conformal.py`、`decision/skip_defer_query.py`
+- 资源与验证：`stage0-resource-check`、`tiny-end-to-end-check`、`configs/phase1_pilot_bbob.yaml`
 
-`decision-materialize-training-data` 与 `decision-check-training-pipeline-contract` 仅保留兼容性退出提示，不会生成任何活动产物。当前仓库还没有 offline decision-state-to-terminal replay runner，因此不存在可执行的完整正式运行链。
+`decision-materialize-training-data` 与 `decision-check-training-pipeline-contract` 仅保留兼容性退出提示，不会生成任何活动产物。当前仓库还没有已核对的 offline decision-state-to-terminal replay runner，因此完整正式运行链仍不能直接端到端执行。
 
 ## 目录
 
