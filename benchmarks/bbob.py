@@ -75,5 +75,4 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
         objective=objective,
         reference_value=reference_value,
         close_callback=close_problem,
-        cv_group_id=bbob_function_id(function),
     )
