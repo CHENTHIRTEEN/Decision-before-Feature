@@ -89,7 +89,7 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
                 function=function,
                 instance=instance,
                 checkpoint_fe=int(state.evaluations),
-                action_budget_mode="query_adjusted",
+                action_budget_mode="query_adjusted_budget",
                 failure_loss_cap=float(config["failure_loss_cap"]),
             )
             native = [row for row in outcomes if row["action"] == "continue_current"]
