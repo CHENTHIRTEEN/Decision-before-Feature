@@ -255,7 +255,7 @@ def _check_query_specific_regression(
                     function=function,
                     instance=instance,
                     checkpoint_fe=int(state.evaluations),
-                    action_budget_mode="query_adjusted",
+                    action_budget_mode="query_adjusted_budget",
                     failure_loss_cap=float(config["failure_loss_cap"]),
                 )
                 reference_value = float(problem.reference_value)
@@ -577,7 +577,7 @@ def _check_action_loss_budget_separation(
                 function=function,
                 instance=instance,
                 checkpoint_fe=int(state.evaluations),
-                action_budget_mode="query_adjusted",
+                action_budget_mode="query_adjusted_budget",
                 failure_loss_cap=float(config["failure_loss_cap"]),
             )
             reference_value = float(problem.reference_value)
