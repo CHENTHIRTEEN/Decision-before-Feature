@@ -34,10 +34,10 @@
 
 本轮已继续同步以下更新：
 
-- 将仓库中的 `audit`/`审计` 普通步骤命名逐步替换为 `verification` / `consistency check` / `validation` / `check` 口径；
+- 将仓库中的普通检查步骤命名逐步统一为 `verification` / `consistency check` / `validation` / `check` 口径；
 - 新增 Stage 0 资源一致性检查命令 `stage0-resource-check`，用于核对配置级资源估算；
 - 新增 `tiny-end-to-end-check` 与 `.github/workflows/ci.yml`，用于轻量 CI 和最小端到端验证；
-- 冻结 prospective 外部集配置 `configs/prospective_suites.yaml`，当前包含 `cec2022` 与 `ma_bbob`；
+- 冻结未触及外部确认集配置 `configs/prospective_suites.yaml`，当前包含 `cec2022` 与 `ma_bbob`；
 - `P0-08`、`P0-09`、`P0-10` 已在验证清单中标记完成。
 
 上述更新只改变命名、最小验证与文档同步，不改变当前研究问题与实验协议边界。
@@ -196,7 +196,7 @@ Logistic Regression
 Ridge
 ```
 
-主模型按 B3 上 BBOB-train grouped-by-function outer OOF 的 run-level first-trigger mean `u_query_joint_lamT_1` 选择；并列顺序为 LDA → Logistic Regression → Ridge。train outer OOF 仅用于候选选择和开发诊断，不是选择后 procedure 的无偏估计。BBOB-validation 已被历史开发结果查看，现只可承担 post-development 内部评价，不能称 untouched/confirmatory；selected procedure 与 RQ2 milestone-only B3--T0 在该集合上的结果必须据此降级，各真正 external suite 单独评价。三候选两两 OOF 对比只作选模诊断。AUROC、Average Precision、Spearman 是辅助指标，连续 Utility RMSE 只对 Ridge 定义。后续链仍禁止 BBOB-validation 参与 preprocessing、选模、特征组选择、threshold 或 Random calibration，但该限制不能恢复其未查看资格。
+主模型按 B3 上 BBOB-train grouped-by-function outer OOF 的 run-level first-trigger mean `u_query_joint_lamT_1` 选择；并列顺序为 LDA → Logistic Regression → Ridge。train outer OOF 仅用于候选选择和开发诊断，不是选择后 procedure 的无偏估计。BBOB-validation 已被历史开发结果查看，现只可承担 post-development 已见内部评价集角色，不能称未触及外部确认；selected procedure 与 RQ2 milestone-only B3--T0 在该集合上的结果必须据此降级，各真正 external suite 单独评价。三候选两两 OOF 对比只作选模诊断。AUROC、Average Precision、Spearman 是辅助指标，连续 Utility RMSE 只对 Ridge 定义。后续链仍禁止 BBOB-validation 参与 preprocessing、选模、特征组选择、threshold 或 Random calibration，但该限制不能恢复其未触及外部确认资格。
 
 正式输入组：
 
@@ -243,7 +243,7 @@ Random Analysis 只从完整 train 上游 OOF Proposed 预测冻结 run-level ca
 
 FE=0 AAS 关系字段：`prefix_algorithm=selected_algorithm`（只作显式关系记账）、`selected_equals_prefix=true`、`handoff_required=false`、`handoff_type=fresh_optimizer_initialization`；`default_algorithm=no_query_algorithm=SBS_fold`。
 
-RQ1 状态 estimand 的聚合为 state → run → static problem → fixed dimension stratum → function；政策端点从 run 层开始同序聚合。BBOB-validation 的内部评价 estimand 是 F5/F9/F13/F14/F19/F24、固定 dimensions、instances 1/2/3、static problems 与 query realizations 上的等权有限集均值。主条件 bootstrap 固定保留 6 functions、全部 dimensions 与全部 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；RQ1 对每个抽中 seed/run 保留完整有序 states。不得在主 bootstrap 中重抽 static problem；function resampling 只作单独命名的函数组成敏感性。该集合已见，所有这些输出均不得称为 untouched、确认性或推断到 function/transformed-instance 超总体。当前 3 instances × 30 seeds 没有仓内精度依据；不得据此声称功效充分，CEC2022/工程问题的重复数须在查看其 outcome 前完成精度设计并冻结。
+RQ1 状态 estimand 的聚合为 state → run → static problem → fixed dimension stratum → function；政策端点从 run 层开始同序聚合。BBOB-validation 的已见内部评价集 estimand 是 F5/F9/F13/F14/F19/F24、固定 dimensions、instances 1/2/3、static problems 与 query realizations 上的等权有限集均值。主条件 bootstrap 固定保留 6 functions、全部 dimensions 与全部 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；RQ1 对每个抽中 seed/run 保留完整有序 states。不得在主 bootstrap 中重抽 static problem；function resampling 只作单独命名的函数组成敏感性。该集合已见，所有这些输出均不得称为未触及外部确认、确认性或推断到 function/transformed-instance 超总体。当前 3 instances × 30 seeds 没有仓内精度依据；不得据此声称功效充分，未触及外部确认集 CEC2022/工程问题的重复数须在查看其 outcome 前完成精度设计并冻结。
 
 ERT 另用专用 paired hierarchical ratio bootstrap，仍固定 functions、dimensions 与全部 static problems，只在每个固定 problem 内联合配对重抽 optimizer runs。每个 stratum/replicate 保留 finite、$+\infty$（仅 treatment 零命中）、$-\infty$（仅 reference 零命中）与 undefined（双方零命中，或聚合时同时含两种无穷）质量，不得静默删除。undefined mass 按 `conservative_two_tail_allocation_on_extended_real_line_v1` 保守分配到两端；达到单侧 $\alpha/2$ 时区间为 $[-\infty,+\infty]$，全部 undefined 时区间界为 undefined。`interval_established` 依据观测 contrast 和按该质量规则得到的分位点是否有定义；无界区间仍可 established，不能因任意一次 replicate 出现零命中就自动失败。报告必须给出 `interval_status`、`interval_unbounded`、finite/$+\infty$/$-\infty$/undefined mass、各类零命中计数与 defined replicate 数。
 
@@ -283,7 +283,7 @@ trajectory/final performance
 
 表中“三档”只含三种 query 的 state-level Query paths与当前主 cheap pre-run AAS，不含 standard/broad 各自完整 FE=0 policy/baseline paths。所有数字也只对应 12 个 mandatory states 且无 event/failure，不是完整点估计或资源可行性证明。当前 Stage-A producer 在 Query-adjusted 和 Behavior-only CLI 中均执行 `skip + 4 actions`，main cheap 因而比“仅跨 matrices 共享”多 9.43488B，当前 mandatory-only 实现情景为 Stage A 46.902492B、阶段 A+B 225.144612B。三档当前实现量等待实际调用图枚举，不自行猜测。event-only 增量必须按其实际 `FE_prefix`、fold role、path 与 selected action 从物化 plan 求和。进一步复用基础 trajectory 还需逐行证明 terminal gap、observed hit、completion、planned/effective FE 与 status 同义，不能只凭算法名相同扣减成本。
 
-完整在线政策另计：每个 base tuple 有 7 条固定政策和 30 条 matched-rate Random，每条执行 1 次 Stage-A 科学运行与 3 次 Stage-B timing replay，共 148 个 full runs。当前 CEC2017 配置对应约 11.5884B planned FE；若已见 BBOB-validation 内部评价集全部 6 functions × 3 instances × 3 dimensions × 30 seeds 使用相同集合，则约 5.5944B FE。后者当前不可执行，因为 online evaluator 只接受 CEC、固定 `instance=1`，且 query feature/sample 键不含 instance。standard/broad 各自完整 online paths 也未实现。上述 online 量都尚未并入表内 mandatory-only state replay 情景。
+完整在线政策另计：每个 base tuple 有 7 条固定政策和 30 条 matched-rate Random，每条执行 1 次 Stage-A 科学运行与 3 次 Stage-B timing replay，共 148 个 full runs。当前 CEC2017 配置对应约 11.5884B planned FE；若已见 BBOB-validation 已见内部评价集全部 6 functions × 3 instances × 3 dimensions × 30 seeds 使用相同集合，则约 5.5944B FE。后者当前不可执行，因为 online evaluator 只接受 CEC、固定 `instance=1`，且 query feature/sample 键不含 instance。standard/broad 各自完整 online paths 也未实现。上述 online 量都尚未并入表内 mandatory-only state replay 情景。
 
 ## 10. 正式运行 blockers
 
@@ -292,7 +292,7 @@ trajectory/final performance
 1. replay planner 已有枚举能力，但尚无已核对的 offline decision-state-to-terminal runner；
 2. 尚未物化并实测 outer/inner/full-train fold-role selected replay plan，mandatory/event multiplicity 与 FE 未闭合；
 3. grouped-by-function cross-fitted Selector 子模型尚未持久化，replay plan 也没有历史 `fold-role/family` key 到对应 Selector artifact 的路由，Stage-B 因而不能真实计入相应 Selector inference；
-4. online evaluator 尚不支持已见 BBOB-validation 内部评价集的 3 个 instances，因而不能生成其 full-policy endpoint；训练/评价入口也尚未直接按 validation config 强制核对 F5/F9/F13/F14/F19/F24、instances 1/2/3、10/20/40D、seeds 1--30 与完整 problem/state coverage。两项实现后仍不得称该集合为未查看确认集；
+4. online evaluator 尚不支持已见 BBOB-validation 已见内部评价集的 3 个 instances，因而不能生成其 full-policy endpoint；训练/评价入口也尚未直接按 validation config 强制核对 F5/F9/F13/F14/F19/F24、instances 1/2/3、10/20/40D、seeds 1--30 与完整 problem/state coverage。两项实现后仍不得称该集合为未触及外部确认集；
 5. 尚无同一正式硬件上的真实 evaluator timing、线程/缓存/内存测量和可承受资源排期；
 6. 72 个 BBOB trajectory/final-performance pair 尚未按当前协议生成并通过整数 FE、完整状态、native-update window 和 permutation-invariance 检查；
 7. 当前 `configs/phase1_cec2017_test.yaml` 为 F1--F29，即包含 F2、排除 F30；仓库内没有依据证明它符合实际 CEC2017 实现与正式 benchmark 口径，必须在查看 policy outcomes 前核对并冻结；
@@ -324,7 +324,7 @@ timing_repetitions = 3
 timing_order_protocol = cyclic_complete_path_v1
 ```
 
-正式运行可按完整科学子矩阵分阶段：main cheap BBOB → standard/broad robustness → CEC2017 → factory 与配置均闭合后的 CEC2022/工程问题。阶段结果必须明确限定范围，不能冒充全协议结论；已见 BBOB-validation 只能称内部评价。
+正式运行可按完整科学子矩阵分阶段：main cheap BBOB → standard/broad robustness → CEC2017 → factory 与配置均闭合后的 CEC2022/工程问题。阶段结果必须明确限定范围，不能冒充全协议结论；已见 BBOB-validation 只能称已见内部评价集。
 
 ## 11. 结果与活动目录
 

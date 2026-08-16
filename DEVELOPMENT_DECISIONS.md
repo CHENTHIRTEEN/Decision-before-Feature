@@ -179,18 +179,18 @@ Population transfer 的影响已经包含在各 action 的 observed loss 中，�
 
 ---
 
-## 5. Train / Seen Evaluation / Untouched External Confirmation
+## 5. Train / 已见评价 / 未触及外部确认
 
 裁决：
 
 - Train: BBOB, 10D / 20D / 40D。
 - Seen internal evaluation: BBOB-validation，按第 5.1 节 function-level trajectory 协议执行；历史开发已读取其 outcome，因此不再具有确认性资格。
 - Seen external development: CEC2017；历史 online/targeted 诊断已经读取其 outcome，只能报告外部开发集有限集估计。
-- Untouched external confirmation: CEC2022 与工程集合。二者只有在本次协议冻结后补齐并冻结 suite/problem、dimension、budget、seed/repetition、reference/constraint rule、失败端点、runner/factory 和 contrasts，且此前未生成或查看任何 outcome，才具有确认性资格。
+- 未触及外部确认： CEC2022 与工程集合。二者只有在本次协议冻结后补齐并冻结 suite/problem、dimension、budget、seed/repetition、reference/constraint rule、失败端点、runner/factory 和 contrasts，且此前未生成或查看任何 outcome，才具有确认性资格。
 
 禁止：
 
-- 用 CEC2022 或 engineering confirmatory outcomes 调参；CEC2017/BBOB-validation 若触发方法改动，必须先记录改动并重新冻结，再只由 untouched external suites 评价。
+- 用 CEC2022 或 engineering confirmatory outcomes 调参；CEC2017/BBOB-validation 若触发方法改动，必须先记录改动并重新冻结，再只由 未触及外部确认集合 评价。
 - 用测试函数训练 Decision Model、selection reference 或 threshold。
 - 随机 function instance split。
 
@@ -701,7 +701,7 @@ verification
 - 每个 inner fold 也必须只用 inner-fit functions 重新计算 `SBS_inner`、两类 Selector、Utility labels 和 Decision preprocessing/model，再在 inner holdout 上产生 first-trigger score 与 Utility。不得在 outer-fit 上先制成一张固定标签表后只对 Decision 做 inner OOF。
 - outer-fit 内用于训练 Decision 的标签由 outer-fit functions 内部 selector cross-fitting 生成；outer holdout Utility 只由 outer-fit 全量 Selector 产生。不得先用完整 BBOB-train 生成一张 Utility 表再把它当作整个两层管线的 outer-OOF 证据。
 - 完整 BBOB-train 的 grouped-by-function OOF 分数必须来自 fold-specific SBS、Selectors 和 Utility，按 run-level first-trigger 冻结 `oof_utility_first_trigger` threshold及 matched-rate Random 校准，随后才在完整 BBOB-train 上重拟合最终 SBS、两类 Selector 与 Decision Model。BBOB-validation 已被历史开发读取，重建后的评价仍只能称为已见内部有限集估计；撤回旧产物不能恢复未见性。
-- selected procedure 及 RQ2 milestone-only B3--T0 的 BBOB-validation 与 CEC2017 数值分别只是已见内部评价和已见外部开发估计。确认性证据只来自本次冻结后闭合并首次运行的 CEC2022 与工程集合；train outer OOF B3--T0 仅作开发期诊断。
+- selected procedure 及 RQ2 milestone-only B3--T0 的 BBOB-validation 与 CEC2017 数值分别只是已见内部评价集和已见外部开发估计。确认性证据只来自本次冻结后闭合并首次运行的 CEC2022 与工程集合；train outer OOF B3--T0 仅作开发期诊断。
 - AUROC、Average Precision 和 Spearman 是辅助指标；连续 Utility RMSE 只对 Ridge 定义。LDA 与 Logistic Regression 的分类分数不得直接与连续 Utility 计算 RMSE。
 - B3（兼容代码名 `all_candidates`）决定主 Controller 的模型名；`primary_with_maturity` 只解析为 B2+Maturity。T0/B1/B2/B2+Motion/B2+Maturity 与 B3 比较必须读取同名候选的预测，不能各自改选更有利的模型。
 - 分阶段阈值只能使用 BBOB-train OOF 信息预先拟合并作为稳健性分析；BBOB-validation 不得用于阈值网格选择。
@@ -753,15 +753,15 @@ CEC2022 与工程问题必须在首次确认性运行前分别冻结同类字段
 
 - RQ1 的目标分布限于 `descriptor_cheap_invariant`、SBS prefix、冻结 `phase1_dynamic_budget_event_v1` eligible states。统一聚合层级为 state → run → static problem → fixed dimension stratum → function：先在 run 内对 eligible states 等权，再在 `function × dimension × instance` static problem 内对 paired optimizer runs 等权，在每个固定 dimension stratum 内对 static problems 等权，最后在 function 内对 10D/20D/40D strata 等权。policy endpoint 从 run 层开始同序聚合。function 是顶层统计单位。
 - BBOB-validation 的 estimand 是 6 个固定 functions（F5、F9、F13、F14、F19、F24）的等权有限集均值，条件于这 6 个函数及其冻结 dimensions/instances。历史模型比较、调参、消融与采样设计已经读取该集合，因此它是已见内部评价集；撤回旧数值不能恢复确认性。CEC2017 因已有 online/targeted 诊断而是已见外部开发集。二者均不支持函数超总体推断。
-- 外部 suite 不机械复用 BBOB 层级。CEC2017/CEC2022 的 suite-specific estimand 以预列 function 为顶层有限集单位，在 function 内对固定 dimensions/instances（若有）与 paired optimizer runs 按运行前冻结的顺序等权。工程集合以每个预先命名的 engineering problem 为顶层有限集单位；其 dimension、load case、constraint variant 或其他变体只能作为该 problem 内预先冻结的 fixed strata。各 suite 分开报告，不重抽顶层有限集单位作主区间，也不推断到未列函数或工程问题总体。该层级、问题清单和权重未写入配置与 consumer 前，对应前瞻评价不得运行。
+- 外部 suite 不机械复用 BBOB 层级。CEC2017/CEC2022 的 suite-specific estimand 以预列 function 为顶层有限集单位，在 function 内对固定 dimensions/instances（若有）与 paired optimizer runs 按运行前冻结的顺序等权。工程集合以每个预先命名的 engineering problem 为顶层有限集单位；其 dimension、load case、constraint variant 或其他变体只能作为该 problem 内预先冻结的 fixed strata。各 suite 分开报告，不重抽顶层有限集单位作主区间，也不推断到未列函数或工程问题总体。该层级、问题清单和权重未写入配置与 consumer 前，对应未触及外部确认评价不得运行。
 - BBOB-validation 的 95% CI 使用 10,000 次条件配对层级 bootstrap：始终保留全部 6 个固定 functions、全部 fixed dimensions 与 instances 1/2/3 对应的全部 static problems；只在每个固定 static problem 内配对重抽 optimizer seeds。RQ1 每个抽中 seed/run 的完整有序 state 序列作为不可拆分簇保留。不得在主 CI 中重抽 function 或 static problem；该区间不推断到 function 或 transformed-instance 超总体。
 - 另可有放回重抽 6 个 validation functions，保留抽中 function 的全部 fixed dimensions/static problems，并在 problem 内配对重抽 optimizer seeds；该结果只能标为“函数组成敏感性”，用于显示有限集均值对所含函数的依赖，不能作为主 CI、确认性证据或 function/transformed-instance 超总体区间。
-- CEC2022 与工程集合只有在第 17 节全部配置、factory/runner、端点与 contrasts 于首次 outcome 前冻结后，才构成确认性外部评价；该“确认性”只表示 prospective protocol，不把预列有限 suite 当作函数超总体概率样本。
+- CEC2022 与工程集合只有在第 17 节全部配置、factory/runner、端点与 contrasts 于首次 outcome 前冻结后，才构成确认性外部评价；该“确认性”只表示 前瞻协议，不把预列有限 suite 当作函数超总体概率样本。
 - ERT 使用专用 paired hierarchical ratio bootstrap，不能把 run-level `ERT_FE` 当作普通算术均值型 effect。每个 replicate 固定各 `function × dimension` 内的 static problems，只在每个 problem 内联合配对重抽 optimizer runs，分别重算 treatment/reference 的 `N_FE` 与 `N_hit`，计算 `ERT=N_FE/N_hit` 及 `log10(ERT_treatment/ERT_reference)`，再对 fixed dimensions 等权形成 function effect，最后对 fixed functions 等权。单方零命中保留为有符号无穷，双方零命中记为显式 undefined mass；任何此类 stratum 或 replicate 均不得静默删除。区间使用扩展实数分位数，将 undefined mass 保守分配到两侧尾部，并分开报告 finite/unbounded/undefined observed contrast 状态、undefined mass 与各类零命中计数。`interval_established` 只表示 observed contrast 与扩展实数边界是否有定义，不再因为任一 bootstrap replicate 出现零命中而改变。绝对 ERT 逐 function × dimension 报告；不同维度 raw FE 不先池化。
 - `paired_ert_strata` 与 `paired_hierarchical_ert_log10_ratio_interval` 当前只实现专用计算核，尚未接到 suite-level attempted denominator/coverage、双向 failure sensitivity 与正式报告 consumer。该 wiring 完成前，complete-pair ERT ratio 不能单独支持 suite 结论。
 - Utility `±0.01`、mean `log10_gap ±0.05`、geometric-mean runtime ratio `[0.95,1.05]` 及 call/target-hit-rate 差 `±0.05` 统一称为“项目内预设 operational tolerance”。项目内目前没有独立领域依据把它们称为 confirmatory equivalence bounds；主条件 CI 固定为 95%，只能逐项描述相对 tolerance 的位置，不能形成确认性等价声明。若同一预设 family 同时描述多个 contrasts，Bonferroni 区间使用每项双侧 level `1-0.05/m`，提供 family-wise 95% coverage；它仍不是等价检验。Utility 中 gap/runtime 抵消也不能替代各 endpoint 的判断。
 - 当前项目内 tolerance 没有独立领域依据，第一篇论文不作确认性等价声明。BBOB-validation 与 CEC2017 只用条件区间描述相对 tolerance 的位置；差异不显著不等于等价。未来 untouched external suite 若预列 simultaneous intervals，contrast family 与 interval level 必须在首次 outcome 前冻结，且仍只能称为相对项目内 tolerance 的 prospective comparison。
-- 当前 3 个 BBOB instances × 30 optimizer seeds 与 CEC2017 的 30 seeds 没有仓内 precision/power 依据，只能视为固定开发期采样设计；结果须报告实际区间宽度，不得事后声称样本量充分。CEC2022/工程问题在首次 outcome 前必须冻结 endpoint-specific precision target、利用开发集合方差信息但不读取目标 suite outcome 的重复数确定方法，以及最终 repeats；未闭合即不得启动对应前瞻评价。
+- 当前 3 个 BBOB instances × 30 optimizer seeds 与 CEC2017 的 30 seeds 没有仓内 precision/power 依据，只能视为固定开发期采样设计；结果须报告实际区间宽度，不得事后声称样本量充分。CEC2022/工程问题在首次 outcome 前必须冻结 endpoint-specific precision target、利用开发集合方差信息但不读取目标 suite outcome 的重复数确定方法，以及最终 repeats；未闭合即不得启动对应未触及外部确认评价。
 - BBOB-validation 的 paired sign-flip 以 6 个固定 function effects 为单位，依赖零假设下 signs 可交换（关于零对称）的额外假设。穷举 `2^6=64` 后双侧 exact raw p 最小为 `2/64=0.03125`；它只能作为假设敏感辅助，不产生函数超总体推断。
 - RQ2 唯一主要科学 contrast 仍是冻结模型家族的 `milestone-only B3 - milestone-only T0`。BBOB-validation 与 CEC2017 分别给已见内部/外部开发估计；确认性证据等待 untouched CEC2022 与工程集合。LDA、Logistic Regression、Ridge 的 train outer-OOF 两两差异只作候选选择诊断。
 - RQ3 与 RQ5 在六函数 BBOB-validation 上各有 6 个预设辅助 contrasts；其最小 Holm-adjusted p 均为 `0.1875`，在 `alpha=0.05` 下不可能拒绝。RQ4 是按 suite 与 endpoint 分开的迁移评价，四个 suites 不是同一零假设下的四个可交换 contrasts，不建立跨 suite 的四 contrast Holm family；未来某 suite 内若有多个 contrasts，须在该 suite 首次 outcome 前单独冻结 family。RQ3--RQ5 均以逐 function/problem effects、固定有限集效应、条件 95% CI、coverage 与失败敏感性为主；raw/adjusted p 若报告，只能放在明确标为 assumption-sensitive 的辅助表中。未拒绝不表示无效或等价，suite、endpoint 与 RQ 不池化。

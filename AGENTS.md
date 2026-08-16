@@ -131,9 +131,9 @@ Agent 必须：
 
 新术语或缩写只有在没有通行名称且给出数学定义、计算方法和与既有术语的区别时才能引入；不得用宣传性名称替代标准任务、基线、指标或统计方法。
 
-除非研究对象本身是算法问责、偏差/歧视检测、合规评价或独立第三方检查，不得把普通的完整性检查、结果复核、字段检查、统计诊断或文献核对命名为“xx审计”、`audit`、`auditor` 或 `auditing`，也不得把它们写成科学贡献或独立实验阶段。此类任务在本项目中应优先命名为“consistency check”“verification”“validation”或“benchmark check”。若确需使用该术语时，必须说明检查对象、规范性准则、检查者角色与独立性、证据程序和报告产物。
+除非研究对象本身是算法问责、偏差/歧视检测、合规评价或独立第三方检查，不得把普通的完整性检查、结果复核、字段检查、统计诊断或文献核对命名为“xx审计”、`audit`、`auditor` 或 `auditing`，也不得把它们写成科学贡献或独立实验阶段。此类任务在本项目中应优先命名为“consistency check”“verification”“validation”或“benchmark check”。若确需引用“algorithmic auditing”这类外部文献概念时，必须说明检查对象、规范性准则、检查者角色与独立性、证据程序和报告产物。
 
-上述用语遵循领域文献的通常分工：COCO 与生物启发优化实验指南使用 benchmark、performance measure、reference algorithm、validation 和 statistical analysis；算法选择文献使用 SBS、VBS、portfolio、feature cost 与 performance gap；AOS 文献使用 operator selection、credit assignment 和 reward。机器学习中的 counterfactual 有因果模型或预测解释的正式含义，不能泛化为任意备选运行。Raji 等的 algorithmic auditing 则面向组织问责、系统伤害和审计报告，不能泛化为“更严格的科学检查”。在本项目的命名里，默认优先使用 consistency / verification / validation / check，不使用 audit 作为普通实验步骤名称。
+上述用语遵循领域文献的通常分工：COCO 与生物启发优化实验指南使用 benchmark、performance measure、reference algorithm、validation 和 statistical analysis；算法选择文献使用 SBS、VBS、portfolio、feature cost 与 performance gap；AOS 文献使用 operator selection、credit assignment 和 reward。机器学习中的 counterfactual 有因果模型或预测解释的正式含义，不能泛化为任意备选运行。Raji 等的 algorithmic auditing 只对应外部问责语境，不应泛化为本项目的普通检查或验证步骤；本项目默认优先使用 consistency / verification / validation / check。
 
 ---
 

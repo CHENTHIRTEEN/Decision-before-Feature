@@ -14,7 +14,7 @@ Behavior extractor 同时已改为 permutation-invariant 的种群集合统计�
 
 三档 query 提取器已实现统一 `unit_cube_x__median_iqr_y_v1` 前处理：cheap/standard 共享 `lhs_50d`，broad 使用 `lhs_100d`；隔离 pflacco 1.2.2 提取器对预处理后的 X/y 计算冻结 whitelist，终点评价字段只作 metadata。活动 query ID 为 `descriptor_cheap_invariant`、`pflacco_standard_invariant`、`pflacco_broad_invariant`。实现完成不等于正式数据检查或结果完成；72 个正式 trajectory shards 尚未启动。
 
-Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。每个 outer fold 单独计算 `SBS_outer` 并拟合该 fold 的 Selectors/Utility/Decision；每个 inner fold 又只用 inner-fit functions 重算 `SBS_inner`、Selectors 与 Utility，端到端 inner OOF first-trigger outcomes 冻结 outer threshold。完整 BBOB-train 的部署 threshold 与 Random calibration 也必须来自 grouped-by-function OOF 上游链。BBOB-validation 已被旧模型比较、调参与消融查看，只能作已见内部评价；CEC2017 也已有 preliminary/targeted 结果，只能作已见外部开发评价。Random Forest、XGBoost、LightGBM、MLP 及分类特征工程搜索已退出 Decision Model 活动调参路径；Selection Reference 中固定的 Random Forest action-loss regression 不受此约束。
+Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。每个 outer fold 单独计算 `SBS_outer` 并拟合该 fold 的 Selectors/Utility/Decision；每个 inner fold 又只用 inner-fit functions 重算 `SBS_inner`、Selectors 与 Utility，端到端 inner OOF first-trigger outcomes 冻结 outer threshold。完整 BBOB-train 的部署 threshold 与 Random calibration 也必须来自 grouped-by-function OOF 上游链。BBOB-validation 已被旧模型比较、调参与消融查看，只能作已见内部评价集；CEC2017 也已有 preliminary/targeted 结果，只能作已见外部开发集。Random Forest、XGBoost、LightGBM、MLP 及分类特征工程搜索已退出 Decision Model 活动调参路径；Selection Reference 中固定的 Random Forest action-loss regression 不受此约束。
 
 此前生成的 BBOB trajectory 使用了重建式 continuation，旧 behavior 含有依赖行号对应关系的字段，旧 landscape 表又把 16 个自定义描述符笼统称为 ELA。旧 utility labels、Decision dataset、模型、baseline 和成本—性能结果因此全部撤回；必须从 trajectory 开始按依赖顺序重新生成。已有 CEC2017 在线结果同样不能用于外部结论。
 
@@ -25,9 +25,9 @@ Decision Model 的活动候选固定为 LDA、Logistic Regression 与 Ridge。�
 ## 冻结实验协议
 
 - 训练：BBOB 10D / 20D / 40D。
-- 已见内部评价：BBOB-validation 10D / 20D / 40D，按 function ID 与 BBOB-train 隔离；它不再承担独立确认性评价。
-- 已见外部开发评价：CEC2017。其函数口径仍待核对，不能承担确认性结论。
-- 前瞻外部评价候选：CEC2022 与工程问题。只有在本轮协议冻结后、且 functions/problems、预算、端点、失败、约束规则、顶层有限集单位与固定 strata 权重均先写入当前项目再首次生成 outcome，才可承担前瞻评价；当前实现尚不满足这些条件。CEC suite 以 function 为顶层有限集单位；工程集合以预先命名的 engineering problem 为顶层单位，不强行套用 BBOB function/dimension 层级。
+- 已见内部评价集：BBOB-validation 10D / 20D / 40D，按 function ID 与 BBOB-train 隔离；它不再承担独立确认性评价。
+- 已见外部开发集：CEC2017。其函数口径仍待核对，不能承担确认性结论。
+- 未触及外部确认候选：CEC2022 与工程问题。只有在本轮协议冻结后、且 functions/problems、预算、端点、失败、约束规则、顶层有限集单位与固定 strata 权重均先写入当前项目再首次生成 outcome，才可承担未触及外部确认评价；当前实现尚不满足这些条件。CEC suite 以 function 为顶层有限集单位；工程集合以预先命名的 engineering problem 为顶层单位，不强行套用 BBOB function/dimension 层级。
 - 算法池：DE、PSO、CMA-ES、SHADE。
 - 主采样协议：`phase1_dynamic_budget_event_v1`；12 个必选预算里程碑为 `0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.34, 0.38, 0.42, 0.46, 0.50, 0.60`，事件状态使每个 run 总计 12–18 行。
 - 主 query 固定为 `descriptor_cheap_invariant`：14 个自定义低成本描述符，使用 `lhs_50d`，即 5% 总 FE。统一 median/IQR preprocessing 后恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr` 已从活动 whitelist 删除；query ID、采样和 action losses 不变。
