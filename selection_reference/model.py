@@ -777,7 +777,24 @@ def prepare_state_matrix(
         query_features=query_features,
         query_spec=query_spec,
     )
+    states["default_algorithm"] = _compute_problem_level_sbs(states, action_losses)
     return states.sort_values(key).reset_index(drop=True), portfolio
+
+
+def _compute_problem_level_sbs(
+    states: pd.DataFrame,
+    action_losses: pd.DataFrame,
+) -> pd.Series:
+    """Derive the single-best algorithm across all training problems from mean p_skip."""
+    continue_rows = action_losses["action"].astype(str).eq("continue_current")
+    mean_p_skip = (
+        action_losses.loc[continue_rows]
+        .groupby("prefix_algorithm")["p_skip"]
+        .mean()
+        .sort_values()
+    )
+    sbs = str(mean_p_skip.index[0])
+    return pd.Series(sbs, index=states.index)
 
 
 def prepare_pre_run_state_matrix(

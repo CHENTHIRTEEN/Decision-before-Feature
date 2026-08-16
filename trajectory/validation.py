@@ -16,6 +16,7 @@ from trajectory.query import (
     TRAJECTORY_QUERY_PROTOCOL,
     TRAJECTORY_QUERY_SOURCE_MODE,
     TRAJECTORY_QUERY_STREAM_CODE,
+    parse_problem_id,
 )
 from trajectory.records import OPTIMIZER_STATE_MODE
 from trajectory.sampling import (

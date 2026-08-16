@@ -458,6 +458,7 @@ def _real_prefix_state(
                 problem_id=problem.problem_id,
                 function_id=problem.function_id,
                 family=problem.family,
+                cv_group_id=problem.cv_group_id,
                 dimension=problem.dimension,
                 algorithm=prefix_algorithm,
                 seed=seed,

@@ -164,7 +164,14 @@ def _check_samples(samples: pd.DataFrame) -> None:
             or (completed and effective_fe != expected_size)
         ):
             raise ValueError("sample planned/effective FE accounting is inconsistent")
-        x = np.asarray(row["X"], dtype=float).reshape(-1, int(row["dimension"]))
+        x_raw = row["X"]
+        if isinstance(x_raw, np.ndarray) and x_raw.ndim == 1 and len(x_raw) > 0:
+            x = np.vstack([np.asarray(r, dtype=float) for r in x_raw])
+        elif isinstance(x_raw, list) and len(x_raw) > 0 and isinstance(x_raw[0], list):
+            x = np.asarray([np.asarray(r, dtype=float) for r in x_raw], dtype=float)
+        else:
+            x = np.asarray(x_raw, dtype=float)
+        x = x.reshape(-1, int(row["dimension"]))
         y = np.asarray(row["y"], dtype=float)
         if x.shape != (effective_fe, int(row["dimension"])) or y.shape != (effective_fe,):
             raise ValueError("saved X or y shape is inconsistent with its sample design")

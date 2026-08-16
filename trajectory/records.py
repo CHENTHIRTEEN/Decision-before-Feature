@@ -15,6 +15,7 @@ class TrajectoryRecord:
     problem_id: str
     function_id: str
     family: str
+    cv_group_id: str
     dimension: int
     algorithm: str
     seed: int
@@ -54,6 +55,7 @@ class TrajectoryRecord:
         problem_id: str,
         function_id: str,
         family: str,
+        cv_group_id: str = "",
         dimension: int,
         algorithm: str,
         seed: int,
@@ -82,6 +84,7 @@ class TrajectoryRecord:
             problem_id=problem_id,
             function_id=function_id,
             family=family,
+            cv_group_id=cv_group_id,
             dimension=int(dimension),
             algorithm=algorithm,
             seed=int(seed),

@@ -29,7 +29,6 @@ FORBIDDEN_COLUMN_FRAGMENTS = (
     "strategy",
     "sigma",
     "algorithm_id",
-    "function_id",
 )
 
 BOUNDED_FEATURE_COLUMNS = (

@@ -56,6 +56,7 @@ def build_selection_reference(
         all_train_states["prefix_algorithm"].astype(str)
         == all_train_states["default_algorithm"].astype(str)
     )
+    all_train_states["no_query_algorithm"] = all_train_states["default_algorithm"].astype(str)
     train_states = all_train_states.loc[main_prefix_mask].reset_index(drop=True)
     cross_probe_states = all_train_states.loc[~main_prefix_mask].reset_index(drop=True)
     _validate_training_scope(train_states)

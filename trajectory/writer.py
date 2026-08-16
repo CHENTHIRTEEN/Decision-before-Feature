@@ -59,6 +59,7 @@ TRAJECTORY_SCHEMA = pa.schema(
         ("problem_id", pa.string()),
         ("function_id", pa.string()),
         ("family", pa.string()),
+        ("cv_group_id", pa.string()),
         ("dimension", pa.int32()),
         ("algorithm", pa.string()),
         ("seed", pa.int64()),
