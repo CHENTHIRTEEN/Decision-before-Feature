@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Decision-before-Feature: 完整正式数据生成脚本
+# Decision-before-Feature: 完整正式离线数据生成脚本
+#
+# 离线数据只覆盖 BBOB train + BBOB validation。
+# CEC2017 / CEC2022 / 工程问题属于在线确认性测评，由 online evaluator 独立运行，
+# 不在此脚本范围内。
 #
 # 规模:
 #   BBOB train:      54 shards,  19440 runs, ~454M FE
 #   BBOB validation:  18 shards,   6480 runs, ~151M FE
-#   CEC2017 test:     87 shards,  10440 runs, ~313M FE
-#   Total:           159 shards, 36360 runs, ~918M FE
+#   Total:            72 shards,  25920 runs, ~605M FE
 #
 # 预计运行时间 (取决于 CPU 核数):
-#   - 8 workers: 约 60-80 小时
-#   - 16 workers: 约 30-40 小时
-#   - 32 workers: 约 15-20 小时
+#   - 8 workers: 约 40-50 小时
+#   - 16 workers: 约 20-25 小时
+#   - 32 workers: 约 10-13 小时
 #
 # 用法:
 #   chmod +x scripts/run_full_experiment.sh
@@ -20,7 +23,6 @@
 #   WORKERS: 并行 worker 数 (默认 8)
 #
 # 可选环境变量:
-#   SKIP_CEC2017=1   跳过 CEC2017 (只跑 BBOB)
 #   SKIP_QUERY=1     跳过 query/action-loss/selection-reference 阶段
 #   QUERY_ID         query id (默认 descriptor_cheap_invariant)
 #   SAMPLE_DESIGN   sample design id (默认 lhs_50d)
@@ -31,7 +33,6 @@ set -euo pipefail
 WORKERS="${1:-8}"
 QUERY_ID="${QUERY_ID:-descriptor_cheap_invariant}"
 SAMPLE_DESIGN="${SAMPLE_DESIGN:-lhs_50d}"
-SKIP_CEC2017="${SKIP_CEC2017:-0}"
 SKIP_QUERY="${SKIP_QUERY:-0}"
 
 # ── 颜色 ──
@@ -59,20 +60,13 @@ test -f configs/phase1_bbob_validation.yaml || { err "validation config not foun
 # ── 配置 ──
 TRAIN_CFG="configs/phase1_bbob_train.yaml"
 VAL_CFG="configs/phase1_bbob_validation.yaml"
-CEC_CFG="configs/phase1_cec2017_test.yaml"
 ALL_CFGS=("${TRAIN_CFG}" "${VAL_CFG}")
-if [ "${SKIP_CEC2017}" != "1" ]; then
-    ALL_CFGS+=("${CEC_CFG}")
-fi
 
 # ── 计数器 ──
 STEP=0
-TOTAL_STEPS=10
-if [ "${SKIP_CEC2017}" = "1" ]; then
-    TOTAL_STEPS=$((TOTAL_STEPS - 1))
-fi
+TOTAL_STEPS=9
 if [ "${SKIP_QUERY}" = "1" ]; then
-    TOTAL_STEPS=$((TOTAL_STEPS - 5))
+    TOTAL_STEPS=4
 fi
 
 # =============================================================================
@@ -84,24 +78,14 @@ uv run phase1-plan-shards --config "${TRAIN_CFG}"
 log "BBOB train shard plan complete."
 
 step "Step $((++STEP))/${TOTAL_STEPS}: Collecting BBOB train trajectories (54 shards, 19440 runs)"
-log "This is the longest step. Estimated 30-50% of total runtime."
+log "This is the longest step. Estimated 60-70% of total runtime."
 uv run phase1-collect-batch --config "${TRAIN_CFG}" --sharded --workers "${WORKERS}"
 log "BBOB train trajectories complete."
 
-step "Step $((++STEP))/${TOTAL_STEPS}: Planning BBOB validation shards"
+step "Step $((++STEP))/${TOTAL_STEPS}: Collecting BBOB validation trajectories (18 shards, 6480 runs)"
 uv run phase1-plan-shards --config "${VAL_CFG}"
-log "BBOB validation shard plan complete."
-
-step "Step $((++STEP))/${TOTAL_STEPS}): Collecting BBOB validation trajectories (18 shards, 6480 runs)"
 uv run phase1-collect-batch --config "${VAL_CFG}" --sharded --workers "${WORKERS}"
 log "BBOB validation trajectories complete."
-
-if [ "${SKIP_CEC2017}" != "1" ]; then
-    step "Step $((++STEP))/${TOTAL_STEPS}: Collecting CEC2017 test trajectories (87 shards, 10440 runs)"
-    uv run phase1-plan-shards --config "${CEC_CFG}"
-    uv run phase1-collect-batch --config "${CEC_CFG}" --sharded --workers "${WORKERS}"
-    log "CEC2017 trajectories complete."
-fi
 
 # =============================================================================
 # Phase 2: Data Quality Checks
@@ -153,11 +137,9 @@ log "Extracting query features..."
 uv run query-extract-cheap \
     --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_train/samples.parquet \
     --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_train/features.parquet
-if [ "${SKIP_CEC2017}" != "1" ]; then
-    uv run query-extract-cheap \
-        --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/cec2017_test/samples.parquet \
-        --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/cec2017_test/features.parquet
-fi
+uv run query-extract-cheap \
+    --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_validation/samples.parquet \
+    --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_validation/features.parquet
 log "Query consistency check..."
 SAMPLE_PATHS=""
 FEATURE_PATHS=""
@@ -175,14 +157,13 @@ log "Query samples and features complete."
 # Phase 5: Action Losses
 # =============================================================================
 
-step "Step $((++STEP))/${TOTAL_STEPS}): Generating action losses (this is very compute-intensive)"
+step "Step $((++STEP))/${TOTAL_STEPS}: Generating action losses (this is very compute-intensive)"
 # query_adjusted_budget
 log "Generating query_adjusted_budget action losses..."
 for cfg in "${ALL_CFGS[@]}"; do
     split=$(basename "$(dirname "$(grep -o 'output: .*' "${cfg}" | awk '{print $2}')" )")
     out_dir="results/action_losses/query_adjusted/${split}"
     mkdir -p "${out_dir}"
-    # Get functions from config
     functions=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(f) for f in cfg['functions']))")
     dims=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(d) for d in cfg['dimensions']))")
     for f in ${functions}; do
@@ -269,7 +250,7 @@ log "pre_run_query_adjusted_budget action losses complete."
 # Phase 6: Selection Reference Build
 # =============================================================================
 
-step "Step $((++STEP))/${TOTAL_STEPS}): Building selection references"
+step "Step $((++STEP))/${TOTAL_STEPS}: Building selection references"
 
 build_selection_reference() {
     local mode="$1"
@@ -334,13 +315,10 @@ log "Selection references built."
 # Done
 # =============================================================================
 
-step "FULL DATA GENERATION COMPLETE"
+step "FULL OFFLINE DATA GENERATION COMPLETE"
 log "Outputs:"
 log "  Trajectories:   results/phase1_refined_sampling/bbob_train/"
 log "                   results/phase1_refined_sampling/bbob_validation/"
-if [ "${SKIP_CEC2017}" != "1" ]; then
-log "                   results/phase1_cec2017_test/"
-fi
 log "  Behavior:        results/phase1_refined_sampling/*/bbob_f*/dimension_*/behavior.parquet"
 log "  Query samples:   results/landscape_queries/samples/${SAMPLE_DESIGN}/"
 log "  Query features:  results/landscape_queries/features/${SAMPLE_DESIGN}/"
@@ -348,8 +326,11 @@ log "  Action losses:   results/action_losses/"
 log "  Selection ref:  results/selection_reference/${QUERY_ID}/"
 log "                   results/selection_reference/behavior_only_full_budget/"
 log ""
+log "NOTE: CEC2017/CEC2022/工程问题属于在线确认性测评，不在此离线脚本范围内。"
+log "      在线测评由 decision-online-controller-evaluate 独立运行。"
+log ""
 log "Next steps:"
 log "  1. Build utility labels (utility-labels-generate-batch)"
 log "  2. Train decision model (decision-train-full)"
 log "  3. Run pilot coverage check"
-log "  4. External evaluation (decision-online-controller-evaluate)"
+log "  4. Online external evaluation (decision-online-controller-evaluate)"
