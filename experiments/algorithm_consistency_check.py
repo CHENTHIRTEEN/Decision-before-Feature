@@ -225,6 +225,11 @@ def _make_problem(*, suite: str, function: int, instance: int, dimension: int) -
 def _normalize_state_value(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return ("ndarray", value.shape, value.dtype.str, tuple(_normalize_state_value(item) for item in value.tolist()))
+    if isinstance(value, dict):
+        return (
+            "dict",
+            tuple(sorted((str(key), _normalize_state_value(val)) for key, val in value.items())),
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_normalize_state_value(item) for item in value)
     if isinstance(value, float):
@@ -243,7 +248,12 @@ def _assert_state_equal(left: Any, right: Any, context: str) -> None:
         for key in left.__dict__:
             lvalue = getattr(left, key)
             rvalue = getattr(right, key)
-            if _normalize_state_value(lvalue) != _normalize_state_value(rvalue):
+            try:
+                normalized_left = _normalize_state_value(lvalue)
+                normalized_right = _normalize_state_value(rvalue)
+            except Exception as exc:
+                raise ValueError(f"{context}: failed to normalize field {key}: {exc}") from exc
+            if repr(normalized_left) != repr(normalized_right):
                 raise ValueError(f"{context}: field {key} differs")
         return
     raise TypeError(f"unsupported state type for consistency comparison: {type(left).__name__}")
