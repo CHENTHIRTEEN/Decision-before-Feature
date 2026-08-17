@@ -166,30 +166,21 @@ step "Step $((++STEP))/${TOTAL_STEPS}: Generating action losses (this is very co
 log "Generating query_adjusted_budget action losses..."
 for cfg in "${ALL_CFGS[@]}"; do
     split=$(basename "$(dirname "$(grep -o 'output: .*' "${cfg}" | awk '{print $2}')" )")
-    out_dir="results/action_losses/query_adjusted/${split}"
-    mkdir -p "${out_dir}"
-    functions=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(f) for f in cfg['functions']))")
-    dims=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(d) for d in cfg['dimensions']))")
-    for f in ${functions}; do
-        for d in ${dims}; do
-            out="${out_dir}/f${f}_d${d}.parquet"
-            if [ -f "${out}" ]; then
-                log "  skip existing ${out}"
-                continue
-            fi
-            log "  ${split} f${f} d${d}..."
-            uv run selection-reference-evaluate-actions \
-                --config "${cfg}" \
-                --train-config "${TRAIN_CFG}" \
-                --action-budget-mode query_adjusted_budget \
-                --sample-design-id "${SAMPLE_DESIGN}" \
-                --output "${out}" \
-                --workers "${WORKERS}" \
-                --only-function "${f}" \
-                --only-dimension "${d}" \
-                --all-prefixes
-        done
-    done
+    out="results/action_losses/query_adjusted/${split}/action_losses.parquet"
+    mkdir -p "$(dirname "${out}")"
+    if [ -f "${out}" ]; then
+        log "  skip existing ${out}"
+        continue
+    fi
+    log "  ${split} (all shards)..."
+    uv run selection-reference-evaluate-actions \
+        --config "${cfg}" \
+        --train-config "${TRAIN_CFG}" \
+        --action-budget-mode query_adjusted_budget \
+        --sample-design-id "${SAMPLE_DESIGN}" \
+        --output "${out}" \
+        --workers "${WORKERS}" \
+        --all-prefixes
 done
 log "query_adjusted_budget action losses complete."
 
@@ -197,29 +188,20 @@ log "query_adjusted_budget action losses complete."
 log "Generating behavior_only_full_budget action losses..."
 for cfg in "${ALL_CFGS[@]}"; do
     split=$(basename "$(dirname "$(grep -o 'output: .*' "${cfg}" | awk '{print $2}')" )")
-    out_dir="results/action_losses/behavior_only/${split}"
-    mkdir -p "${out_dir}"
-    functions=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(f) for f in cfg['functions']))")
-    dims=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(d) for d in cfg['dimensions']))")
-    for f in ${functions}; do
-        for d in ${dims}; do
-            out="${out_dir}/f${f}_d${d}.parquet"
-            if [ -f "${out}" ]; then
-                log "  skip existing ${out}"
-                continue
-            fi
-            log "  ${split} f${f} d${d}..."
-            uv run selection-reference-evaluate-actions \
-                --config "${cfg}" \
-                --train-config "${TRAIN_CFG}" \
-                --action-budget-mode behavior_only_full_budget \
-                --output "${out}" \
-                --workers "${WORKERS}" \
-                --only-function "${f}" \
-                --only-dimension "${d}" \
-                --all-prefixes
-        done
-    done
+    out="results/action_losses/behavior_only/${split}/action_losses.parquet"
+    mkdir -p "$(dirname "${out}")"
+    if [ -f "${out}" ]; then
+        log "  skip existing ${out}"
+        continue
+    fi
+    log "  ${split} (all shards)..."
+    uv run selection-reference-evaluate-actions \
+        --config "${cfg}" \
+        --train-config "${TRAIN_CFG}" \
+        --action-budget-mode behavior_only_full_budget \
+        --output "${out}" \
+        --workers "${WORKERS}" \
+        --all-prefixes
 done
 log "behavior_only_full_budget action losses complete."
 
@@ -227,29 +209,20 @@ log "behavior_only_full_budget action losses complete."
 log "Generating pre_run_query_adjusted_budget action losses..."
 for cfg in "${ALL_CFGS[@]}"; do
     split=$(basename "$(dirname "$(grep -o 'output: .*' "${cfg}" | awk '{print $2}')" )")
-    out_dir="results/action_losses/pre_run/${split}"
-    mkdir -p "${out_dir}"
-    functions=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(f) for f in cfg['functions']))")
-    dims=$(python3 -c "import yaml; cfg=yaml.safe_load(open('${cfg}')); print(' '.join(str(d) for d in cfg['dimensions']))")
-    for f in ${functions}; do
-        for d in ${dims}; do
-            out="${out_dir}/f${f}_d${d}.parquet"
-            if [ -f "${out}" ]; then
-                log "  skip existing ${out}"
-                continue
-            fi
-            log "  ${split} f${f} d${d}..."
-            uv run selection-reference-evaluate-actions \
-                --config "${cfg}" \
-                --train-config "${TRAIN_CFG}" \
-                --action-budget-mode pre_run_query_adjusted_budget \
-                --sample-design-id "${SAMPLE_DESIGN}" \
-                --output "${out}" \
-                --workers "${WORKERS}" \
-                --only-function "${f}" \
-                --only-dimension "${d}"
-        done
-    done
+    out="results/action_losses/pre_run/${split}/action_losses.parquet"
+    mkdir -p "$(dirname "${out}")"
+    if [ -f "${out}" ]; then
+        log "  skip existing ${out}"
+        continue
+    fi
+    log "  ${split} (all shards)..."
+    uv run selection-reference-evaluate-actions \
+        --config "${cfg}" \
+        --train-config "${TRAIN_CFG}" \
+        --action-budget-mode pre_run_query_adjusted_budget \
+        --sample-design-id "${SAMPLE_DESIGN}" \
+        --output "${out}" \
+        --workers "${WORKERS}"
 done
 log "pre_run_query_adjusted_budget action losses complete."
 
@@ -267,16 +240,17 @@ build_selection_reference() {
     local train_files=""
     local val_files=""
 
-    # Gather all train action-loss files
-    for f in $(ls "${action_dir}/bbob_train/"*.parquet 2>/dev/null | sort); do
-        train_files="${train_files} --train-action-losses ${f}"
-    done
-
-    # Gather validation action-loss files (if they exist)
-    if [ -d "${action_dir}/bbob_validation" ]; then
-        for f in $(ls "${action_dir}/bbob_validation/"*.parquet 2>/dev/null | sort); do
-            val_files="${val_files} --predict-action-losses ${f}"
-        done
+    local train_action_file="${action_dir}/bbob_train/action_losses.parquet"
+    local val_action_file="${action_dir}/bbob_validation/action_losses.parquet"
+    if [ -f "${train_action_file}" ]; then
+        train_files="--train-action-losses ${train_action_file}"
+    else
+        warn "missing train action-loss file: ${train_action_file}"
+    fi
+    if [ -f "${val_action_file}" ]; then
+        val_files="--predict-action-losses ${val_action_file}"
+    else
+        warn "missing validation action-loss file: ${val_action_file}"
     fi
 
     # Gather behavior files
