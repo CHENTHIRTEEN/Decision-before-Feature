@@ -153,10 +153,15 @@ def _check_single_run(
             settings=settings,
         )
         advance_optimizer_state(state=state, problem=problem, fe_budget=fe_total - population_size)
+        reference = float(problem.reference_value)
+        target = 1e-8
+        final_gap = max(float(state.best_fitness) - reference, 0.0)
+        first_hit = population_size if final_gap <= target else None
         final_performance = FinalPerformanceRecord.from_optimizer_state(
             problem_id=problem.problem_id,
             function_id=problem.function_id,
             family=problem.family,
+            cv_group_id=problem.cv_group_id,
             dimension=problem.dimension,
             algorithm=algorithm,
             seed=seed,
@@ -164,11 +169,11 @@ def _check_single_run(
             fe_total=fe_total,
             native_updates=getattr(state, "generation", 0),
             best_fitness=float(state.best_fitness),
-            benchmark_reference_value=float(problem.reference_value),
+            benchmark_reference_value=reference,
             log10_gap_floor=1e-12,
             log10_gap_cap=1e20,
-            success_gap_target=1e-8,
-            first_hit_fe=population_size,
+            success_gap_target=target,
+            first_hit_fe=first_hit,
         )
         return {
             "algorithm": algorithm,
@@ -217,6 +222,20 @@ def _make_problem(*, suite: str, function: int, instance: int, dimension: int) -
 
 
 
+def _normalize_state_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return ("ndarray", value.shape, value.dtype.str, tuple(_normalize_state_value(item) for item in value.tolist()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_normalize_state_value(item) for item in value)
+    if isinstance(value, float):
+        if np.isnan(value):
+            return ("float", "nan")
+        return ("float", float(value))
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    return value
+
+
 def _assert_state_equal(left: Any, right: Any, context: str) -> None:
     if type(left) is not type(right):
         raise ValueError(f"{context}: state types differ: {type(left).__name__} != {type(right).__name__}")
@@ -224,14 +243,8 @@ def _assert_state_equal(left: Any, right: Any, context: str) -> None:
         for key in left.__dict__:
             lvalue = getattr(left, key)
             rvalue = getattr(right, key)
-            if isinstance(lvalue, np.ndarray):
-                if not np.array_equal(lvalue, rvalue, equal_nan=True):
-                    raise ValueError(f"{context}: ndarray field {key} differs")
-            elif isinstance(lvalue, (list, tuple)):
-                if len(lvalue) != len(rvalue):
-                    raise ValueError(f"{context}: sequence field {key} length differs")
-            elif lvalue != rvalue:
-                raise ValueError(f"{context}: field {key} differs: {lvalue!r} != {rvalue!r}")
+            if _normalize_state_value(lvalue) != _normalize_state_value(rvalue):
+                raise ValueError(f"{context}: field {key} differs")
         return
     raise TypeError(f"unsupported state type for consistency comparison: {type(left).__name__}")
 
