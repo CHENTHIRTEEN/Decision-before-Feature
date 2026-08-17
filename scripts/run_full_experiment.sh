@@ -131,15 +131,17 @@ log "Behavior extraction complete."
 step "Step $((++STEP))/${TOTAL_STEPS}: Generating query samples and features"
 for cfg in "${ALL_CFGS[@]}"; do
     log "Generating query samples for ${cfg}..."
-    uv run query-sample-batch --config "${cfg}" --sample-design-id "${SAMPLE_DESIGN}"
+    uv run query-sample-batch --config "${cfg}" --sample-design-id "${SAMPLE_DESIGN}" --overwrite
 done
 log "Extracting query features..."
 uv run query-extract-cheap \
     --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_train/samples.parquet \
-    --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_train/features.parquet
+    --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_train/features.parquet \
+    --overwrite
 uv run query-extract-cheap \
     --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_validation/samples.parquet \
-    --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_validation/features.parquet
+    --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_validation/features.parquet \
+    --overwrite
 log "Query consistency check..."
 SAMPLE_PATHS=""
 FEATURE_PATHS=""
