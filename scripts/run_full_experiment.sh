@@ -137,10 +137,12 @@ log "Extracting query features..."
 uv run query-extract-cheap \
     --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_train/samples.parquet \
     --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_train/features.parquet \
+    --workers "${WORKERS}" \
     --overwrite
 uv run query-extract-cheap \
     --samples results/landscape_queries/samples/"${SAMPLE_DESIGN}"/bbob_validation/samples.parquet \
     --output results/landscape_queries/features/"${SAMPLE_DESIGN}"/bbob_validation/features.parquet \
+    --workers "${WORKERS}" \
     --overwrite
 log "Query consistency check..."
 SAMPLE_PATHS=""

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from time import perf_counter
 
@@ -67,6 +69,104 @@ def default_feature_path(query_id: str, split: str) -> Path:
     return Path("results/landscape_queries/features") / query_id / split / "features.parquet"
 
 
+def _extract_descriptor_row(row: dict, spec) -> dict:
+    started = perf_counter()
+    group_status: dict[str, dict[str, object]] = {}
+    failures: list[str] = []
+    if str(row.get("sample_status", "")) != "ok":
+        raw_features = {column: float("nan") for column in spec.feature_columns}
+        message = str(row.get("sample_failure", "query sample failed"))
+        failures.append(message)
+        group_status_name = "not_computed_sample_failed"
+    else:
+        group_status_name = "ok"
+        try:
+            raw_features = calculate_descriptor_cheap(
+                np.asarray(row["X"], dtype=float),
+                np.asarray(row["y"], dtype=float),
+                np.asarray(row["lower_bounds"], dtype=float),
+                np.asarray(row["upper_bounds"], dtype=float),
+            )
+        except Exception as exc:
+            raw_features = {column: float("nan") for column in spec.feature_columns}
+            message = f"{type(exc).__name__}: {exc}"
+            failures.append(message)
+            group_status_name = "failed"
+    runtime_feature = perf_counter() - started
+    if str(row.get("sample_status", "")) != "ok":
+        runtime_feature = 0.0
+    nonfinite = [column for column, value in raw_features.items() if not np.isfinite(float(value))]
+    group_status["descriptor_cheap"] = {
+        "status": group_status_name,
+        "runtime_seconds": float(runtime_feature),
+        "nonfinite_columns": nonfinite,
+        "warnings": [],
+        "error": failures[0] if failures else "",
+    }
+    features = {
+        column: None if column in nonfinite else float(raw_features[column])
+        for column in spec.feature_columns
+    }
+    return {
+        **{
+            name: row[name]
+            for name in (
+                "split",
+                "problem_id",
+                "function_id",
+                "family",
+                "function",
+                "instance",
+                "dimension",
+                "FE_total",
+                "sample_design_id",
+                "sampling_protocol",
+                "sample_seed",
+                "sample_size",
+                "FE_query",
+                "FE_query_planned",
+                "runtime_query_sampling",
+                "runtime_query_evaluation",
+                "runtime_sampling_evaluation",
+                "benchmark_reference_value",
+                "success_gap_target",
+                "query_success",
+                "query_first_hit_offset",
+                "query_best_gap",
+                "sample_status",
+                "sample_path_completed",
+                "sample_planned_FE",
+                "sample_effective_FE",
+                "sample_observed_first_hit_FE",
+                "sample_target_hit_observed",
+                "sample_target_hit_before_failure",
+                "sample_endpoint_success",
+                "sample_timed_out",
+                "sample_failure_type",
+                "sample_failure_message",
+            )
+        },
+        "query_id": spec.query_id,
+        "query_protocol": spec.protocol,
+        "query_preprocessing_id": spec.preprocessing_id,
+        "runtime_feature_computation": float(runtime_feature),
+        "runtime_query_feature_computation": float(runtime_feature),
+        "runtime_query": float(row["runtime_sampling_evaluation"] + runtime_feature),
+        "feature_status": "failed" if failures else "ok",
+        "feature_count": int(len(spec.feature_columns) - len(nonfinite)),
+        "feature_failure": json.dumps(failures, ensure_ascii=False),
+        "feature_group_status": json.dumps(group_status, sort_keys=True, ensure_ascii=False),
+        "feature_nonfinite": json.dumps(
+            {"descriptor_cheap": nonfinite} if nonfinite else {},
+            sort_keys=True,
+            ensure_ascii=False,
+        ),
+        "additional_function_evaluations": 0,
+        "query_feature_columns": json.dumps(list(spec.feature_columns), ensure_ascii=False),
+        **features,
+    }
+
+
 def extract_descriptor_features(
     *,
     sample_path: Path,
@@ -84,109 +184,7 @@ def extract_descriptor_features(
     if output.exists() and not overwrite:
         raise FileExistsError(f"query feature output already exists; pass --overwrite: {output}")
 
-    output_rows = []
-    for row in rows:
-        if str(row["sample_design_id"]) != spec.sample_design_id:
-            raise ValueError(f"{spec.query_id} requires sample design {spec.sample_design_id}")
-        if str(row["sampling_protocol"]) != spec.sample_design.protocol:
-            raise ValueError(f"{spec.query_id} requires sampling protocol {spec.sample_design.protocol}")
-        started = perf_counter()
-        group_status: dict[str, dict[str, object]] = {}
-        failures: list[str] = []
-        if str(row.get("sample_status", "")) != "ok":
-            raw_features = {column: float("nan") for column in spec.feature_columns}
-            message = str(row.get("sample_failure", "query sample failed"))
-            failures.append(message)
-            group_status_name = "not_computed_sample_failed"
-        else:
-            group_status_name = "ok"
-            try:
-                raw_features = calculate_descriptor_cheap(
-                    np.asarray(row["X"], dtype=float),
-                    np.asarray(row["y"], dtype=float),
-                    np.asarray(row["lower_bounds"], dtype=float),
-                    np.asarray(row["upper_bounds"], dtype=float),
-                )
-            except Exception as exc:
-                raw_features = {column: float("nan") for column in spec.feature_columns}
-                message = f"{type(exc).__name__}: {exc}"
-                failures.append(message)
-                group_status_name = "failed"
-        runtime_feature = perf_counter() - started
-        if str(row.get("sample_status", "")) != "ok":
-            runtime_feature = 0.0
-        nonfinite = [column for column, value in raw_features.items() if not np.isfinite(float(value))]
-        group_status["descriptor_cheap"] = {
-            "status": group_status_name,
-            "runtime_seconds": float(runtime_feature),
-            "nonfinite_columns": nonfinite,
-            "warnings": [],
-            "error": failures[0] if failures else "",
-        }
-        features = {
-            column: None if column in nonfinite else float(raw_features[column])
-            for column in spec.feature_columns
-        }
-        output_rows.append(
-            {
-                **{
-                    name: row[name]
-                    for name in (
-                        "split",
-                        "problem_id",
-                        "function_id",
-                        "family",
-                        "function",
-                        "instance",
-                        "dimension",
-                        "FE_total",
-                        "sample_design_id",
-                        "sampling_protocol",
-                        "sample_seed",
-                        "sample_size",
-                        "FE_query",
-                        "FE_query_planned",
-                        "runtime_query_sampling",
-                        "runtime_query_evaluation",
-                        "runtime_sampling_evaluation",
-                        "benchmark_reference_value",
-                        "success_gap_target",
-                        "query_success",
-                        "query_first_hit_offset",
-                        "query_best_gap",
-                        "sample_status",
-                        "sample_path_completed",
-                        "sample_planned_FE",
-                        "sample_effective_FE",
-                        "sample_observed_first_hit_FE",
-                        "sample_target_hit_observed",
-                        "sample_target_hit_before_failure",
-                        "sample_endpoint_success",
-                        "sample_timed_out",
-                        "sample_failure_type",
-                        "sample_failure_message",
-                    )
-                },
-                "query_id": spec.query_id,
-                "query_protocol": spec.protocol,
-                "query_preprocessing_id": spec.preprocessing_id,
-                "runtime_feature_computation": float(runtime_feature),
-                "runtime_query_feature_computation": float(runtime_feature),
-                "runtime_query": float(row["runtime_sampling_evaluation"] + runtime_feature),
-                "feature_status": "failed" if failures else "ok",
-                "feature_count": int(len(spec.feature_columns) - len(nonfinite)),
-                "feature_failure": json.dumps(failures, ensure_ascii=False),
-                "feature_group_status": json.dumps(group_status, sort_keys=True, ensure_ascii=False),
-                "feature_nonfinite": json.dumps(
-                    {"descriptor_cheap": nonfinite} if nonfinite else {},
-                    sort_keys=True,
-                    ensure_ascii=False,
-                ),
-                "additional_function_evaluations": 0,
-                "query_feature_columns": json.dumps(list(spec.feature_columns), ensure_ascii=False),
-                **features,
-            }
-        )
+    output_rows = [_extract_descriptor_row(row, spec) for row in rows]
 
     output.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pylist(output_rows, schema=feature_schema(spec.feature_columns)), output)
@@ -247,13 +245,46 @@ def feature_schema(feature_columns: tuple[str, ...]) -> pa.Schema:
     return pa.schema(fields)
 
 
+def extract_descriptor_features_batch(
+    *,
+    sample_path: Path,
+    output_path: Path | None,
+    overwrite: bool,
+    workers: int = 1,
+) -> dict[str, int | str]:
+    spec = get_query_spec(MAIN_QUERY_ID)
+    rows = pq.read_table(sample_path).to_pylist()
+    if not rows:
+        raise ValueError("query sample input contains no rows")
+    splits = {str(row["split"]) for row in rows}
+    if len(splits) != 1:
+        raise ValueError("one feature output must contain exactly one split")
+    output = output_path or default_feature_path(spec.query_id, next(iter(splits)))
+    if output.exists() and not overwrite:
+        raise FileExistsError(f"query feature output already exists; pass --overwrite: {output}")
+
+    if workers <= 1 or len(rows) < 2:
+        output_rows = [_extract_descriptor_row(row, spec) for row in rows]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            output_rows = list(executor.map(partial(_extract_descriptor_row, spec=spec), rows, chunksize=1))
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pylist(output_rows, schema=feature_schema(spec.feature_columns)), output)
+    print(f"wrote {len(output_rows)} {spec.query_id} feature rows to {output}")
+    return {"rows": len(output_rows), "query_id": spec.query_id, "output": str(output)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract the fixed 14-dimensional descriptor_cheap query.")
     parser.add_argument("--samples", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    extract_descriptor_features(sample_path=args.samples, output_path=args.output, overwrite=args.overwrite)
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
+    extract_descriptor_features_batch(sample_path=args.samples, output_path=args.output, overwrite=args.overwrite, workers=args.workers)
 
 
 if __name__ == "__main__":
