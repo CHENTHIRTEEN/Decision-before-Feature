@@ -184,6 +184,7 @@ for cfg in "${ALL_CFGS[@]}"; do
                 --action-budget-mode query_adjusted_budget \
                 --sample-design-id "${SAMPLE_DESIGN}" \
                 --output "${out}" \
+                --workers "${WORKERS}" \
                 --only-function "${f}" \
                 --only-dimension "${d}" \
                 --all-prefixes
@@ -213,6 +214,7 @@ for cfg in "${ALL_CFGS[@]}"; do
                 --train-config "${TRAIN_CFG}" \
                 --action-budget-mode behavior_only_full_budget \
                 --output "${out}" \
+                --workers "${WORKERS}" \
                 --only-function "${f}" \
                 --only-dimension "${d}" \
                 --all-prefixes
@@ -243,6 +245,7 @@ for cfg in "${ALL_CFGS[@]}"; do
                 --action-budget-mode pre_run_query_adjusted_budget \
                 --sample-design-id "${SAMPLE_DESIGN}" \
                 --output "${out}" \
+                --workers "${WORKERS}" \
                 --only-function "${f}" \
                 --only-dimension "${d}"
         done

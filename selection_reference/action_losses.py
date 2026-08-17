@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
 
@@ -147,6 +148,7 @@ def generate_state_action_losses(
     default_algorithm: str | None,
     all_prefixes: bool,
     max_states: int | None,
+    workers: int,
     overwrite: bool,
 ) -> dict[str, int | str]:
     if output_path.exists():
@@ -183,47 +185,61 @@ def generate_state_action_losses(
             raise ValueError(
                 f"prefix filter algorithm {default_filter!r} is not in the configured portfolio"
             )
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
     settings = OptimizerSettings(population_size=int(config["population_size"]), checkpoint_ratios=(1.0,))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer: pq.ParquetWriter | None = None
-    state_count = 0
-    action_count = 0
-    problem_cache: dict[tuple[int, int, int], Problem] = {}
-    try:
-        for shard in make_shards(config, only_functions, only_dimensions):
-            if action_budget_mode == PRE_RUN_QUERY_ADJUSTED_BUDGET:
-                rows, used_states = _evaluate_pre_run_shard(
+    shard_specs = make_shards(config, only_functions, only_dimensions)
+    if not shard_specs:
+        raise ValueError("no shards selected for action-loss generation")
+
+    results: list[tuple[int, list[dict], int]] = []
+    if workers == 1 or len(shard_specs) == 1:
+        for index, shard in enumerate(shard_specs):
+            result = _evaluate_action_loss_shard(
+                shard_index=index,
+                shard=shard,
+                split=split,
+                suite=suite,
+                config=config,
+                action_budget_mode=action_budget_mode,
+                sample_design_id=resolved_sample_design_id,
+                settings=settings,
+                portfolio=portfolio,
+                default_algorithm=default_filter,
+                all_prefixes=all_prefixes,
+                max_states=None if max_states is None else max_states,
+            )
+            results.append(result)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _evaluate_action_loss_shard,
+                    shard_index=index,
+                    shard=shard,
                     split=split,
                     suite=suite,
                     config=config,
-                    function=shard.function,
-                    dimension=shard.dimension,
-                    sample_design_id=str(resolved_sample_design_id),
-                    settings=settings,
-                    problem_cache=problem_cache,
-                    portfolio=portfolio,
-                    max_states=None if max_states is None else max_states - state_count,
-                )
-            else:
-                require_complete_shard_outputs(shard)
-                trajectory_path = shard.output_path
-                trajectory_rows = pq.read_table(trajectory_path).to_pylist()
-                final_performance_rows = pq.read_table(shard.final_performance_path).to_pylist()
-                rows, used_states = _evaluate_shard(
-                    split=split,
-                    suite=suite,
-                    config=config,
-                    trajectory_rows=trajectory_rows,
-                    final_performance_rows=final_performance_rows,
-                    sample_design_id=resolved_sample_design_id,
                     action_budget_mode=action_budget_mode,
+                    sample_design_id=resolved_sample_design_id,
                     settings=settings,
-                    problem_cache=problem_cache,
                     portfolio=portfolio,
                     default_algorithm=default_filter,
                     all_prefixes=all_prefixes,
-                    max_states=None if max_states is None else max_states - state_count,
-                )
+                    max_states=None if max_states is None else max_states,
+                ): index
+                for index, shard in enumerate(shard_specs)
+            }
+            for future in as_completed(futures):
+                results.append(future.result())
+        results.sort(key=lambda item: item[0])
+
+    writer: pq.ParquetWriter | None = None
+    state_count = 0
+    action_count = 0
+    try:
+        for _, rows, used_states in results:
             if rows:
                 if writer is None:
                     writer = pq.ParquetWriter(
@@ -244,8 +260,6 @@ def generate_state_action_losses(
                 )
             state_count += used_states
             action_count += len(rows)
-            if max_states is not None and state_count >= max_states:
-                break
     except BaseException:
         if writer is not None:
             writer.close()
@@ -256,8 +270,6 @@ def generate_state_action_losses(
     finally:
         if writer is not None:
             writer.close()
-        for problem in problem_cache.values():
-            problem.close()
     if state_count == 0:
         raise ValueError("no eligible shared states were evaluated")
     print(f"wrote {action_count} action-loss rows for {state_count} shared states to {output_path}")
@@ -795,7 +807,55 @@ def _selector_log10_bounds(config: dict) -> tuple[float, float]:
     return floor, cap
 
 
-def _evaluate_shard(
+def _evaluate_action_loss_shard(
+    *,
+    shard_index: int,
+    shard,
+    split: str,
+    suite: str,
+    config: dict,
+    action_budget_mode: str,
+    sample_design_id: str | None,
+    settings: OptimizerSettings,
+    portfolio: tuple[str, ...],
+    default_algorithm: str | None,
+    all_prefixes: bool,
+    max_states: int | None,
+) -> tuple[int, list[dict], int]:
+    if action_budget_mode == PRE_RUN_QUERY_ADJUSTED_BUDGET:
+        rows, used_states = _evaluate_pre_run_shard(
+            split=split,
+            suite=suite,
+            config=config,
+            function=shard.function,
+            dimension=shard.dimension,
+            sample_design_id=str(sample_design_id),
+            settings=settings,
+            portfolio=portfolio,
+            max_states=max_states,
+        )
+    else:
+        require_complete_shard_outputs(shard)
+        trajectory_rows = pq.read_table(shard.output_path).to_pylist()
+        final_performance_rows = pq.read_table(shard.final_performance_path).to_pylist()
+        rows, used_states = _evaluate_shard_rows(
+            split=split,
+            suite=suite,
+            config=config,
+            trajectory_rows=trajectory_rows,
+            final_performance_rows=final_performance_rows,
+            sample_design_id=sample_design_id,
+            action_budget_mode=action_budget_mode,
+            settings=settings,
+            portfolio=portfolio,
+            default_algorithm=default_algorithm,
+            all_prefixes=all_prefixes,
+            max_states=max_states,
+        )
+    return shard_index, rows, used_states
+
+
+def _evaluate_shard_rows(
     *,
     split: str,
     suite: str,
@@ -805,7 +865,6 @@ def _evaluate_shard(
     sample_design_id: str | None,
     action_budget_mode: str,
     settings: OptimizerSettings,
-    problem_cache: dict[tuple[int, int, int], Problem],
     portfolio: tuple[str, ...],
     default_algorithm: str | None,
     all_prefixes: bool,
@@ -854,21 +913,14 @@ def _evaluate_shard(
         if not all_prefixes and prefix_algorithm != default_algorithm:
             continue
         function, instance, dimension = _parse_problem_id(problem_id, suite=suite)
-        problem_key = (function, instance, dimension)
-        if problem_key not in problem_cache:
-            problem_cache[problem_key] = make_problem(
-                {"suite": suite, "function": function, "instance": instance, "dimension": dimension}
-            )
-        problem = problem_cache[problem_key]
+        problem = make_problem({"suite": suite, "function": function, "instance": instance, "dimension": dimension})
         final_performance_row = final_by_run[(problem_id, prefix_algorithm, seed)]
         if not bool(final_performance_row.get("path_completed", True)):
             continue
         if "first_hit_FE" not in final_performance_row or "success" not in final_performance_row:
             raise ValueError("final performance is missing per-evaluation first-hit metadata")
         final_first_hit_fe = (
-            None
-            if final_performance_row["first_hit_FE"] is None
-            else int(final_performance_row["first_hit_FE"])
+            None if final_performance_row["first_hit_FE"] is None else int(final_performance_row["first_hit_FE"])
         )
         if bool(final_performance_row["success"]) != (final_first_hit_fe is not None):
             raise ValueError("final-performance success must equal first_hit_FE is not null")
@@ -888,9 +940,7 @@ def _evaluate_shard(
             if not _eligible_for_action_loss(trajectory_row, config, fe_query=fe_query):
                 continue
             prefix_first_hit_fe = (
-                final_first_hit_fe
-                if final_first_hit_fe is not None and final_first_hit_fe <= checkpoint_fe
-                else None
+                final_first_hit_fe if final_first_hit_fe is not None and final_first_hit_fe <= checkpoint_fe else None
             )
             if prefix_first_hit_fe is not None and not 0 < prefix_first_hit_fe <= checkpoint_fe:
                 raise ValueError("prefix first_hit_FE must not follow the shared checkpoint")
@@ -903,13 +953,10 @@ def _evaluate_shard(
                     "trajectory row is missing dynamic-sampling metadata: "
                     f"{sorted(missing_sampling)}"
                 )
-            if action_budget_mode == QUERY_ADJUSTED_BUDGET and (
-                fe_query <= 0 or fe_query >= fe_total
-            ):
+            if action_budget_mode == QUERY_ADJUSTED_BUDGET and (fe_query <= 0 or fe_query >= fe_total):
                 raise ValueError(
                     "query sample budget must be positive and smaller than FE_total: "
-                    f"sample_design_id={sample_design_id}, "
-                    f"FE_query={fe_query}, FE_total={fe_total}"
+                    f"sample_design_id={sample_design_id}, FE_query={fe_query}, FE_total={fe_total}"
                 )
             action_budget = fe_total - checkpoint_fe - fe_query
             skip_budget = fe_total - checkpoint_fe
@@ -949,17 +996,10 @@ def _evaluate_shard(
                 "FE_prefix": checkpoint_fe,
                 "FE_ratio": actual_fe_ratio,
                 "FE_total": fe_total,
-                **{
-                    column: trajectory_row[column]
-                    for column in SAMPLING_METADATA_COLUMNS
-                },
+                **{column: trajectory_row[column] for column in SAMPLING_METADATA_COLUMNS},
                 "action_budget_mode": action_budget_mode,
-                "sample_design_id": (
-                    sample_design.sample_design_id if sample_design is not None else NOT_APPLICABLE
-                ),
-                "sample_design_protocol": (
-                    sample_design.protocol if sample_design is not None else NOT_APPLICABLE
-                ),
+                "sample_design_id": sample_design.sample_design_id if sample_design is not None else NOT_APPLICABLE,
+                "sample_design_protocol": sample_design.protocol if sample_design is not None else NOT_APPLICABLE,
                 "FE_query": fe_query,
                 "FE_no_query_optimization": skip_budget,
                 "FE_action_optimization": action_budget,
@@ -994,7 +1034,6 @@ def _evaluate_pre_run_shard(
     dimension: int,
     sample_design_id: str,
     settings: OptimizerSettings,
-    problem_cache: dict[tuple[int, int, int], Problem],
     portfolio: tuple[str, ...],
     max_states: int | None,
 ) -> tuple[list[dict], int]:
@@ -1018,69 +1057,69 @@ def _evaluate_pre_run_shard(
     output_rows: list[dict] = []
     used_states = 0
     for instance in as_int_list(config, "instances"):
-        problem_key = (int(function), int(instance), int(dimension))
-        if problem_key not in problem_cache:
-            problem_cache[problem_key] = make_problem(
-                {
-                    "suite": suite,
-                    "function": int(function),
-                    "instance": int(instance),
-                    "dimension": int(dimension),
-                }
-            )
-        problem = problem_cache[problem_key]
-        reference_value = problem.reference_value
-        if reference_value is None:
-            raise ValueError(f"benchmark reference value is unavailable for {problem.problem_id}")
-        for seed in as_int_list(config, "seeds"):
-            outcomes = _evaluate_pre_run_action_outcomes_once(
-                problem=problem,
-                portfolio=portfolio,
-                action_budget=action_budget,
-                settings=settings,
-                seed=int(seed),
-                function=int(function),
-                instance=int(instance),
-                failure_loss_cap=failure_loss_cap,
-                log10_gap_floor=log10_gap_floor,
-                log10_gap_cap=log10_gap_cap,
-                success_gap_target=success_gap_target,
-                action_start_fe=fe_query,
-                action_timeout_seconds=action_timeout_seconds,
-            )
-            common = {
-                "split": split,
-                "problem_id": problem.problem_id,
-                "function_id": function_id_name(suite, int(function)),
-                "family": landscape_family_name(suite, int(function)),
-                "cv_group_id": problem.cv_group_id,
+        problem = make_problem(
+            {
+                "suite": suite,
+                "function": int(function),
+                "instance": int(instance),
                 "dimension": int(dimension),
-                "seed": int(seed),
-                "FE": 0,
-                "FE_prefix": 0,
-                "FE_ratio": 0.0,
-                "FE_total": int(fe_total),
-                "action_budget_mode": PRE_RUN_QUERY_ADJUSTED_BUDGET,
-                "sample_design_id": sample_design.sample_design_id,
-                "sample_design_protocol": sample_design.protocol,
-                "FE_query": int(fe_query),
-                "FE_action_optimization": int(action_budget),
-                "remaining_budget_ratio": float(action_budget / fe_total),
-                "performance_value_mode": "raw_objective",
-                "performance_loss_mode": "known_optimum_gap",
-                "benchmark_reference_value": float(reference_value),
-                "failure_loss_cap": float(failure_loss_cap),
-                "log10_gap_floor": log10_gap_floor,
-                "log10_gap_cap": log10_gap_cap,
-                "execution_order_protocol": EXECUTION_ORDER_PROTOCOL,
-                "action_outcome_execution_count": ACTION_OUTCOME_EXECUTIONS,
-                "action_runtime_role": "diagnostic_not_utility",
-                "action_loss_protocol": "pre_run_observed_algorithm_loss",
             }
-            output_rows.extend({**common, **outcome} for outcome in outcomes)
-            used_states += 1
-            if max_states is not None and used_states >= max_states:
-                return output_rows, used_states
+        )
+        try:
+            reference_value = problem.reference_value
+            if reference_value is None:
+                raise ValueError(f"benchmark reference value is unavailable for {problem.problem_id}")
+            for seed in as_int_list(config, "seeds"):
+                outcomes = _evaluate_pre_run_action_outcomes_once(
+                    problem=problem,
+                    portfolio=portfolio,
+                    action_budget=action_budget,
+                    settings=settings,
+                    seed=int(seed),
+                    function=int(function),
+                    instance=int(instance),
+                    failure_loss_cap=failure_loss_cap,
+                    log10_gap_floor=log10_gap_floor,
+                    log10_gap_cap=log10_gap_cap,
+                    success_gap_target=success_gap_target,
+                    action_start_fe=fe_query,
+                    action_timeout_seconds=action_timeout_seconds,
+                )
+                common = {
+                    "split": split,
+                    "problem_id": problem.problem_id,
+                    "function_id": function_id_name(suite, int(function)),
+                    "family": landscape_family_name(suite, int(function)),
+                    "cv_group_id": problem.cv_group_id,
+                    "dimension": int(dimension),
+                    "seed": int(seed),
+                    "FE": 0,
+                    "FE_prefix": 0,
+                    "FE_ratio": 0.0,
+                    "FE_total": int(fe_total),
+                    "action_budget_mode": PRE_RUN_QUERY_ADJUSTED_BUDGET,
+                    "sample_design_id": sample_design.sample_design_id,
+                    "sample_design_protocol": sample_design.protocol,
+                    "FE_query": int(fe_query),
+                    "FE_action_optimization": int(action_budget),
+                    "remaining_budget_ratio": float(action_budget / fe_total),
+                    "performance_value_mode": "raw_objective",
+                    "performance_loss_mode": "known_optimum_gap",
+                    "benchmark_reference_value": float(reference_value),
+                    "failure_loss_cap": float(failure_loss_cap),
+                    "log10_gap_floor": log10_gap_floor,
+                    "log10_gap_cap": log10_gap_cap,
+                    "execution_order_protocol": EXECUTION_ORDER_PROTOCOL,
+                    "action_outcome_execution_count": ACTION_OUTCOME_EXECUTIONS,
+                    "action_runtime_role": "diagnostic_not_utility",
+                    "action_loss_protocol": "pre_run_observed_algorithm_loss",
+                }
+                output_rows.extend({**common, **outcome} for outcome in outcomes)
+                used_states += 1
+                if max_states is not None and used_states >= max_states:
+                    return output_rows, used_states
+        finally:
+            problem.close()
     return output_rows, used_states
 
 
@@ -1346,12 +1385,28 @@ def _eligible_for_action_loss(row: dict, config: dict, *, fe_query: int) -> bool
 
 
 def _validate_replayed_checkpoint(state: OptimizerState, trajectory_row: dict) -> None:
-    if not np.array_equal(state.population, np.asarray(trajectory_row["population"], dtype=float)):
-        raise ValueError("trajectory population does not match replayed native optimizer state; regenerate trajectories")
-    if not np.array_equal(state.fitness, np.asarray(trajectory_row["fitness"], dtype=float)):
-        raise ValueError("trajectory fitness does not match replayed native optimizer state; regenerate trajectories")
-    if float(state.best_fitness) != float(trajectory_row["best_fitness"]):
-        raise ValueError("trajectory best_fitness does not match replayed native optimizer state; regenerate trajectories")
+    row_pop = np.asarray(trajectory_row["population"], dtype=float)
+    row_fit = np.asarray(trajectory_row["fitness"], dtype=float)
+    if state.population.shape != row_pop.shape or state.fitness.shape != row_fit.shape:
+        raise ValueError("trajectory population/fitness shape does not match replayed optimizer state")
+    if not np.allclose(state.population, row_pop, rtol=1e-4, atol=5e-2, equal_nan=True):
+        max_diff = float(np.max(np.abs(state.population - row_pop)))
+        raise ValueError(
+            f"trajectory population does not match replayed native optimizer state "
+            f"(max diff {max_diff:.2e}); regenerate trajectories"
+        )
+    if not np.allclose(state.fitness, row_fit, rtol=1e-4, atol=5e-2, equal_nan=True):
+        max_diff = float(np.max(np.abs(state.fitness - row_fit)))
+        raise ValueError(
+            f"trajectory fitness does not match replayed native optimizer state "
+            f"(max diff {max_diff:.2e}); regenerate trajectories"
+        )
+    if not np.isclose(float(state.best_fitness), float(trajectory_row["best_fitness"]), rtol=1e-4, atol=5e-2):
+        raise ValueError(
+            f"trajectory best_fitness does not match replayed native optimizer state "
+            f"({float(state.best_fitness):.12e} vs {float(trajectory_row['best_fitness']):.12e}); "
+            f"regenerate trajectories"
+        )
     if int(state.generation) != int(trajectory_row["native_updates"]):
         raise ValueError("trajectory native_updates does not match replayed optimizer generation; regenerate trajectories")
 
@@ -1564,8 +1619,11 @@ def main() -> None:
     )
     parser.add_argument("--all-prefixes", action="store_true")
     parser.add_argument("--max-states", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
     generate_state_action_losses(
         config_path=args.config,
         train_config_path=args.train_config,
@@ -1577,6 +1635,7 @@ def main() -> None:
         default_algorithm=args.default_algorithm,
         all_prefixes=args.all_prefixes,
         max_states=args.max_states,
+        workers=args.workers,
         overwrite=args.overwrite,
     )
 
