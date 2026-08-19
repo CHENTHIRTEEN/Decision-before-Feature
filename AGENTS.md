@@ -233,9 +233,14 @@ Decision Model 活动候选固定为：
 
 - LDA；
 - Logistic Regression；
-- Ridge。
+- Ridge；
+- Random Forest Classifier（`n_estimators=200, max_depth=8, max_features=sqrt`）。
 
-模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。不得继续增加 Random Forest、XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
+模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。
+
+**并列处理规则：** 活动候选的 tie-break 顺序为 LDA → Logistic Regression → Ridge → Random Forest Classifier。四个候选在 B3 特征组上按 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）选择，并列时按上述顺序破局。Random Forest 与 LDA/LogReg/Ridge 并列处理，即四者在同一协议下公平竞争，RF 只在严格优于其他三者时被选中。
+
+不得继续增加 XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
 
 所有顺序策略的活动单位是完整 trajectory。每条 trajectory 最多执行一次 query；机会按整数 `FE` 排序，同一 FE 若存在多行再按 `decision_opportunity_index` 排序。给定 threshold，只在最早满足 `score > threshold` 的机会触发；未触发 run 的政策 Utility 为 0，首次触发后的状态在该策略下不可达。模型选择、inner/full-train threshold、validation、baseline、call rate、precision、Utility capture 和全部策略指标必须使用这一 run-level first-trigger 规则；逐状态 AUROC、Average Precision、Spearman 和 Ridge RMSE 只能作辅助 score 诊断。
 
@@ -325,6 +330,56 @@ $$
 2. baseline；
 3. 是否存在数据泄漏；
 4. 结果保存方式。
+
+---
+
+## 6.1 特征矩阵构建强制检查（最高优先级）
+
+构建 Decision Model 输入特征矩阵时，**必须同时加载以下三类特征，缺一不可：**
+
+| 特征类 | 前缀 | 列数 | 来源文件 |
+|---|---|---:|---|
+| Landscape descriptor | `descriptor_*` | 14 | `results/landscape_queries/features/{query_id}/{split}/features.parquet` |
+| Behavior feature | `bf_*` | 34 | `results/phase1_pilot/bbob_train/bbob_f{NNN}/dimension_{D}/behavior.parquet` |
+| Budget ratio | `FE_prefix` / `FE_total` / `remaining_budget_ratio` | 3 | selection_reference 内置列 |
+
+正式 B3 特征组定义在 `behavior/features.py` 的 `BEHAVIOR_FEATURE_GROUPS["B3"]`（31 列 behavior + 14 列 descriptor = 45 列）。
+
+**外部脚本直接读取 `selection_reference.parquet` 时，`bf_*` 列不会自动存在，必须手动从 `behavior.parquet` 按 `(problem_id, function_id, family, cv_group_id, dimension, algorithm=prefix_algorithm, seed, FE)` join。**
+
+构建后必须执行断言：
+```python
+assert len(feature_cols) >= 45, f"Expected ≥45 features (B3), got {len(feature_cols)}"
+assert any(c.startswith("bf_") for c in feature_cols), "Missing behavior features"
+assert any(c.startswith("descriptor_") for c in feature_cols), "Missing descriptor features"
+```
+
+**历史事故：** 2026-08-16，Pilot V2 多模型对比中遗漏 34 个 `bf_*` 列，导致所有模型 AUC≈0.5、F1=0，产出严重低估的对比图表。详见 `PROJECT_HANDOFF.md` §13.1。
+
+---
+
+## 6.2 对比测评必须 online 实测（最高优先级）
+
+**所有涉及 runtime / wall-clock time 的 SBS / VBS / Selector 对比测评必须通过 online replay 实测，严禁用 component runtime 拼接合成。**
+
+| 维度 | 允许离线 | 必须 online 实测 |
+|---|---|---|
+| gap / G_FE / AUC / F1 | ✅ | — |
+| terminal gap（科学端点） | ✅ | — |
+| runtime / wall-clock time | ❌ | ✅ |
+| Pareto（gap vs time） | ❌ | ✅ |
+| 收敛时间（first-hit time） | ❌ | ✅ |
+| SBS vs Selector vs VBS 综合对比 | gap 维度可离线 | 时间维度必须实测 |
+
+**`complete_path_timings.parquet` 必须由 replay runner 实测生成，必须满足：**
+1. 从决策状态真正跑到 FE_total 终点
+2. 3 次重复，cyclic order
+3. `timing_source = "measured_complete_policy_path"`
+4. `timing_replay_status`（completed / timed_out / failed）
+
+**在 replay runner 实现（Blocker 1 闭合）前，不得生成任何涉及时间维度的结论或图表。**
+
+**历史事故：** 2026-08-16，Pilot V2 用 action loss 的 component runtime 拼接合成 `complete_path_timings`，导致 Pareto / 收敛时间 / runtime 对比全部不可信。详见 `PROJECT_HANDOFF.md` §13.2。
 
 ---
 

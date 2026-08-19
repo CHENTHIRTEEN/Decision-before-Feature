@@ -19,9 +19,12 @@ from trajectory.sampling import (
 )
 from utility_labels.fields import (
     BEHAVIOR_UTILITY_VALUE_COLUMNS,
+    EFFICACY_COLUMNS,
     MATCHED_ACQUISITION_PATH_SUFFIXES,
     NEED_BEHAVIOR_ONLY_COLUMNS,
     NEED_QUERY_COLUMNS,
+    PRIMARY_EFFICACY_LABEL_COLUMN,
+    PRIMARY_EFFICACY_VALUE_COLUMN,
     QUERY_DESCRIPTOR_USE_INCREMENT_COLUMNS,
     QUERY_MATCHED_STATE_ONLY_UTILITY_COLUMNS,
     QUERY_OPERATIONAL_INCREMENT_COLUMNS,
@@ -104,6 +107,7 @@ def _validate_row(row: dict) -> None:
     _validate_performance(row)
     _validate_complete_path_timing(row)
     _validate_utility_values(row)
+    _validate_efficacy(row)
     _validate_ert(row)
 
 
@@ -577,6 +581,33 @@ def _validate_complete_path_timing(row: dict) -> None:
             raise ValueError("measured peak-memory endpoints must be finite and non-negative")
     else:
         raise ValueError("unsupported peak_memory_measurement_status")
+
+
+def _validate_efficacy(row: dict) -> None:
+    for column in EFFICACY_COLUMNS:
+        if column not in row:
+            raise ValueError(f"efficacy column missing: {column}")
+    g_fe = float(row[PRIMARY_EFFICACY_VALUE_COLUMN])
+    if not isfinite(g_fe):
+        raise ValueError(f"{PRIMARY_EFFICACY_VALUE_COLUMN} must be finite")
+    epsilon_p = float(row["epsilon_p"])
+    if not isfinite(epsilon_p) or epsilon_p <= 0.0:
+        raise ValueError("epsilon_p must be finite and strictly positive")
+    e_skip = float(row["p_skip_raw"])
+    e_query = float(row["p_query_raw"])
+    benchmark = float(row["benchmark_reference_value"])
+    from utility_labels.efficacy import efficacy_log
+    expected_g_fe = efficacy_log(
+        gap_skip=max(e_skip - benchmark, 0.0),
+        gap_query=max(e_query - benchmark, 0.0),
+        epsilon_p=epsilon_p,
+    )
+    if not isclose(g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
+        raise ValueError(
+            f"{PRIMARY_EFFICACY_VALUE_COLUMN} is inconsistent: got {g_fe}, expected {expected_g_fe}"
+        )
+    if bool(row[PRIMARY_EFFICACY_LABEL_COLUMN]) != (g_fe > 0.0):
+        raise ValueError(f"{PRIMARY_EFFICACY_LABEL_COLUMN} must equal {PRIMARY_EFFICACY_VALUE_COLUMN} > 0")
 
 
 def _validate_utility_values(row: dict) -> None:

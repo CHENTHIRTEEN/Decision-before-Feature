@@ -1,6 +1,6 @@
 # Decision-before-Feature Query 操作性增量与表示依赖性验证设计
 
-> 唯一活动扩展协议（2026-08-14）。本文把“query 操作性增量”和“query features 的边际预测贡献”明确分开；旧 Full/Compact ELA 二分、单一 `U_query` 以及把两类增量混写的方案全部退出。
+> 唯一活动扩展协议（2026-08-14，方案 A 对齐修订）。本文把“query 操作性增量”和“query features 的边际预测贡献”明确分开；主功效已切换为方案 A 的 `G_FE`，旧 `U_query` / `I_q` 仅作兼容诊断。旧 Full/Compact ELA 二分、单一 `U_query` 以及把两类增量混写的方案全部退出。
 
 ## 1. 三档固定 query
 
@@ -12,9 +12,9 @@
 | `pflacco_standard_invariant` | 37 个预定义 pflacco 1.2.2 descriptors | `lhs_50d` | $0.05B$ | 配置稳健性 |
 | `pflacco_broad_invariant` | 52 个预定义 pflacco 1.2.2 descriptors | `lhs_100d` | $0.10B$ | 配置稳健性 |
 
-cheap 与 standard 共享同一 `lhs_50d` 样本和 5% query-budget action outcomes；broad 使用独立 `lhs_100d` 样本与 10% outcomes。三档分别拟合 Selector、Utility、Decision 与 threshold，`query_id` 只作数据隔离和协议核对，不进入模型输入。
+cheap 与 standard 共享同一 `lhs_50d` 样本和 5% query-budget action outcomes；broad 使用独立 `lhs_100d` 样本与 10% outcomes。三档分别拟合 Selector、Utility（含 `G_FE` 主标签与旧 Utility 兼容）、Decision 与 threshold，`query_id` 只作数据隔离和协议核对，不进入模型输入。
 
-Cheap 原设计中的 `descriptor_y_median` 与 `descriptor_y_iqr` 在统一 median/IQR preprocessing 后恒为 0 和 1，已从活动 whitelist 删除；该构念修正不改变 query ID、样本、FE 或 action-loss 表。
+Cheap 原设计中的 `descriptor_y_median` 与 `descriptor_y_iqr` 在统一 median/IQR preprocessing 后恒为 0 和 1，已从活动 whitelist 删除；该构念修正不改变 query ID、样本、FE 或 action-loss 表。每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss `action_loss`；旧 Utility 变体仅作兼容诊断。
 
 NeurELA、Deep-ELA、Progressive ELA 与动态 query-type selection 不在第一篇论文范围。三档不是 Full ELA 的覆盖性分级，也不能按 validation 结果替换主 query。
 
@@ -24,7 +24,7 @@ NeurELA、Deep-ELA、Progressive ELA 与动态 query-type selection 不在第一
 
 > 在冻结状态分布、portfolio、Selector、预算和 first-trigger policy 下，query 前算法无关 Behavior 能否预测执行 `descriptor_cheap_invariant` 与 full Selector 相对原生 SBS continuation 的联合净效用？
 
-对 Skip 与 Query path：
+方案 A 下，主功效使用等总 FE 的 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，runtime 不进入主标签。旧口径 `U_q^{joint}` 仅作兼容诊断。对 Skip 与 Query path（旧口径）：
 
 $$
 U_q^{joint}=(\ell_s-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_s).
@@ -47,7 +47,7 @@ I_q=(\ell_b-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_b)
 =U_q^{joint}-U_b.
 $$
 
-字段为 `query_operational_increment_lamT_*`。它回答：在已有 Behavior-only 可部署路径上，增加固定 query 后的操作性净差。由于 Query 与 Behavior-only 的剩余 FE、sample best 和 acquisition time 不同，$I_q$ 不是纯信息效应，也不是因果 estimand。
+字段为 `query_operational_increment_lamT_*`（旧口径兼容）。方案 A 主标签为 `G_FE`。它回答：在已有 Behavior-only 可部署路径上，增加固定 query 后的操作性净差。由于 Query 与 Behavior-only 的剩余 FE、sample best 和 acquisition time 不同，`I_q` 不是纯信息效应，也不是因果 estimand。
 
 `matched_trigger_behavior_only` 在 Proposed first-trigger 的同一 state 计算 $I_q$；它是 matched-trigger diagnostic。主 baseline `self_thresholded_behavior_only` 则用 $U_b$ 的自身 train-only OOF threshold 决定 trigger，不能共用 Proposed threshold 或政策名称。
 
@@ -78,7 +78,7 @@ $$
 
 ## 5. 完整嵌套与泄漏控制
 
-每个 outer fold 只用 outer-fit functions 重算 `SBS_outer`、Query/State-only/Behavior-only Selectors、Utility 和 Decision；每个 inner fold 又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。完整 BBOB-train threshold、matched-rate Random calibration 与本扩展的 OOF diagnostics 也必须来自 fold-specific 上游 OOF。
+每个 outer fold 只用 outer-fit functions 重算 `SBS_outer`、Query/State-only/Behavior-only Selectors、Utility（含 `G_FE` 主标签）和 Decision；每个 inner fold 又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。完整 BBOB-train threshold、matched-rate Random calibration 与本扩展的 OOF diagnostics 也必须来自 fold-specific 上游 OOF。
 
 禁止：
 
@@ -93,14 +93,15 @@ Trajectory reservoir 的 `query_source_mode=trajectory_reservoir_zero_extra_fe` 
 
 Function 是最高聚合层。先在每个科学 run 内得到 first-trigger outcome；Random 的 30 个 streams 先在 run 内平均。BBOB-validation 主区间固定全部六个 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。function-resampling 只作函数组成敏感性；有限集均值不外推到 function 或 transformed-instance 超总体。每档至少报告：
 
-- $U_q^{joint}$、$U_b$、$I_q$；
+- $G_{\mathrm{FE}}$（方案 A 主标签）、$U_q^{joint}$、$U_b$、$I_q$（旧口径兼容）；
+- action loss canonical loss `action_loss`、`action_loss_raw`、`action_loss_norm`、`selector_regret_raw` 与 `best_observed_loss`；
 - $\Delta_{pred}$ 与两 Selector 的 selected continuation-only `log10_gap`；
 - query/sample FE、sample-best contribution、完整路径 runtime；
 - terminal `log10_gap`、target-hit rate、endpoint-success rate、ERT、query/selector/action failure；
 - first-trigger call/trigger/handoff 与 coverage；
 - function-level effects 和 95% CI。
 
-Utility、`log10_gap`、runtime ratio、call/target-hit rate 只按各自项目内 operational tolerance 作描述；`endpoint_success` rate 若分析须另行预设边界。不能通过 scalarized Utility 的内部抵消代替任一 endpoint 判断，也不据这些边界作确认性等价声明。
+Utility、`log10_gap`、runtime ratio、call/target-hit rate 只按各自项目内 operational tolerance 作描述；`endpoint_success` rate 若分析须另行预设边界。不能通过 scalarized Utility 的内部抵消代替任一 endpoint 判断，也不据这些边界作确认性等价声明。方案 A 下主功效以 `G_FE` 为主，旧 `U_q^{joint}` 仅作兼容诊断。
 
 ## 7. 允许的结论
 

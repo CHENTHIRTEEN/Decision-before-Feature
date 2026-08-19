@@ -10,6 +10,14 @@
 
 当前状态（2026-08-16）：优化器 continuation 已改为完整状态原生推进。正式方法进一步分开联合策略效用与 query 操作性增量，增加 `behavior_only_full_budget`，并把 SBS、Selector、Utility、Decision 与 inner threshold 纳入同一 outer-function 链；部署和模型选择统一使用 run-level first-trigger。源码层面，`trajectory/`、`behavior/`、`landscape_queries/`、`selection_reference/`、`utility_labels/`、`decision/`、`optimizers/`、`benchmarks/` 与 `experiments/` 的主要实现已经补齐，但仍缺少正式结果闭合与若干外部确认前置条件的最终验收。方案 A "等总 FE 性能功效" 已实现：主标签从 `u_query_joint_lamT_1` 改为 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，runtime 从主标签中剥离为独立资源维度；新增 `utility_labels/efficacy.py`、`decision/practical_delta.py`、`decision/pilot_coverage.py`、`decision/opportunity_ablation.py`、`decision/schedule_threshold.py`、`decision/conformal.py`、`decision/skip_defer_query.py`；旧 `u_query_joint_lamT_*` 保留为敏感性分析。此前由重建式 continuation 或旧逐行 threshold 口径生成的 trajectory 下游产物、utility labels、Decision dataset、模型和评价结果均无正式证据资格，必须从 trajectory/action-loss 依赖位置重新生成。preliminary/MVE 口径仍退出当前运行面。
 
+## 0.0 事故裁决（2026-08-16）
+
+以下两项事故已记录到 `PROJECT_HANDOFF.md` §13 和 `AGENTS.md` §6.1/§6.2，此处追加项目级裁决约束：
+
+1. **行为特征遗漏（§13.1）**：构建 Decision Model 输入特征矩阵时必须同时加载 14 个 `descriptor_*` + 34 个 `bf_*` + 3 个 budget ratio = 51 列。外部脚本必须主动从 `behavior.parquet` join `bf_*` 列，不得假设 selection_reference 已包含。构建后必须执行 `assert len(feature_cols) >= 45`。
+
+2. **合成 timings 替代实测 replay（§13.2）**：所有涉及 runtime / wall-clock time 的 SBS / VBS / Selector 对比测评必须通过 online replay 实测。严禁用 action loss 的 component runtime 拼接合成 `complete_path_timings`。在 replay runner 实现（Blocker 1 闭合）前，不得生成任何涉及时间维度的结论或图表。此约束适用于 pilot 和正式实验。
+
 ## 0.1 本轮八项修改的科学影响
 
 下表先于源码与其他协议修改冻结。`新增 action losses` 仅指是否需要新增真实

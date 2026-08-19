@@ -72,7 +72,7 @@ class Problem:
 
 
 def coerce_reference_value(source: object, attr_names: tuple[str, ...]) -> float | None:
-    for attr_name in attr_names:
+    for attr_name in (*attr_names, "f_bias"):
         if not hasattr(source, attr_name):
             continue
         value = getattr(source, attr_name)

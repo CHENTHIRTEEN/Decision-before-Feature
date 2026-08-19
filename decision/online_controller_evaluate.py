@@ -24,6 +24,7 @@ from decision.model_protocol import (
     decision_scores,
     resolve_model_name,
 )
+from decision.train_full_decision_model import ConstantBinaryClassifier
 from decision.matched_random import (
     MatchedRandomCalibration,
     load_matched_random_calibration,
@@ -44,6 +45,7 @@ from experiments.phase1_batch_common import (
 from landscape_queries.batch_features import FEATURE_METADATA_COLUMNS
 from landscape_queries.batch_sampling import SAMPLE_KEY_COLUMNS, default_sample_path
 from landscape_queries.cheap import calculate_descriptor_cheap
+from landscape_queries.sampling import make_query_sample_seed, sample_problem
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, MAIN_QUERY_ID, get_query_spec
 from optimizers import (
     OptimizerSettings,
@@ -75,17 +77,13 @@ DEFAULT_RANDOM_REPETITIONS = 30
 DEFAULT_SAMPLING_PROTOCOL = SAMPLING_PROTOCOL
 SAMPLING_PROTOCOLS = (DEFAULT_SAMPLING_PROTOCOL,)
 QUERY_ONLY_SELECTOR_PROTOCOL = "query_only_observed_action_loss_regression"
-BEHAVIOR_ONLY_THRESHOLD_MODE = "oof_behavior_utility_first_trigger"
+BEHAVIOR_ONLY_THRESHOLD_MODE = "oof_behavior_g_fe_first_trigger"
 BEHAVIOR_ONLY_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
+BEHAVIOR_ONLY_AUXILIARY_LABEL_COLUMN = "need_behavior_only_full_budget_lamT_1"
 ONLINE_TIMING_STREAM_CODE = 8117
 ONLINE_POLICY_PATHS = (
     "sbs_no_query",
-    "always_query",
-    "pre_run_aas_fe0",
-    "milestone_only_T0",
     "current_controller",
-    "matched_trigger_behavior_only",
-    "self_thresholded_behavior_only",
 )
 
 
@@ -248,6 +246,9 @@ class PathEvaluationTracker:
     best_optimizer: float = float("inf")
     best_query: float = float("inf")
     execution_context: dict[str, Any] = field(default_factory=dict)
+    convergence_curve_fe: list[int] = field(default_factory=list)
+    convergence_curve_gap: list[float] = field(default_factory=list)
+    convergence_curve_log10_gap: list[float] = field(default_factory=list)
 
     def set_phase(self, phase: str) -> None:
         if phase not in {"prefix", "query", "continuation"}:
@@ -276,6 +277,10 @@ class PathEvaluationTracker:
             else:
                 self.best_optimizer = min(self.best_optimizer, numeric)
             gap = max(numeric - float(self.benchmark_reference_value), 0.0)
+            clipped_gap = max(min(gap, 1e20), 1e-12)
+            self.convergence_curve_fe.append(int(self.total_evaluations))
+            self.convergence_curve_gap.append(float(gap))
+            self.convergence_curve_log10_gap.append(float(np.log10(clipped_gap)))
             if self.first_hit_fe is None and gap <= float(self.success_gap_target):
                 self.first_hit_fe = int(self.total_evaluations)
 
@@ -481,16 +486,24 @@ def evaluate_online_controller(
         if summarize_only
         else _load_query_only_selector(pre_run_aas_selector_model_path, query_id=query_id)
     )
-    query_feature_rows = {} if summarize_only else _read_external_query_features(query_feature_path, query_id)
-    query_sample_rows = (
-        {}
-        if summarize_only
-        else _read_external_query_samples(
+    if summarize_only:
+        query_feature_rows = {}
+        query_sample_rows = {}
+    elif query_feature_path.exists() and resolved_query_sample_path.exists():
+        query_feature_rows = _read_external_query_features(query_feature_path, query_id)
+        query_sample_rows = _read_external_query_samples(
             resolved_query_sample_path,
             sample_design_id=query_spec.sample_design_id,
             expected_split=split_name(config),
         )
-    )
+    else:
+        query_feature_rows, query_sample_rows = _prepare_online_query_inputs(
+            config=config,
+            query_id=query_id,
+            query_spec=query_spec,
+            functions=functions,
+            dimensions=dimensions,
+        )
     if selector is not None and selector.model.query_id != query_id:
         raise ValueError("selector model query_id does not match the requested online evaluation")
     if behavior_only_selector is not None and (
@@ -1170,10 +1183,11 @@ def _load_controller(training_summary_path: Path, model_name: str, threshold_mod
         raise ValueError("controller feature columns must be a non-empty subset of behavior features")
     model_name = resolve_model_name(summary, model_name)
     model_path = _model_path(summary, model_name)
+    model = joblib.load(model_path)
     threshold = _threshold(summary, model_name, threshold_mode)
     model_family = _model_family(summary, model_name)
     return DecisionControllerModel(
-        model=joblib.load(model_path),
+        model=model,
         model_name=model_name,
         model_family=model_family,
         threshold_mode=threshold_mode,
@@ -1336,6 +1350,125 @@ def _query_sample_row(
     if key not in rows:
         raise ValueError(f"missing saved query sample for function={function}, dimension={dimension}")
     return rows[key]
+
+
+def _prepare_online_query_inputs(
+    *,
+    config: dict,
+    query_id: str,
+    query_spec,
+    functions: list[int],
+    dimensions: list[int],
+) -> tuple[dict[tuple[int, int], dict[str, Any]], dict[tuple[int, int], dict[str, Any]]]:
+    split = split_name(config)
+    base_seed = int(config.get("seed", 0))
+    query_feature_rows: dict[tuple[int, int], dict[str, Any]] = {}
+    query_sample_rows: dict[tuple[int, int], dict[str, Any]] = {}
+    for function in functions:
+        for dimension in dimensions:
+            problem = make_problem(
+                {
+                    "suite": str(config["suite"]).lower(),
+                    "function": int(function),
+                    "instance": 1,
+                    "dimension": int(dimension),
+                }
+            )
+            try:
+                sample_row = sample_problem(
+                    problem=problem,
+                    sample_design=query_spec.sample_design,
+                    base_seed=base_seed,
+                    function=int(function),
+                    instance=1,
+                    success_gap_target=float(config["success_gap_target"]),
+                    failure_loss_cap=float(config["failure_loss_cap"]),
+                )
+                sample_row.update(
+                    {
+                        "split": split,
+                        "problem_id": problem.problem_id,
+                        "function_id": problem.function_id,
+                        "family": problem.family,
+                        "cv_group_id": problem.cv_group_id,
+                        "function": int(function),
+                        "instance": 1,
+                        "dimension": int(dimension),
+                        "FE_total": int(fe_total_for_dimension(config, int(dimension))),
+                        "sample_design_id": query_spec.sample_design_id,
+                        "sampling_protocol": query_spec.sample_design.protocol,
+                    }
+                )
+                query_sample_rows[(int(function), int(dimension))] = sample_row
+                feature_row = {
+                    "split": split,
+                    "problem_id": problem.problem_id,
+                    "function_id": problem.function_id,
+                    "family": problem.family,
+                    "function": int(function),
+                    "instance": 1,
+                    "dimension": int(dimension),
+                    "FE_total": int(fe_total_for_dimension(config, int(dimension))),
+                    "query_id": query_spec.query_id,
+                    "query_protocol": query_spec.protocol,
+                    "query_preprocessing_id": query_spec.preprocessing_id,
+                    "sample_design_id": query_spec.sample_design_id,
+                    "sampling_protocol": query_spec.sample_design.protocol,
+                    "sample_seed": int(sample_row["sample_seed"]),
+                    "sample_size": int(sample_row["sample_size"]),
+                    "FE_query": int(sample_row["FE_query"]),
+                    "FE_query_planned": int(sample_row["FE_query_planned"]),
+                    "runtime_query_sampling": float(sample_row["runtime_query_sampling"]),
+                    "runtime_query_evaluation": float(sample_row["runtime_query_evaluation"]),
+                    "runtime_sampling_evaluation": float(sample_row["runtime_sampling_evaluation"]),
+                    "benchmark_reference_value": float(sample_row["benchmark_reference_value"]),
+                    "success_gap_target": float(sample_row["success_gap_target"]),
+                    "query_success": bool(sample_row["query_success"]),
+                    "query_first_hit_offset": sample_row["query_first_hit_offset"],
+                    "query_best_gap": float(sample_row["query_best_gap"]),
+                    "sample_status": str(sample_row["sample_status"]),
+                    "sample_path_completed": bool(sample_row["sample_path_completed"]),
+                    "sample_planned_FE": int(sample_row["sample_planned_FE"]),
+                    "sample_effective_FE": int(sample_row["sample_effective_FE"]),
+                    "sample_observed_first_hit_FE": sample_row["sample_observed_first_hit_FE"],
+                    "sample_target_hit_observed": bool(sample_row["sample_target_hit_observed"]),
+                    "sample_target_hit_before_failure": bool(sample_row["sample_target_hit_before_failure"]),
+                    "sample_endpoint_success": bool(sample_row["sample_endpoint_success"]),
+                    "sample_timed_out": bool(sample_row["sample_timed_out"]),
+                    "sample_failure_type": str(sample_row["sample_failure_type"]),
+                    "sample_failure_message": str(sample_row["sample_failure_message"]),
+                    "sample_failure": str(sample_row["sample_failure"]),
+                    "feature_status": "ok",
+                    "feature_failure": "",
+                    "feature_group_status": json.dumps(
+                        {
+                            query_spec.feature_groups[0]: {
+                                "status": "ok",
+                                "runtime_seconds": 0.0,
+                                "nonfinite_columns": [],
+                                "warnings": [],
+                                "error": "",
+                            }
+                        },
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    ),
+                    "feature_nonfinite": json.dumps({}, sort_keys=True, ensure_ascii=False),
+                    "additional_function_evaluations": 0,
+                    "query_feature_columns": json.dumps(list(query_spec.feature_columns), ensure_ascii=False),
+                }
+                raw_features = calculate_descriptor_cheap(
+                    np.asarray(sample_row["X"], dtype=float),
+                    np.asarray(sample_row["y"], dtype=float),
+                    np.asarray(sample_row["lower_bounds"], dtype=float),
+                    np.asarray(sample_row["upper_bounds"], dtype=float),
+                )
+                for column in query_spec.feature_columns:
+                    feature_row[column] = float(raw_features[column]) if np.isfinite(float(raw_features[column])) else None
+                query_feature_rows[(int(function), int(dimension))] = feature_row
+            finally:
+                problem.close()
+    return query_feature_rows, query_sample_rows
 
 
 def _validate_saved_query_sample(row: dict[str, Any]) -> None:
@@ -1867,54 +2000,43 @@ def _execute_online_policy_path(
                 decision_check_frequency=decision_check_frequency,
                 repetition=random_repetition,
             )
-        elif policy_name in {"pre_run_aas_fe0", "traditional_aas"}:
-            row = _run_pre_run_aas_policy(
+        elif policy_name == "always_query":
+            row = _run_threshold_policy(
                 problem=problem,
                 tracker=tracker,
                 deadline=deadline,
                 config=config,
+                function=function,
                 seed=seed,
                 fe_total=fe_total,
+                controller=controller,
                 selector=selector,
-                pre_run_aas_selector=pre_run_aas_selector,
                 query_feature_row=query_feature_row,
                 query_sample_row=query_sample_row,
+                policy_spec={"policy_name": policy_name},
                 sampling_protocol=sampling_protocol,
-                decision_check_frequency="pre_run_fe0_query",
+                decision_check_frequency=decision_check_frequency,
+                repetition=random_repetition,
             )
-        elif policy_name in {
-            "matched_trigger_behavior_only",
-            "self_thresholded_behavior_only",
-        }:
-            matched_controller = (
-                controller
-                if policy_name == "matched_trigger_behavior_only"
-                else behavior_only_controller
-            )
-            row = _run_behavior_only_policy(
+        elif policy_name == "current_controller":
+            row = _run_threshold_policy(
                 problem=problem,
                 tracker=tracker,
+                deadline=deadline,
                 config=config,
                 function=function,
                 seed=seed,
                 fe_total=fe_total,
-                query_selector=selector,
-                behavior_selector=behavior_only_selector,
-                controller=matched_controller,
-                policy_name=policy_name,
-                trigger_mode="controller",
+                controller=controller,
+                selector=selector,
+                query_feature_row=query_feature_row,
+                query_sample_row=query_sample_row,
+                policy_spec={"policy_name": policy_name},
                 sampling_protocol=sampling_protocol,
-                decision_check_frequency=(
-                    "proposed_matched_first_trigger"
-                    if policy_name == "matched_trigger_behavior_only"
-                    else decision_check_frequency
-                ),
+                decision_check_frequency=decision_check_frequency,
                 repetition=random_repetition,
             )
         elif policy_name in {
-            "always_query",
-            "milestone_only_T0",
-            "current_controller",
             "matched_rate_random",
         }:
             target_ratio = policy_spec.get("matched_trigger_fe_ratio")
@@ -2218,6 +2340,12 @@ def _finalize_online_policy_row(
             "final_performance": endpoint_best,
             "final_gap": float(endpoint_gap),
             "log10_gap": float(np.log10(clipped_gap)),
+            "convergence_curve_FE": list(tracker.convergence_curve_fe),
+            "convergence_curve_gap": list(tracker.convergence_curve_gap),
+            "convergence_curve_log10_gap": list(tracker.convergence_curve_log10_gap),
+            "convergence_curve_last_FE": int(tracker.convergence_curve_fe[-1]) if tracker.convergence_curve_fe else None,
+            "convergence_curve_last_gap": float(tracker.convergence_curve_gap[-1]) if tracker.convergence_curve_gap else None,
+            "convergence_time_to_target_FE": int(observed_first_hit_fe) if observed_first_hit_fe is not None else None,
             "observed_first_hit_FE": observed_first_hit_fe,
             "target_hit_observed": target_hit_observed,
             "target_hit_before_failure": target_hit_before_failure,

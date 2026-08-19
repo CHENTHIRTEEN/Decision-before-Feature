@@ -64,6 +64,8 @@ from utility_labels.fields import (
     BEHAVIOR_UTILITY_VALUE_COLUMNS,
     NEED_BEHAVIOR_ONLY_COLUMNS,
     NEED_QUERY_COLUMNS,
+    PRIMARY_EFFICACY_LABEL_COLUMN,
+    PRIMARY_EFFICACY_VALUE_COLUMN,
     RUNTIME_COST_COLUMNS,
     UTILITY_VALUE_COLUMNS,
 )
@@ -71,8 +73,10 @@ from utility_labels.fields import (
 
 TRAIN_SPLIT = "bbob_train"
 VALIDATION_SPLIT = "bbob_validation"
-DEFAULT_TARGET_COLUMN = "u_query_joint_lamT_1"
-DEFAULT_AUXILIARY_LABEL_COLUMN = "need_query_joint_lamT_1"
+# 方案 A 主标签：g_fe（等总 FE 性能功效，runtime 不进入主标签）
+# 旧 u_query_joint_lamT_1 / need_query_joint_lamT_1 仅作兼容诊断。
+DEFAULT_TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN          # "g_fe"
+DEFAULT_AUXILIARY_LABEL_COLUMN = PRIMARY_EFFICACY_LABEL_COLUMN  # "g_fe_gt_zero"
 DEFAULT_BEHAVIOR_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
 DEFAULT_BEHAVIOR_AUXILIARY_LABEL_COLUMN = "need_behavior_only_full_budget_lamT_1"
 TARGET_COLUMN = DEFAULT_TARGET_COLUMN
@@ -282,6 +286,17 @@ def train_full_decision_models(
     query_spec = prepared_inputs.query_spec
     feature_columns = _formal_feature_columns(feature_group)
     selection_feature_columns = _formal_feature_columns("B3")
+    _pilot_group_column = "cv_group_id" if "cv_group_id" in prepared_inputs.query_adjusted_states.columns else "family"
+    train_groups = tuple(
+        sorted(
+            set(
+                prepared_inputs.query_adjusted_states.loc[
+                    prepared_inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
+                    _pilot_group_column,
+                ].astype(str)
+            )
+        )
+    )
     train_families = tuple(
         sorted(
             set(
@@ -309,7 +324,26 @@ def train_full_decision_models(
         fit_split=NESTED_TRAIN_SPLIT,
         holdout_split=NESTED_VALIDATION_SPLIT,
         fold_role="full_train_final",
-    )
+    ) if validation_families else None
+    if full_views is None:
+        # Pilot mode: no validation split; use the first outer fold as the full-train view.
+        from decision.nested_learning import (
+            cv_group_fold_partitions,
+            TRAIN_SPLIT as _TRAIN_SPLIT,
+        )
+        outer_partitions = cv_group_fold_partitions(
+            cv_groups=train_groups,
+            requested_folds=OUTER_OOF_FOLDS,
+        )
+        outer_fit, outer_holdout = outer_partitions[0]
+        full_views = build_fold_learning_views(
+            inputs=prepared_inputs,
+            fit_families=outer_fit,
+            holdout_families=outer_holdout,
+            fit_split=_TRAIN_SPLIT,
+            holdout_split=_TRAIN_SPLIT,
+            fold_role="full_train_final",
+        )
     if (
         full_views.pre_run_query_only_selector is None
         or full_views.pre_run_fit_rows is None
@@ -759,6 +793,7 @@ def train_full_decision_models(
         "feature_group": feature_group,
         "feature_columns": feature_columns,
         "feature_count": len(feature_columns),
+        "active_model_names": list(ACTIVE_MODEL_NAMES),
         "opportunity_scope": opportunity_scope,
         "expected_dimensions": list(frozen_dimensions),
         "random_seed": int(random_seed),
@@ -773,7 +808,7 @@ def train_full_decision_models(
         "model_selection_metric": MODEL_SELECTION_METRIC,
         "selected_model_name": selected_model_name,
         "selected_model_source": "nested_cv_group_oof_on_bbob_train",
-        "model_selection_tie_break": "function_balanced_utility_then_frozen_candidate_order",
+        "model_selection_tie_break": "function_balanced_utility_then_candidate_group_order_then_frozen_candidate_order",
         "threshold_modes": ["zero", FROZEN_THRESHOLD_MODE],
         "behavior_only_policy": {
             "target_column": behavior_target_column,
@@ -951,11 +986,16 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 
 def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: str) -> None:
-    if target_column not in UTILITY_VALUE_COLUMNS:
-        raise ValueError(f"target_column must be one of {list(UTILITY_VALUE_COLUMNS)}")
-    if auxiliary_label_column not in NEED_QUERY_COLUMNS:
-        raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
-    expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+    if target_column == PRIMARY_EFFICACY_VALUE_COLUMN:
+        expected_label = PRIMARY_EFFICACY_LABEL_COLUMN
+    elif target_column in UTILITY_VALUE_COLUMNS:
+        if auxiliary_label_column not in NEED_QUERY_COLUMNS:
+            raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
+        expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
+    else:
+        raise ValueError(
+            f"target_column must be one of {[PRIMARY_EFFICACY_VALUE_COLUMN, *UTILITY_VALUE_COLUMNS]}"
+        )
     if auxiliary_label_column != expected_label:
         raise ValueError(f"{target_column} must use corresponding auxiliary label {expected_label}")
     global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN
@@ -1037,7 +1077,11 @@ def _check_dataset(dataset: pd.DataFrame, feature_columns: list[str]) -> None:
     if missing:
         raise ValueError(f"materialized dataset missing required columns: {missing}")
     if set(dataset["split"].astype(str).unique()) != {TRAIN_SPLIT, VALIDATION_SPLIT}:
-        raise ValueError(f"expected splits {TRAIN_SPLIT} and {VALIDATION_SPLIT}")
+        observed = set(dataset["split"].astype(str).unique())
+        if observed == {TRAIN_SPLIT}:
+            pass  # pilot mode: single split
+        else:
+            raise ValueError(f"expected splits {TRAIN_SPLIT} and {VALIDATION_SPLIT}")
     target = pd.to_numeric(dataset[TARGET_COLUMN], errors="coerce")
     if dataset[TARGET_COLUMN].isna().any() or not np.isfinite(target.to_numpy(dtype=float)).all():
         raise ValueError(f"{TARGET_COLUMN} must be non-null and finite")
@@ -1907,6 +1951,12 @@ def _nested_model_selection_summary(
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     candidate_order = {name: index for index, name in enumerate(ACTIVE_MODEL_NAMES)}
+    candidate_group_order = {
+        "lda_classifier": 0,
+        "logistic_regression_classifier": 1,
+        "ridge_regression": 2,
+        "random_forest_classifier": 2,
+    }
     for spec in model_specs:
         frame = predictions[predictions["model_name"].astype(str) == spec.model_name]
         if len(frame) == 0:
@@ -1929,6 +1979,7 @@ def _nested_model_selection_summary(
             "model_family": spec.model_family,
             "objective": spec.objective,
             "candidate_order": int(candidate_order[spec.model_name]),
+            "candidate_group_order": int(candidate_group_order[spec.model_name]),
             MODEL_SELECTION_METRIC: _function_balanced_run_mean(
                 run_summary,
                 "call_utility",
@@ -1961,8 +2012,8 @@ def _nested_model_selection_summary(
         rows.append(row)
     summary = pd.DataFrame(rows)
     summary = summary.sort_values(
-        [MODEL_SELECTION_METRIC, "candidate_order"],
-        ascending=[False, True],
+        [MODEL_SELECTION_METRIC, "candidate_group_order", "candidate_order"],
+        ascending=[False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
     summary.insert(0, "selection_rank", np.arange(1, len(summary) + 1, dtype=int))
@@ -2575,7 +2626,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Fit fold-specific SBS/Selectors/Utility labels and train the frozen "
-            "three-candidate Decision protocol with nested CV-group OOF."
+            "four-candidate Decision protocol with nested CV-group OOF."
         )
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
@@ -2612,8 +2663,12 @@ def main() -> None:
         default=ALL_ACCEPTED_OPPORTUNITIES,
     )
     parser.add_argument("--random-seed", type=int, default=1701)
-    parser.add_argument("--target-column", choices=UTILITY_VALUE_COLUMNS, default=DEFAULT_TARGET_COLUMN)
-    parser.add_argument("--auxiliary-label-column", choices=NEED_QUERY_COLUMNS, default=None)
+    parser.add_argument(
+        "--target-column",
+        choices=(PRIMARY_EFFICACY_VALUE_COLUMN, *UTILITY_VALUE_COLUMNS),
+        default=DEFAULT_TARGET_COLUMN,
+    )
+    parser.add_argument("--auxiliary-label-column", choices=(PRIMARY_EFFICACY_LABEL_COLUMN, *NEED_QUERY_COLUMNS), default=None)
     parser.add_argument(
         "--behavior-target-column",
         choices=BEHAVIOR_UTILITY_VALUE_COLUMNS,
@@ -2630,9 +2685,11 @@ def main() -> None:
         raise RuntimeError(
             "replay-plan roles require FULL_TRAIN_OOF_FOLDS == OUTER_OOF_FOLDS"
         )
-    auxiliary_label_column = args.auxiliary_label_column or NEED_QUERY_COLUMNS[
-        UTILITY_VALUE_COLUMNS.index(args.target_column)
-    ]
+    auxiliary_label_column = args.auxiliary_label_column or (
+        PRIMARY_EFFICACY_LABEL_COLUMN
+        if args.target_column == PRIMARY_EFFICACY_VALUE_COLUMN
+        else NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(args.target_column)]
+    )
     behavior_auxiliary_label_column = (
         args.behavior_auxiliary_label_column
         or NEED_BEHAVIOR_ONLY_COLUMNS[
@@ -2656,6 +2713,7 @@ def main() -> None:
         log10_gap_floor=float(config["log10_gap_floor"]),
         log10_gap_cap=float(config["log10_gap_cap"]),
         pre_run_action_loss_paths=list(args.pre_run_action_loss),
+        pilot_mode=bool(config.get("pilot_mode", False)),
     )
     replay_plan_path = args.emit_replay_plan
     if args.replay_plan_only and replay_plan_path is None:

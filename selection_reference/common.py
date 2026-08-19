@@ -233,10 +233,7 @@ def _check_final_against_trajectory(
             f"{trajectory_path.parent}"
         )
     final_only = comparison["_merge"].astype(str).eq("left_only")
-    if bool(
-        final_only
-        & comparison["path_completed"].fillna(False).astype(bool)
-    ).any():
+    if (final_only & comparison["path_completed"].fillna(False).astype(bool)).any():
         raise ValueError("a completed final-performance run is missing trajectory states")
     paired = comparison[comparison["_merge"].astype(str).eq("both")].copy()
     completed_paired = paired[paired["path_completed"].astype(bool)].copy()

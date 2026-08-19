@@ -1,6 +1,6 @@
 # Decision-before-Feature Offline Utility Label 构建协议
 
-> 唯一活动协议（2026-08-15）。本文件直接维护联合策略 estimand、Behavior-only 对照和 first-trigger 数据契约；旧单一 `U_query`、一次性完整-train Selector 标签和逐状态 policy 汇总不再使用。
+> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。本文件直接维护联合策略 estimand、Behavior-only 对照和 first-trigger 数据契约；每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）。旧单一 `U_query`、一次性完整-train Selector 标签和逐状态 policy 汇总不再使用。
 
 ## 1. 研究问题与标签边界
 

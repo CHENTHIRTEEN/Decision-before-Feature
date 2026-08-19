@@ -1,10 +1,14 @@
 # Decision-before-Feature Baseline 与公平比较协议
 
 > 活动协议（2026-08-14）：本文件直接替代旧的逐机会 `p=0.5` Random、`Always Query = Traditional AAS`、逐状态政策汇总和完整动态 schedule 上的主 T0 口径。本文只定义待实现与待运行的方案，不声称 baseline 已完成或已有结果。
+>
+> **补充裁决（2026-08-16）：** 所有涉及 runtime / wall-clock time 的 SBS / VBS / Selector 对比测评必须通过 online replay 实测，严禁用 action loss 的 component runtime 拼接合成 `complete_path_timings`。在 replay runner 实现（Blocker 1 闭合）前，不得生成任何涉及时间维度的结论或图表。允许离线的维度：gap / G_FE / AUC / F1 / terminal gap。必须 online 实测的维度：runtime / wall-clock time / Pareto（gap vs time）/ 收敛时间。详见 `PROJECT_HANDOFF.md` §13.2、`AGENTS.md` §6.2。
 
 ## 1. 比较单位与 first-trigger 规则
 
 所有顺序策略以一条 optimization trajectory 为决策单位。对每个 run，合格机会按整数 `FE`、再按 `decision_opportunity_index` 排序。策略最多触发一次；首次触发后的状态在该策略下不可达，不进入该 run 的 threshold、call rate、precision、utility capture、policy Utility 或任何模型比较。未触发 run 的 joint decision utility 为 0。
+
+最小 action loss 字段规范 v1 规定：action loss shard 以 `action_loss` 为 canonical loss，必须同时保留行标识、科学端点和 censored runtime；旧 Utility 仅作兼容诊断，不再作为最小必需字段的中心。
 
 所有 paired comparison 必须共享相同 problem、dimension、instance、optimizer seed、total FE、portfolio、bounds、停止规则和可适用的机会集合。主 Query policy 的 `FE_query` 通过减少 continuation budget 体现，不重复扣除。各策略只承担其实际使用的 behavior、Decision、query、Selector、handoff 与 optimization wall-clock。
 
@@ -58,7 +62,7 @@ VBS 是不可部署的静态 problem-level hindsight reference。对每个 `prob
 
 ### 2.8 Decision-before-Feature
 
-Proposed 使用 B3 pre-query Behavior 与 `oof_utility_first_trigger` threshold。score 首次超过 threshold 时执行一次固定 query，再调用 Query Selector；未触发则 native SBS continuation。它的主 Decision target 是 `u_query_joint_lamT_1`，不把 joint path advantage 称为 query descriptors 的独立信息价值。
+Proposed 使用 B3 pre-query Behavior 与 `oof_utility_first_trigger` threshold。score 首次超过 threshold 时执行一次固定 query，再调用 Query Selector；未触发则 native SBS continuation。它的主 Decision target 在方案 A 下为 `G_FE`，旧口径为 `u_query_joint_lamT_1`，不把 joint path advantage 称为 query descriptors 的独立信息价值。
 
 RQ2 与 RQ3 使用两个不同但预先指定的比较。RQ2 的唯一主要 contrast 是 `milestone-only B3 - milestone-only T0`：两者只读完全相同的 12 个 milestone states，且由 `decision-compare-feature-groups` 逐 state key 与 sampling metadata 核对后输出配对 run rows。RQ3 可保留动态 Proposed 与 `milestone_only_T0` 的整政策比较，但前者可在全部 accepted dynamic opportunities 触发、后者只能在 milestones 触发；其差异同时包含机会调度、输入特征、拟合分数和 first-trigger threshold，不能归因为 Behavior 超出 `FE_ratio` 的增量作用。
 
@@ -68,8 +72,8 @@ RQ2 与 RQ3 使用两个不同但预先指定的比较。RQ2 的唯一主要 con
 
 1. 只用 outer-fit functions 的 complete-budget outcomes 计算 `SBS_outer`；
 2. 在 outer-fit 内 cross-fit Query Selector、Behavior-only Selector 和 pre-run query-only Selector，生成 Decision train labels；
-3. 生成 joint、Behavior-only 与 operational-increment Utility；
-4. 在每个 outer-fit inner function fold 内，仅用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selector、生成三类 Utility并拟合 Decision；用端到端 inner-holdout scores 分别冻结 Query、T0 和 Behavior-only first-trigger thresholds；
+3. 生成 joint、Behavior-only 与 operational-increment Utility（旧口径）；方案 A 下另由 `G_FE` 生成主标签；
+4. 在每个 outer-fit inner function fold 内，仅用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selector、生成三类 Utility（方案 A 下主标签由 `G_FE` 替代）并拟合 Decision；用端到端 inner-holdout scores 分别冻结 Query、T0 和 Behavior-only first-trigger thresholds；
 5. 用 outer-fit 全量数据拟合各 frozen component；
 6. 最后且仅一次在 outer holdout 上评价，随后用拼接的 Proposed OOF calls 与 first-trigger FE 分布供 Random 冻结。
 
@@ -79,8 +83,8 @@ outer/inner holdout 不得参与其评价链中的 SBS、imputation、scaling、
 
 主 policy estimand 按 run first-trigger 得到一个 outcome，再按 run → static problem → fixed dimension stratum → function 聚合。必须报告：
 
-- joint decision Utility；
-- matched-trigger `query_operational_increment`；
+- joint decision Utility（方案 A 下主标签为 `G_FE`，旧口径兼容）；
+- matched-trigger `query_operational_increment`（旧口径兼容诊断）；
 - final `log10_gap`、target-hit rate、endpoint-success rate、ERT；
 - end-to-end wall-clock ratio 与拆分时间；
 - query FE、total FE、query-call rate、trigger rate、handoff rate；
@@ -88,7 +92,7 @@ outer/inner holdout 不得参与其评价链中的 SBS、imputation、scaling、
 - first-trigger utility capture；
 - coverage、query/selector/action/optimizer failure 和 failure sensitivity。
 
-utility capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(U_t,0)`。策略分子只取其首次触发 state 的 `max(U,0)`，未触发为 0；聚合时报告加权分子、分母与二者比值，并单报 `H_r=0` 的 runs。该参照使用离线 hindsight，不是可部署 policy，也不得随策略首次触发位置改变。若研究 state-score ranking，可另报逐状态 auxiliary capture，但不得称为政策 capture。
+utility capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(U_t,0)`（方案 A 下 `U_t` 可指 `G_FE`，旧口径可指 Utility）。策略分子只取其首次触发 state 的 `max(U,0)`，未触发为 0；聚合时报告加权分子、分母与二者比值，并单报 `H_r=0` 的 runs。该参照使用离线 hindsight，不是可部署 policy，也不得随策略首次触发位置改变。若研究 state-score ranking，可另报逐状态 auxiliary capture，但不得称为政策 capture。
 
 主 `lambda_T=1, lambda_M=0` 不按结果修改；`lambda_T={0,0.25,0.5,1,2}` 完整报告为 sensitivity。Utility 使用截断后 `log10_gap` 差减去 `lambda_T` 乘 `log10` runtime ratio；逐行严格满足 `I_q=U_q^{joint}-U_b`，并满足五路径 matched-acquisition 三项增量之和等于 `U_q^{joint}`。Utility、final `log10_gap` 和 wall-clock ratio 同时报告，任何方向冲突都写成 trade-off。
 
@@ -96,7 +100,7 @@ utility capture 对所有策略共享同一 run-level hindsight opportunity refe
 
 function 是最高聚合层。BBOB-validation 已被旧模型比较、调参与消融查看，只能报告六个固定 functions、固定 dimensions 与 instances 1/2/3 上的等权有限集开发期 estimand；10,000 次条件 bootstrap 固定保留六函数、全部 dimensions 与全部 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。重抽 function 只作函数组成敏感性，不进入主 CI，也不支持 function 或 transformed-instance 超总体推断。
 
-Utility ±0.01、`log10_gap` ±0.05、runtime ratio `[0.95,1.05]`、call/target-hit-rate 差 ±0.05 是项目内预设 operational tolerance，不是领域通用边界。条件 CI 与 Bonferroni simultaneous interval 只描述区间相对 tolerance 的位置；第一篇论文不作确认性等价声明。endpoint 判断不能借助 Utility 中 gap/runtime 抵消。
+Utility ±0.01、`log10_gap` ±0.05、runtime ratio `[0.95,1.05]`、call/target-hit-rate 差 ±0.05 是项目内预设 operational tolerance，不是领域通用边界。条件 CI 与 Bonferroni simultaneous interval 只描述区间相对 tolerance 的位置；第一篇论文不作确认性等价声明。endpoint 判断不能借助 Utility 中 gap/runtime 抵消。方案 A 下，主功效是 `G_FE`，旧 Utility 口径仅作兼容。
 
 每个预设 contrast 产生六个固定且已见的 validation function effects。双侧 exact sign-flip 额外假设其 signs 可交换并穷举 64 个符号向量，raw p 最小为 `2/64=0.03125`。RQ3 的六 contrast Holm family 最小 adjusted p 为 `6×2/64=0.1875`，故在 0.05 下数学上不能拒绝。RQ3 改为估计性 family：逐 function effects、固定六函数有限集效应及条件 CI 为主，p 值只作假设敏感辅助。
 

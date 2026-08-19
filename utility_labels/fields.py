@@ -18,6 +18,18 @@ EFFICACY_COLUMNS = (
 )
 
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
+
+# ── 方案 A 主功效标签（等总 FE，runtime 不进入主标签）──────────
+# g_fe 是连续主标签，g_fe_gt_zero 是对应布尔标签。
+# 旧 u_query_joint_lamT_* / need_query_joint_lamT_* 仅作兼容诊断。
+PRIMARY_EFFICACY_VALUE_COLUMN = "g_fe"
+PRIMARY_EFFICACY_LABEL_COLUMN = "g_fe_gt_zero"
+PRIMARY_EFFICACY_COLUMNS = (
+    PRIMARY_EFFICACY_VALUE_COLUMN,
+    PRIMARY_EFFICACY_LABEL_COLUMN,
+)
+
+# 旧 Utility 标签（保留为兼容字段）
 UTILITY_VALUE_COLUMNS = (
     "u_query_joint_lamT_0",
     "u_query_joint_lamT_025",

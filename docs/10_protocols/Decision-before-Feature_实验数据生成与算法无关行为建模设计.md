@@ -12,6 +12,8 @@
 4. 重建 run-level first-trigger policy 与终端 gap/runtime/target-hit/path-completion/ERT；
 5. 分开保存 Stage-A 科学失败/端点、Stage-B 三次 decision-state future-path 计时及逐次状态/instability，以及 FE=0 policy wall-clock。
 
+最小 action loss shard 由《最小 Action Loss 字段规范 v1》约束：每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss `action_loss`；其余旧 Utility 变体仅作兼容层。
+
 ## 2. Complete optimizer state
 
 每个 emitted state 至少保留 population、fitness、best-so-far、FE、generation/native update、算法内部动态量和 RNG state。DE/PSO/CMA-ES/SHADE 的同算法 continuation 必须原生恢复；跨算法只转移 population、fitness、best position，并初始化新算法内部状态一次。

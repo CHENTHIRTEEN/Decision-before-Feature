@@ -134,6 +134,7 @@ def prepare_nested_learning_inputs(
     log10_gap_floor: float,
     log10_gap_cap: float,
     pre_run_action_loss_paths: list[Path] | None = None,
+    pilot_mode: bool = False,
 ) -> PreparedNestedLearningInputs:
     query_spec = get_query_spec(query_id)
     behavior = read_behavior_data(behavior_paths)
@@ -154,8 +155,9 @@ def prepare_nested_learning_inputs(
     )
     if query_portfolio != behavior_portfolio:
         raise ValueError("query-adjusted and behavior-only outcomes use different portfolios")
-    _check_all_prefix_coverage(query_states, query_portfolio, "query-adjusted")
-    _check_all_prefix_coverage(behavior_states, behavior_portfolio, "behavior-only")
+    if not pilot_mode:
+        _check_all_prefix_coverage(query_states, query_portfolio, "query-adjusted")
+        _check_all_prefix_coverage(behavior_states, behavior_portfolio, "behavior-only")
     _check_outcome_state_alignment(query_states, behavior_states)
     _check_performance_coverage(performance, query_states, query_portfolio)
     complete_path_timings = (
@@ -626,16 +628,18 @@ def build_required_replay_plan(
             )
         )
     )
-    plans = [
-        fit_fold_selectors(
-            inputs=inputs,
-            fit_families=train_families,
-            holdout_families=validation_families,
-            fit_split=TRAIN_SPLIT,
-            holdout_split=VALIDATION_SPLIT,
-            fold_role="full_train_final",
-        ).replay_plan
-    ]
+    plans = []
+    if validation_families:
+        plans.append(
+            fit_fold_selectors(
+                inputs=inputs,
+                fit_families=train_families,
+                holdout_families=validation_families,
+                fit_split=TRAIN_SPLIT,
+                holdout_split=VALIDATION_SPLIT,
+                fold_role="full_train_final",
+            ).replay_plan
+        )
     outer_partitions = cv_group_fold_partitions(
         cv_groups=train_families,
         requested_folds=outer_folds,

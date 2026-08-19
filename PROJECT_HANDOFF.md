@@ -398,3 +398,75 @@ results/decision/{query_id}/
 ```text
 请只使用当前 Decision-before-Feature 项目，先阅读 AGENTS.md、README.md、PROJECT_HANDOFF.md、DEVELOPMENT_DECISIONS.md 和相关 docs。不要启动正式实验。请持久化并路由 outer/inner/full-train 的 fold-specific SBS、Query Selector、Behavior-only Selector 与 FE=0 Selector artifacts，物化并核对 replay plan，实现 decision-state-to-terminal runner，并让 online evaluator 支持已见 BBOB-validation 内部评价集的全部 instances及 standard/broad 完整政策。逐项检查：14 维 descriptor_cheap_invariant；两套 action budgets；oof_utility_first_trigger threshold 与 matched-rate Random calibration；Stage-A observed hit/completion/endpoint success；Stage-B raw/censored timing、三类一致性与两类 instability；future-path timing 与 FE=0 policy wall-clock 分离；六组特征；九角色八 outcome；cluster-balanced 主 fit 与 row-weighted sensitivity；CEC2017 F2/F30；CEC2022 benchmark factory/config；工程问题 factory/constraint/config。修复 trajectory/final-performance 和 query sample 的逐 run failure materialization；实现 Decision exception → No-query，以及 query 后 feature/Selector exception → 保留已消耗 query FE/时间并按 query-adjusted budget `continue_current`。主 bootstrap 固定所有 static problems、只在每个 problem 内配对重抽 optimizer runs，function resampling 仅作函数组成敏感性；接入 ERT suite-level report consumer，保留 finite/+inf/-inf/undefined mass、零命中计数、defined replicate 数、interval status、attempted coverage 与双向 failure sensitivity，不能因任意一次零命中自动判定区间未建立。对 CEC2022/工程问题必须在查看 outcome 前冻结 endpoint-specific precision target、repeats 确定方法与最终重复数。另按 12 个 mandatory milestones 的平均 prefix=0.35 与实际 event states 枚举 Stage-A/Stage-B 调用图，在“只跨 matrices 共享 Skip/Behavior continue_current”“经逐行证明后进一步复用基础 trajectory”或“保持未复用 producer”三种实现中明确选择并重算资源。Runner、实测 plan、artifact 路由、failure/fallback、推断 consumer、字段契约、precision/repeats 与资源未闭合前，不得生成最终 Utility 或启动 72 个正式 shards。
 ```
+
+## 13. 事故记录与防范措施
+
+### 13.1 行为特征遗漏事故（2026-08-16）
+
+**事故等级：严重**
+
+**事故描述：** 在 Pilot V2 多模型对比实验中，构建 Decision Model 输入特征矩阵时只加载了 14 个 landscape descriptor 特征（`descriptor_*`），遗漏了 34 个 behavior features（`bf_*`）和 3 个 budget ratio 特征。实际 B3 正式特征组应包含 45 个特征（31 behavior + 14 descriptor），完整输入应为 51 列。这导致：
+
+1. 所有模型 AUC ≈ 0.5，F1 = 0，LDA 和 LogReg 完全不触发 query；
+2. 最高 gap 改善只有 8.2%，VBS 占比只有 18.4%；
+3. 产出了严重低估模型能力的对比图表和结论。
+
+修正后（加入 51 个特征），LDA 的 AUC 从 0.478 升至 0.681，F1 从 0 升至 0.567，gap 改善从 0% 升至 14.8%。RF-Reg 的 gap 改善从 0% 升至 16.7%，VBS 占比从 0% 升至 37.5%。
+
+**根因：** 没有按照 `behavior/features.py` 中定义的 `SELECTOR_BEHAVIOR_FEATURE_COLUMNS`（B3 组 = 31 列 `bf_*`）从 `behavior.parquet` join 到 selection_reference。`load_data()` 函数只搜索了 `bf_` 前缀列在 selection_reference 中是否存在，而没有主动从 behavior 原始文件 join。
+
+**防范措施（必须遵守）：**
+
+1. **构建特征矩阵时必须同时加载两类特征：**
+   - `descriptor_*`（14 列）：从 `results/landscape_queries/features/{query_id}/{split}/features.parquet` join
+   - `bf_*`（34 列）：从 `results/phase1_pilot/bbob_train/bbob_f{NNN}/dimension_{D}/behavior.parquet` 按 `(problem_id, function_id, family, cv_group_id, dimension, algorithm=prefix_algorithm, seed, FE)` join
+   - budget ratio（3 列）：从 selection_reference 的 `FE_prefix`、`FE_total`、`remaining_budget_ratio` 直接取
+
+2. **特征来源定义在以下文件，不可遗漏：**
+   - `behavior/features.py`：`SELECTOR_BEHAVIOR_FEATURE_COLUMNS`（34 个 `bf_*` 列）、`BEHAVIOR_FEATURE_GROUPS["B3"]`（31 列正式组）
+   - `landscape_queries/batch_features.py`：`FEATURE_METADATA_COLUMNS` 中记录的 `query_feature_columns`（14 个 `descriptor_*` 列）
+   - `decision/train_full_decision_model.py`：`_formal_feature_columns("B3")` 合并上述两组
+
+3. **每次构建特征矩阵后必须验证：**
+   ```python
+   assert len(feature_cols) >= 45, f"Expected ≥45 features (B3), got {len(feature_cols)}"
+   assert any(c.startswith("bf_") for c in feature_cols), "Missing behavior features"
+   assert any(c.startswith("descriptor_") for c in feature_cols), "Missing descriptor features"
+   ```
+
+4. **任何从 selection_reference 构建特征矩阵的代码必须主动 join behavior 文件，不能假设 `bf_` 列已在 selection_reference 中。** selection_reference 的 `prepare_state_matrix` 在 `selection_reference/model.py` 中会 join behavior features，但外部脚本直接读取 `selection_reference.parquet` 不会自动包含这些列。
+
+5. **正式实验的 Decision Model 训练通过 `train_full_decision_model.py` 的完整链路进行，该链路在 `prepare_nested_learning_inputs` → `prepare_state_matrix` 中自动 join behavior features。外部独立脚本（如 `figures/model_comparison.py`）必须手动复制这一 join 逻辑。**
+
+### 13.2 合成 timings 替代实测 replay 事故（2026-08-16）
+
+**事故等级：严重**
+
+**事故描述：** 在 Pilot V2 中，`complete_path_timings.parquet` 不是通过 `online_controller_evaluate.py` 执行 decision-state-to-terminal replay 实测的，而是从 action loss 的 component runtime（`runtime_action_optimization` + `runtime_handoff`）拼接合成的。合成 timings 伪装为 `timing_source = "measured_complete_policy_path"`，但实际上：
+
+1. 正式实验要求从决策状态真正跑到 FE_total 终点，实测完整剩余预算的 wall-clock time；
+2. 正式实验要求 3 次重复（cyclic order），消除 cache/thermal 偏差；
+3. 合成 timings 只包含单步 continuation 的 component runtime，不等于完整路径的实测时间；
+4. Pareto（gap vs time）、收敛时间分析等基于时间维度的结论全部不可信。
+
+**事故影响：**
+- Pilot 的 gap 改善、G_FE 分布、模型 AUC/F1 等科学结论可信（基于离线 action loss，不依赖 timings）；
+- 但 Pilot 的 **runtime / wall-clock time / Pareto / 收敛时间** 等涉及时间维度的结论**全部不可信**。
+
+**根因：** `online_controller_evaluate.py` 的 complete-path replay runner 尚未实现（Blocker 1 未闭合），为了跑通 pilot 链路而用 component runtime 拼接代替实测。
+
+**防范措施（必须遵守）：**
+
+1. **所有涉及 runtime / wall-clock time 的对比测评必须通过 online replay 实测，严禁用 component runtime 拼接合成。** component runtime 只反映单步 continuation 的计算开销，不反映从决策状态到终点的完整路径时间。
+
+2. **`complete_path_timings.parquet` 必须由 `online_controller_evaluate.py` 或等价的实测 replay runner 生成，必须满足：**
+   - 从决策状态真正跑到 FE_total 终点
+   - 3 次重复，cyclic order
+   - 记录 `timing_source = "measured_complete_policy_path"`
+   - 记录 `timing_replay_status`（completed / timed_out / failed）
+
+3. **在 replay runner 实现并核对前（Blocker 1 闭合前），不得生成任何涉及时间维度的结论或图表。** 允许生成基于 gap / G_FE / AUC / F1 的科学结论（这些不依赖 timings），但不得报告 runtime、Pareto（gap vs time）、收敛时间等时间维度指标。
+
+4. **SBS / VBS / Selector 的对比测评必须全部是 online 的。** 即：每个方法从同一决策状态出发，通过 replay runner 实测完整路径到终点，记录 terminal gap 和 wall-clock time。离线 action loss 只用于训练 Selection Reference 和 Utility labels，不直接用于方法对比。
+
+5. **此约束适用于 pilot 和正式实验。** 即使是 pilot 验证，涉及时间维度的对比也必须用实测 timings，不允许用合成 timings 产出时间相关结论。

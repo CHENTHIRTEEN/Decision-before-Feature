@@ -9,11 +9,11 @@ benchmark configuration
 -> complete native optimizer trajectories + complete-budget endpoints
 -> permutation-invariant Behavior
 -> fixed query samples/features
--> query-adjusted and full-budget state-action outcomes
+-> query-adjusted and full-budget state-action outcomes（最小规范：每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss `action_loss`）
 -> fold-specific SBS + Selectors
 -> persisted fold-role Selector artifacts + selected replay plan
 -> three-repeat decision-state-to-terminal raw/censored timing
--> log-gap/log-runtime Utility labels
+-> log-gap/log-runtime Utility labels（方案 A 下同时输出 `G_FE` 主标签）
 -> fold-specific Decision models + first-trigger thresholds
 -> baselines and frozen external evaluation
 -> hierarchical inference and manuscript tables
@@ -139,7 +139,7 @@ selection_reference.build / selection-reference-build
 decision.nested_learning  (由模型训练/比较 CLI 直接调用)
 ```
 
-每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`、cross-fit/拟合 Query 和 Behavior-only Selectors。每个 inner fold 再只用 inner-fit functions 计算 `SBS_inner`、cross-fit/拟合 Selectors并生成 inner Decision labels。Selector 主 target 是相对 `continue_current` 的 `clipped_log10_gap_advantage_vs_continue_current`；旧 statewise min-max target 只作敏感性分析。Utility 使用 selected observed gap 与 state-to-terminal future-path 时间，不直接使用 Selector target。
+每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`、cross-fit/拟合 Query 和 Behavior-only Selectors。每个 inner fold 再只用 inner-fit functions 计算 `SBS_inner`、cross-fit/拟合 Selectors并生成 inner Decision labels。Selector 主 target 是相对 `continue_current` 的 `clipped_log10_gap_advantage_vs_continue_current`；旧 statewise min-max target 只作敏感性分析。Utility 使用 selected observed gap 与 state-to-terminal future-path 时间，不直接使用 Selector target。方案 A 下，主功效另由 `G_FE` 生成，旧 `u_query_joint_lamT_*` 仅作兼容诊断。
 
 当前实现尚未持久化 outer/inner `cv_group_id = function_id` cross-fitted Selector artifacts，也未在 replay plan 中提供历史 `fold role/cv_group_id -> Selector artifact` key 路由；offline decision-state-to-terminal runner 同样尚未实现。三项均是 Stage-B blocker，未关闭前不得生成最终 Utility。
 
@@ -178,7 +178,7 @@ decision.threshold_sweep / decision-threshold-sweep
 
 单一预物化 Utility 表无法表示 fold-specific SBS→Selector→Utility→Decision→threshold 链路，不是活动实验入口；退出提示模块不列入本活动 Pipeline。
 
-活动候选仅 LDA、Logistic Regression、Ridge。B3 outer-function OOF run-level first-trigger mean joint Utility 选择模型名；完整 BBOB-train 端到端 OOF 冻结 `oof_utility_first_trigger` 与 Behavior-only threshold。BBOB-validation 已被历史开发查看，只可作为 post-development 内部评价；后续仍禁止它与 external suites 参与 preprocessing、选择或 threshold，但这不能恢复其 untouched/confirmatory 资格。
+活动候选仅 LDA、Logistic Regression、Ridge。B3 outer-function OOF run-level first-trigger mean 主功效（方案 A 为 `G_FE`；旧口径为 joint Utility）选择模型名；完整 BBOB-train 端到端 OOF 冻结 `oof_utility_first_trigger` 与 Behavior-only threshold。BBOB-validation 已被历史开发查看，只可作为 post-development 内部评价；后续仍禁止它与 external suites 参与 preprocessing、选择或 threshold，但这不能恢复其 untouched/confirmatory 资格。
 
 Decision 训练产物按 `feature_group_ablation/{feature_group}/{opportunity_scope}/` 显式隔离。B3 模型家族只由 `B3/all_accepted` 的 nested OOF 选择；RQ2 与正式特征组消融统一读取六个 `{feature_group}/milestone_only` 目录。`decision-compare-feature-groups` 必须同时核对 train OOF 与 BBOB-validation 的整数 state keys、FE ratio 和 sampling metadata，并输出 `rq2_milestone_b3_minus_t0_run_rows.parquet`。该表中的 BBOB-train OOF 行只作开发诊断，BBOB-validation 行只作已见内部评价，不承担确认性证据。
 
@@ -211,7 +211,7 @@ online policy 科学行统一保存 `scientific_endpoint_source=stage_a_online_p
 3. Behavior 不含 reference/gap/outcome，窗口来自完整 native updates；
 4. 三个 query ID、sample design、feature whitelist、query first-hit offset 与 FE charge 一致；
 5. 两套 action budgets 语义唯一，允许复用的 Skip/5% outcome 只计算一次；
-6. outer/inner SBS、Selectors、Utility、Decision 与 thresholds 均只读 fit functions；
+6. outer/inner SBS、Selectors、Utility、Decision 与 thresholds 均只读 fit functions（方案 A 下 Utility 主标签由 `G_FE` 生成，旧口径留作兼容）；
 7. Proposed、T0、Always、Random、Behavior-only 与汇总均为 first-trigger；
 8. 三次计时、循环 order、机器、线程、raw/censored runtime、observed hit/completion/endpoint success、三类一致性与两类 instability 齐全；
 9. gap floor/cap、`target_hit_observed`、`endpoint_success`、timeout、failure 与 ERT 可逐行重算，ERT 明确使用 `target_hit_observed`；

@@ -78,7 +78,7 @@ Selector artifact 保存 `query_id`、`query_protocol`、`query_preprocessing_id
 
 模型比较、特征组消融、阈值分析、baseline、成本—性能与外部评价命令均要求显式 `--query-id`。命令据此推导 query-specific 默认目录，并核对 artifact 中的 `query_id`、`query_protocol`、`query_preprocessing_id` 与 `sample_design_id`；不同 query 的 dataset、summary 或 prediction 表不能交叉读取。
 
-活动标签必须至少保存 `FE_query`、query 组件 runtime、Stage-A 科学端点来源及五条 gap/observed-first-hit/target-hit/path-completion/endpoint-success/planned/effective FE、Stage-B 三次 decision-state future-path raw/censored runtime、逐次 status/effective FE/timeout/completion、三类一致性与两类 instability、FE=0 policy wall-clock、截断后的五条 `log10_gap`、`u_query_joint_lamT_*`、`u_behavior_only_full_budget_lamT_*`、`query_operational_increment_lamT_*`、三类 matched-acquisition increment 及对应布尔标签。`first_hit_FE/success` 若保留，只能分别作为 `observed_first_hit_FE/target_hit_observed` 的兼容别名。旧单一 `u_query_lamT_*`、`results/ela/`、`FE_analysis`、`p_ela`、`u_ela_*`、`need_ela_*` 和缺少当前协议字段的 artifact 均为撤回结果，活动读取器必须明确拒绝。
+活动标签必须至少保存 `FE_query`、query 组件 runtime、Stage-A 科学端点来源及五条 gap/observed-first-hit/target-hit/path-completion/endpoint-success/planned/effective FE、Stage-B 三次 decision-state future-path raw/censored runtime、逐次 status/effective FE/timeout/completion、三类一致性与两类 instability、FE=0 policy wall-clock、截断后的五条 `log10_gap`、方案 A 主功效 `g_fe` / `g_fe_bounded` / `g_fe_gt_zero` / `g_fe_gt_practical` / `epsilon_p`，以及旧兼容字段 `u_query_joint_lamT_*`、`u_behavior_only_full_budget_lamT_*`、`query_operational_increment_lamT_*`、三类 matched-acquisition increment 及对应布尔标签。字段规范以《最小 Action Loss 字段规范 v1》为准：每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）；旧 Utility 变体仅作兼容层。`first_hit_FE/success` 若保留，只能分别作为 `observed_first_hit_FE/target_hit_observed` 的兼容别名。旧单一 `u_query_lamT_*`、`results/ela/`、`FE_analysis`、`p_ela`、`u_ela_*`、`need_ela_*` 和缺少当前协议字段的 artifact 均为撤回结果，活动读取器必须明确拒绝。
 
 ## 6. 数据质量与失败处理
 
@@ -88,7 +88,17 @@ BBOB train/validation 不允许 group-level extraction failure。单个 null 只
 
 BBOB train/validation 与 CEC2017 使用配置固定的 `failure_loss_cap=1e20`、取 `log10` 前 raw-gap floor/cap `1e-12/1e20`、`success_gap_target=1e-8`、单 state-action path timeout `3600 s` 和逐 objective evaluation first-hit 记录。timeout/failed 行计路径失败并保留；失败前已经观察到的 target hit 不抹除，标准 ERT 使用该 observed first hit，只有未命中项计完整 planned budget。CEC2022 与工程问题必须各自先固定同类字段及 constraint rule。
 
-`query-consistency` 是非 pytest 的可执行一致性入口。它检查三档预算、feature whitelist、cheap/standard 的共享样本键、零额外函数评价、BBOB group failure、整列缺失和 action-loss 预算隔离。`utility-labels-validate` 逐行重算五条路径及加法分解。令 `ell_*` 是 Stage-A raw gap 先应用 suite floor/cap 后的 `log10_gap`；Stage-B 每次 replay 的 censored time 在 completed 时等于 raw，在 timed-out/failed 时为 `max(raw, role timeout)`，`T_*` 是三次 censored future-path wall-clock 的中位数。raw observed median 只作诊断。共享 prefix 视为 sunk cost；Stage-B 不改写科学端点，也不选择性补跑：
+`query-consistency` 是非 pytest 的可执行一致性入口。它检查三档预算、feature whitelist、cheap/standard 的共享样本键、零额外函数评价、BBOB group failure、整列缺失和 action-loss 预算隔离。`utility-labels-validate` 逐行重算五条路径及加法分解。令 `ell_*` 是 Stage-A raw gap 先应用 suite floor/cap 后的 `log10_gap`；Stage-B 每次 replay 的 censored time 在 completed 时等于 raw，在 timed-out/failed 时为 `max(raw, role timeout)`，`T_*` 是三次 censored future-path wall-clock 的中位数。raw observed median 只作诊断。共享 prefix 视为 sunk cost；Stage-B 不改写科学端点，也不选择性补跑。
+
+方案 A 主功效（等总 FE，runtime 不进入主标签）：
+
+```text
+G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))
+```
+
+其中 `E_skip = max(p_skip_raw - benchmark_reference_value, 0)`，`E_query = max(p_query_raw - benchmark_reference_value, 0)`，`epsilon_p = eta * max(E_prefix, S_p, epsilon_0)`。
+
+旧口径 Utility（仅保留兼容诊断）：
 
 ```text
 p_query = selected_query_action_loss
@@ -101,7 +111,7 @@ need_query_joint_lamT_* = (u_query_joint_lamT_* > 0)
 
 ## 7. 报告与结论口径
 
-分别报告三个 query 配置的 joint Utility、Behavior-only Utility 与 query operational increment；`I_q` 同时覆盖全 eligible states 与 Proposed-triggered states，并明确其包含 query FE/runtime、sample best、预算差和 Selector 差异，不是纯信息效应或因果 estimand。若 `U_joint>0` 而 `I_q<=0`，只能支持联合路径优于 SBS。每档同时报告五路径的 descriptor-use、state-only-vs-sampling 与 sampling-direct 增量及逐行加法一致性。每档报告 Never/SBS、Always Query、`matched_rate_random`、`pre_run_aas_fe0`、`milestone_only_T0`、`self_thresholded_behavior_only`、Proposed 和静态 VBS reference，并至少包含 query FE、三次 raw/censored future-path 时间及两种中位数、FE=0 policy wall-clock、失败率、selector regret、action-loss 回归性能、Utility 分布、调用率、效用捕获、`log10_gap`、target-hit rate、endpoint-success rate、ERT，以及 function 层面的配对效应量与区间。matched-acquisition 分解只作固定协议下的操作性解释。
+分别报告三个 query 配置的主功效 `G_FE`、joint Utility（旧口径兼容）、Behavior-only Utility 与 query operational increment（旧口径兼容）；`I_q` 同时覆盖全 eligible states 与 Proposed-triggered states，并明确其包含 query FE/runtime、sample best、预算差和 Selector 差异，不是纯信息效应或因果 estimand。若 `G_FE>0` 而 `I_q<=0`，只能支持联合路径优于 SBS。每档同时报告五路径的 descriptor-use、state-only-vs-sampling 与 sampling-direct 增量及逐行加法一致性。每档报告 Never/SBS、Always Query、`matched_rate_random`、`pre_run_aas_fe0`、`milestone_only_T0`、`self_thresholded_behavior_only`、Proposed 和静态 VBS reference，并至少包含 query FE、三次 raw/censored future-path 时间及两种中位数、FE=0 policy wall-clock、失败率、selector regret、action-loss 回归性能、`G_FE` 分布、旧 Utility 分布、调用率、efficacy capture、`log10_gap`、target-hit rate、endpoint-success rate、ERT，以及 function 层面的配对效应量与区间。matched-acquisition 分解只作固定协议下的操作性解释。
 
 若三档结论一致，只能表述为“结论在三个预定义 query 配置上具有稳健性”。若结论不一致，必须报告 representation 与成本依赖性，不能隐藏结果或重新定义 query。NeurELA 和 Deep-ELA 本轮只用于说明 landscape representation 的异质性。
 
@@ -113,8 +123,7 @@ trajectory 重生成
 → lhs_50d / lhs_100d samples
 → descriptor_cheap_invariant / pflacco_standard_invariant / pflacco_broad_invariant features
 → lhs_50d 与 lhs_100d 两档 action losses
-→ 三个 Selectors
-→ 三套 Utility labels
+→ 三套 Utility labels（方案 A 下同时包含 `G_FE` 主标签与旧 `u_query_joint_lamT_*` 兼容字段）
 → 三个 Decision Models 与 baselines
 ```
 

@@ -8,6 +8,8 @@
 
 Query future path 的动作特异增量包括真实 query sample generation/evaluation、feature extraction、fold-role 对应 Query Selector inference、必要 handoff 与 continuation；Behavior-only 包括其 fold-role 对应 Selector inference、必要 handoff 与 continuation；Skip 只含 native continuation。不得把共同的 Decision inference 只向 Query/Behavior-only 收费，也不得以 replay plan 中已经写好的 action 省略真实 Selector inference。每条 selected future path 在 Stage-B 真实执行预定 3 次，按 `cyclic_complete_path_v1` 交错。
 
+最小 action loss 字段规范 v1 规定：每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss `action_loss`；其他旧 Utility 变体仅作兼容诊断。
+
 每个 Stage-B repetition 保存 order、raw observed 组件/完整路径时间、`timing_replay_status in {completed,timed_out,failed}`、`observed_first_hit_FE`、`target_hit_observed`、effective FE、timeout、completion 和失败字段。`path_completed := status == completed`；`endpoint_success := target_hit_observed and path_completed`；`target_hit_before_failure := target_hit_observed and not path_completed` 只作诊断。正式 ERT 使用 `target_hit_observed`，不用 `endpoint_success`。
 
 每条路径同时保存三次 raw observed runtime 及其中位数，并把 completed repetition 保持 raw、timed-out/failed repetition 置为 `max(raw observed runtime, role timeout)`，形成 censored repetitions 与主 `runtime_*_median`。主 Utility 的 $T_k$ 使用 censored median；raw observed median只作计时诊断。旧 `failure_worst_case` 字段仅可作为同一 censored 值的过渡兼容别名。

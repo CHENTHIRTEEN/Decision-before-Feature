@@ -1,6 +1,6 @@
 # Decision-before-Feature Decision Model 设计与训练协议
 
-> 唯一活动协议（2026-08-15 修订）。旧 18 模型搜索、预制完整-train Utility 上的伪 outer OOF、逐状态 threshold、四组 T0/B1/B2/B3 消融和 validation 参与比较的口径全部退出。本文件定义待实现与待运行的设计，不声称模型或正式结果已经生成。BBOB-validation 已被历史开发读取，只是已见内部评价集；CEC2017 已有历史在线诊断，只是已见外部开发集。
+> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。旧 18 模型搜索、预制完整-train Utility 上的伪 outer OOF、逐状态 threshold、四组 T0/B1/B2/B3 消融和 validation 参与比较的口径全部退出。本文件定义待实现与待运行的设计，不声称模型或正式结果已经生成。BBOB-validation 已被历史开发读取，只是已见内部评价集；CEC2017 已有历史在线诊断，只是已见外部开发集。主功效已切换为 `G_FE`，`u_query_joint_lamT_1` / `query_operational_increment_lamT_1` 仅保留兼容诊断。每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）；旧 Utility 变体仅作兼容诊断。
 
 ## 1. 研究对象与信息时序
 
@@ -24,10 +24,11 @@ U_{query}^{joint}(s_t)=
 另保留：
 
 - `U_behavior_only_full_budget`：Behavior-only Selector 相对 Skip 的 full-budget 效用；
-- `query_operational_increment`：Query path 相对 full-budget Behavior-only path 的净增量；必须分别在全 eligible states 与同一 Proposed first-trigger states 报告；
+- `G_FE`：等总 FE 下的主性能功效；由 `E_skip` 与 `E_query` 及 `epsilon_p` 计算，runtime 不进入主标签；
+- `query_operational_increment`：Query path 相对 full-budget Behavior-only path 的净增量，仅作兼容诊断；必须分别在全 eligible states 与同一 Proposed first-trigger states 报告；
 - query-adjusted state-only/query-only/full Selector：只作信息来源诊断。
 
-主操作性情景固定为 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 是完整 sensitivity，不得按 train、validation 或 external result 改选。旧 raw-gap max-scale、相对时间差或一次计时 Utility 全部失效。
+主操作性情景固定为 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 是完整 sensitivity，不得按 train、validation 或 external result 改选。若主结果使用 `G_FE`，则该 `lambda_time` 组仅用于与旧 Utility 口径兼容的辅助诊断。旧 raw-gap max-scale、相对时间差或一次计时 Utility 全部失效。
 
 `I_q` 同时包含 query FE/runtime、sample best、较短 continuation budget 与 Selector 差异，不是纯信息效应或因果 estimand。若同一分析范围 `U_query_joint>0` 但 `I_q<=0`，只能支持联合路径优于 SBS，不能支持 query acquisition 优于 Behavior-only。正式五路径用 `query_matched_state_only` 与 `sampling_only_continue_current` 进一步分解 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量，并要求逐行加法一致；`query_feature_predictive_increment_log10_gap` 另保留为排除 sample best 的预测诊断。
 
@@ -74,15 +75,18 @@ T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性
 
 ## 4. 活动模型
 
-活动候选只包括：
+活动候选包括：
 
-1. LDA classification：拟合 `1[U_query_joint_lamT_1 > 0]`；
+1. LDA classification：拟合 `1[G_FE > 0]`（方案 A 主标签）；
 2. Logistic Regression classification：`C=1`、balanced class weights、L-BFGS，拟合同一标签；
-3. Ridge regression：`alpha=1`，拟合连续 `u_query_joint_lamT_1`。
+3. Ridge regression：`alpha=1`，拟合连续 `g_fe`（方案 A 主标签）；
+4. Random Forest Classifier：`n_estimators=200, max_depth=8, max_features=sqrt`，拟合同一分类标签。
 
-三个候选都使用 Pipeline 内的 train-fold median imputation 与 standard scaling。Random Forest、XGBoost、LightGBM、MLP、SVM、kernel approximation 或额外 feature engineering 不进入活动 Decision Model 搜索。Selection Reference 的固定多输出 Random Forest 是不同组件。
+四个候选都使用 Pipeline 内的 train-fold median imputation 与 standard scaling。XGBoost、LightGBM、MLP、SVM、kernel approximation 或额外 feature engineering 不进入活动 Decision Model 搜索。Selection Reference 的固定多输出 Random Forest 是不同组件。
 
-同名模型家族另拟合 `U_behavior_only_full_budget`，用于 `self_thresholded_behavior_only`；不重新选择模型家族。LDA/Logistic score 只表示分类判别分数，不解释为 Utility magnitude；连续 Utility RMSE 只对 Ridge 定义。
+同名模型家族另拟合 `U_behavior_only_full_budget`，用于 `self_thresholded_behavior_only`；不重新选择模型家族。LDA/Logistic/RF score 只表示分类判别分数，不解释为 Utility magnitude；连续 Utility RMSE 只对 Ridge 定义。
+
+**并列处理规则：** 四候选在 B3 特征组上按 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）选择，并列顺序固定为 LDA → Logistic Regression → Ridge → Random Forest Classifier。
 
 ## 5. 完整 outer-fold-specific 嵌套
 
@@ -91,11 +95,11 @@ T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性
 1. 从 outer-fit functions 的 `FE=FE_total` outcomes 计算 `SBS_outer`；
 2. 仅使用 `SBS_outer` prefixes 形成 outer-fit/outer-holdout 主 population；
 3. 在 outer-fit functions 内部 cross-fit Query Selector 与 Behavior-only Selector，生成不含同 function in-sample Selector prediction 的 outer-fit Decision labels；
-4. 由两套 Stage-A action matrices、selected replay plan、Stage-B 三次 state-to-terminal timing-only replay 和 Stage-A 截断 `log10_gap` 生成三类 Utility；
+4. 由两套 Stage-A action matrices、selected replay plan、Stage-B 三次 state-to-terminal timing-only replay 和 Stage-A 截断 `log10_gap` 生成三类 Utility（旧口径）与方案 A 主标签 `G_FE`；
 5. 对每个活动 Decision candidate，在 outer-fit functions 内做 inner function folds；每个 inner fold 必须只用 inner-fit functions 重新计算 `SBS_inner`，在 inner-fit 内 cross-fit 并重拟合两类 Selector，生成 inner-fit Decision labels，再拟合 preprocessing 与 Decision；
-6. inner-holdout Utility 与 score 只能由 `SBS_inner` 和 inner-fit 上游组件生成。拼接这些端到端 inner OOF rows，分别按 Query-joint 与 Behavior-only run-level first-trigger objective 冻结 outer threshold；T0 只读 milestones；
+6. inner-holdout Utility 与 score 只能由 `SBS_inner` 和 inner-fit 上游组件生成。拼接这些端到端 inner OOF rows，分别按 Query-joint 与 Behavior-only run-level first-trigger objective 冻结 outer threshold；T0 只读 milestones；方案 A 下主功效 `G_FE` 亦由同一链路生成，旧 `u_query_joint_lamT_1` 仅作兼容；
 7. 用 `SBS_outer` 在全部 outer-fit functions 上重建 outer-fit labels，并拟合两类 Selector、Decision 与 preprocessing；
-8. 只在组件冻结后，对 outer holdout function 生成 Utility、score、first-trigger policy outcome 与所有 baseline 指标。
+8. 只在组件冻结后，对 outer holdout function 生成 Utility、score、first-trigger policy outcome 与所有 baseline 指标；方案 A 下主功效 `G_FE` 与旧 Utility 口径并行报告；
 
 outer 或 inner holdout 均不得参与其评价链中的 SBS、Selector、Utility label、imputation、scaling、model、threshold、Random calibration、score-neighborhood 或 feature-group decision。不得先用完整 BBOB-train 生成 Utility labels 再仅对 Decision Model 分 folds，并把所得分数称为端到端 nested OOF。
 
@@ -111,7 +115,7 @@ J_r(\tau)=\min\{j:z_{rj}>\tau\}.
 
 集合为空时 run Utility 为 0；否则只使用 `U(s_{rJ_r})`。threshold objective 是所有 outer-fit inner-OOF runs 经 run → static problem → fixed dimension stratum → function 聚合后的 mean first-trigger Utility。若并列，先选调用 runs 更少的 threshold；仍并列选数值更大的 threshold。
 
-三候选主选择只看 B3 上拼接 outer holdouts 后的 function-balanced mean first-trigger `u_query_joint_lamT_1`。并列顺序固定 LDA → Logistic Regression → Ridge。AUROC、Average Precision、Spearman、Ridge RMSE、T0、validation 或 external result 不改写选择。
+四候选主选择只看 B3 上拼接 outer holdouts 后的 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）。并列顺序固定 LDA → Logistic Regression → Ridge → Random Forest Classifier。AUROC、Average Precision、Spearman、Ridge RMSE、T0、validation 或 external result 不改写选择。
 
 拼接 train outer OOF 只用于预设候选选择与开发期诊断。选择最大 OOF 候选后，同一 OOF 不能称为 selected procedure 的无偏 estimate。BBOB-validation 已被历史模型比较、调参、消融和采样设计读取，只能给 selected procedure 与 milestone-only B3--T0 的已见内部有限集估计；删除或撤回旧产物不能恢复“未见”状态。CEC2017 同样只作已见外部开发集估计。确认性外部证据只能来自本次协议冻结后才生成并首次运行的 CEC2022 与工程集合；三候选两两 outer-OOF 对比仍只是选模诊断。
 
@@ -134,16 +138,16 @@ BBOB-validation、CEC2017、CEC2022 与工程问题均只加载这些 BBOB-train
 
 模型选择、threshold、validation、baseline 和主策略指标全部使用 trajectory first-trigger。主指标包括：
 
-- run-level mean joint Utility；
+- run-level mean joint Utility（方案 A 主标签为 `G_FE`，旧 `u_query_joint_lamT_1` 仅作兼容）；
 - matched-trigger query operational increment；
 - run-level call/trigger/handoff rates；
-- first-call precision 与 non-beneficial first-call Utility；
-- first-trigger utility capture；
+- first-call precision 与 non-beneficial first-call 主功效（方案 A 下为 `G_FE`，旧口径为 Utility）；
+- first-trigger 主功效 capture；
 - final `log10_gap`、target-hit rate、endpoint-success rate、ERT；
 - decision-state future-path ratio、FE=0→terminal policy wall-clock 与 peak memory；
 - coverage 与失败敏感性。
 
-utility capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(0,U_t)`。策略分子只取其 first-trigger state 的 `max(0,U)`，未触发为 0。该分母不随策略触发时点改变，也不是可部署 policy；聚合时报告加权分子、分母和二者比值，并单报 `H_r=0` 的 run 比例。逐状态 AUROC/AP/Spearman 与 state-level capture 只能标为 auxiliary score diagnostics。
+efficacy capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(0,U_t)`（方案 A 下 `U_t` 使用 `G_FE`，旧口径使用 `u_query_joint_lamT_1`）。策略分子只取其 first-trigger state 的 `max(0,U)`，未触发为 0。该分母不随策略触发时点改变，也不是可部署 policy；聚合时报告加权分子、分母和二者比值，并单报 `H_r=0` 的 run 比例。逐状态 AUROC/AP/Spearman 与 state-level capture 只能标为 auxiliary score diagnostics。
 
 ## 8. 统计规则
 
@@ -174,8 +178,8 @@ outer-fit complete-budget outcomes -> SBS_outer
 -> two action-loss matrices once
 -> cross-fitted Query/Behavior-only Selectors -> fold-role selected replay plan
 -> Stage-B three-repeat decision-state future-path timing only
--> Stage-A log-gap + Stage-B median log-runtime joint/behavior/operational-increment Utility
--> inner-fold-specific SBS/Selectors/Utility/Decision OOF + first-trigger thresholds
+-> Stage-A log-gap + Stage-B median log-runtime joint/behavior/operational-increment Utility（旧口径）；方案 A 下另由 `G_FE` 主标签
+-> inner-fold-specific SBS/Selectors/Utility/Decision OOF + first-trigger thresholds（方案 A 下 Utility 由 `G_FE` 主标签替代）
 -> outer-fit final components
 -> one outer-holdout evaluation
 -> concatenated outer OOF model selection

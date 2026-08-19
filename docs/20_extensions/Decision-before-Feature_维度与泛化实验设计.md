@@ -18,6 +18,7 @@ Dimension 必须保存为 metadata，用于：
 - run/problem/function 键；
 - 分层效应、coverage、missingness 与失败分析；
 - Behavior/query/runtime 分布移动；
+- action loss shard 的科学端点与 canonical loss 追踪。
 - 外部 suite 的范围说明。
 
 Dimension 不进入 Decision X，也不进入 Selector 的 query 前 Behavior 编码。禁止通过 function ID、algorithm ID、known optimum/gap 或 dimension 让模型记忆 benchmark。输入中不含 dimension 只表示没有显式 identity 字段，不能自动证明已学到 dimension-invariant 规律。
@@ -42,7 +43,7 @@ $$
 
 在 BBOB train OOF 和冻结 validation 内分别报告 10D、20D、40D 的：
 
-- $U_q^{joint}$、$U_b$、$I_q$；
+- $G_{\mathrm{FE}}$（方案 A 主标签）、$U_q^{joint}$、$U_b$、$I_q$（旧口径兼容）；
 - terminal/continuation-only `log10_gap`、target-hit rate、endpoint-success rate、ERT；
 - first-trigger call/trigger/handoff；
 - query/sample/optimization/runtime 组成；
@@ -68,7 +69,7 @@ CEC2022 与工程问题尚未冻结具体 functions/problems、dimension、bound
 
 Function 是最高聚合层。层级固定为 run → static problem → fixed dimension stratum → function。BBOB-validation 的 10,000 次条件 bootstrap 保留全部六个已见固定 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。Dimension 与 static problems 均为固定 strata；function-resampling 只作函数组成敏感性，不进入主 CI，也不产生 transformed-instance 超总体推断。
 
-Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先冻结有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。
+Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先冻结有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。方案 A 下主功效以 `G_FE` 为主，旧 Utility 仅作兼容。
 
 ## 6. 可支持的结论
 

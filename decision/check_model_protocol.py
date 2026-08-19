@@ -21,7 +21,6 @@ from decision.model_protocol import (
 
 
 BANNED_DECISION_MODEL_FRAGMENTS = (
-    "random_forest",
     "xgboost",
     "lightgbm",
     "mlp",
@@ -38,11 +37,14 @@ def check_model_protocol(training_dir: Path | None = None) -> dict[str, Any]:
         "lda_classifier": "classification",
         "logistic_regression_classifier": "classification",
         "ridge_regression": "regression",
+        "random_forest_classifier": "classification",
     }
     if objectives != expected_objectives:
         raise ValueError(f"Decision objective mapping changed: {objectives}")
     if [spec.model_name for spec in specs if spec.supports_utility_rmse] != ["ridge_regression"]:
         raise ValueError("continuous Utility RMSE must be restricted to Ridge")
+    if [spec.model_name for spec in specs if spec.objective == "classification"] != ["lda_classifier", "logistic_regression_classifier", "random_forest_classifier"]:
+        raise ValueError("classification Decision candidates must be exactly LDA, Logistic Regression, Random Forest")
     banned = [
         spec.model_name
         for spec in specs
@@ -77,6 +79,8 @@ def _check_training_artifacts(training_dir: Path) -> dict[str, Any]:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     if tuple(summary.get("models_trained", [])) != ACTIVE_MODEL_NAMES:
         raise ValueError("training summary model candidates do not match the active protocol")
+    if tuple(summary.get("active_model_names", [])) != ACTIVE_MODEL_NAMES:
+        raise ValueError("training summary active_model_names do not match the active protocol")
     if summary.get("model_selection_metric") != MODEL_SELECTION_METRIC:
         raise ValueError("training summary uses the wrong model-selection metric")
     selected_name = str(summary.get("selected_model_name", ""))
@@ -162,7 +166,7 @@ def _check_training_artifacts(training_dir: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Check the fixed three-model nested landscape-family OOF Decision protocol."
+        description="Check the fixed four-candidate nested landscape-family OOF Decision protocol."
     )
     parser.add_argument("--training-dir", type=Path, default=None)
     args = parser.parse_args()

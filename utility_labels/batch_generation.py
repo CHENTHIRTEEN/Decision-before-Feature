@@ -12,12 +12,12 @@ import pyarrow.parquet as pq
 
 from experiments.phase1_batch_common import load_config, make_shards, split_name
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS
-from utility_labels.fields import UTILITY_VALUE_COLUMNS
+from utility_labels.fields import PRIMARY_EFFICACY_VALUE_COLUMN, UTILITY_VALUE_COLUMNS
 from utility_labels.generation import generate_utility_labels
 from utility_labels.validation import validate_utility_label_file
 
 
-TARGET_COLUMN = "u_query_joint_lamT_1"
+TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe
 
 
 def utility_label_shard_path(
@@ -175,7 +175,7 @@ def _generate_one_shard(task: dict[str, Any]) -> dict[str, Any]:
 
 def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
     if labels.empty:
-        return pd.DataFrame(columns=["query_id", "split", "rows", "call_rate", "mean_u_query_joint_lamT_1"])
+        return pd.DataFrame(columns=["query_id", "split", "rows", "call_rate", f"mean_{TARGET_COLUMN}"])
     rows = []
     for split, frame in labels.groupby("split", sort=True):
         target = frame[TARGET_COLUMN].astype(float)
@@ -185,7 +185,7 @@ def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
                 "split": str(split),
                 "rows": int(len(frame)),
                 "call_rate": float((target > 0.0).mean()),
-                "mean_u_query_joint_lamT_1": float(target.mean()),
+                f"mean_{TARGET_COLUMN}": float(target.mean()),
                 "mean_performance_gain_norm": float(frame["performance_gain_norm"].mean()),
                 "mean_selector_regret_raw": float(frame["selector_regret_raw"].mean()),
                 **{f"mean_{column}": float(frame[column].mean()) for column in UTILITY_VALUE_COLUMNS},

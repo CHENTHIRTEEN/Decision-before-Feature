@@ -2,7 +2,7 @@
 
 > 2026-08-14 统一撤回说明：本页数值来自 population-only 重建式 continuation、把 population 行号当作跨代个体身份的旧 Behavior、problem 级静态标签与 nearest performance bucket 的旧 Selection Reference、旧 max-scale/线性相对时间 Utility，以及被笼统称为 ELA 的 16 维自定义描述符。因此旧 behavior、landscape features、selection reference、utility labels、Decision Model 与下游评价不得作为论文证据。当前主 `descriptor_cheap_invariant` 已在统一 median/IQR preprocessing 后删除恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr`，为 14 维；该构念修正不能追溯性修复本页数值。
 
-> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger `u_query_joint_lamT_1` 选择；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
+> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger 主功效选择（方案 A 为 `G_FE`；旧口径为 `u_query_joint_lamT_1`）；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
 
 旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和旧模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
 
@@ -45,9 +45,9 @@
 | 最高 average precision | Softmax Logistic | 0.176193 |
 | 最佳 train-derived threshold 决策效用 | LDA | 0.00432497 |
 | LDA ELA call rate | LDA | 0.0378395 |
-| LDA utility capture | LDA | 0.561033 |
+| LDA efficacy/utility capture | LDA | 0.561033 |
 | LDA 调用中 `U_ELA>0` 比例 | LDA | 0.312806 |
-| 最高 top-10% utility capture | Softmax Logistic | 0.646442 |
+| 最高 top-10% efficacy/utility capture | Softmax Logistic | 0.646442 |
 
 这些指标回答不同问题，不能只按 RMSE 选模型。旧流程曾据此选择 LDA 并解释 top-10% capture；该选择未包含 fold-specific SBS/Selectors/Utility、first-trigger reconstruction 或当前 Utility，因此已经撤回，不能迁移到活动模型选择。
 
@@ -60,8 +60,8 @@
 shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 - ELA call rate：0.0374691；
-- mean decision utility：0.0043582；
-- utility capture：0.560990；
+- mean decision efficacy (旧口径 utility)：0.0043582；
+- efficacy/utility capture：0.560990；
 - precision：0.315074。
 
 相对未调 LDA 的旧效用差异很小，但该观察没有活动证据资格。当前不得保留 shrinkage 调参、预设 LDA 或把它作为敏感性候选。
@@ -78,14 +78,14 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 当前 baseline/Pareto 报告使用的是较早的 `primary_with_maturity + Ridge` controller：
 
 - Ridge call rate：0.0266204；
-- mean decision utility：0.00265025；
-- utility capture：0.343901；
+- mean decision efficacy (旧口径 utility)：0.00265025；
+- efficacy/utility capture：0.343901；
 - precision：0.267246；
-- Always ELA mean utility：-0.0915294；
-- Random Analysis (`p=0.5`) mean utility 约为 -0.0458；
+- Always ELA mean efficacy (旧口径 utility)：-0.0915294；
+- Random Analysis (`p=0.5`) mean efficacy (旧口径 utility) 约为 -0.0458；
 - Never ELA / SBS skip reference 的相对 utility 为 0。
 
-这些旧数值仅记录曾经进行过的 Always/Random/Ridge 比较，不再支持任何内部 validation 结论，也不预设重生成后 LDA 或 Ridge 仍是最优模型。baseline、消融和 Pareto 表必须在新 trajectory、action losses 与 utility labels 上全部重算。
+这些旧数值仅记录曾经进行过的 Always/Random/Ridge 比较，不再支持任何内部 validation 结论，也不预设重生成后 LDA 或 Ridge 仍是最优模型。baseline、消融和 Pareto 表必须在新 trajectory、action losses（按《最小 Action Loss 字段规范 v1》保留 canonical `action_loss`）与 utility labels 上全部重算。
 
 ## 6. 外部评价状态
 
@@ -113,13 +113,13 @@ CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配
 - Decision Model 已在 CEC2017、CEC2022 或工程问题上稳定泛化；
 - LDA 已完成端到端 baseline/Pareto 的最终比较；
 - Search Maturity 单独导致性能改善；
-- utility magnitude 已被准确校准；多个回归模型的 validation R² 仍较弱。
+- efficacy/utility magnitude 已被准确校准；多个回归模型的 validation R² 仍较弱。
 
 ## 8. 下一轮正式任务
 
 1. 覆盖生成 BBOB train/validation trajectory shards，并通过完整 state、native-update window 与 checkpoint 一致性检查。
 2. 重提取 Behavior，执行 Stage-A 两套四动作 matrices 与 FE=0 outcomes 各一次；用这些单次 outcomes 固定科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 与 planned/effective FE，并由 fold-specific SBS/Selectors 生成 OOF selected actions。
-3. Replay planner 已有枚举能力；下一步实现 offline decision-state-to-terminal runner，物化并核对 plan，对 Skip/Query/Behavior-only 及 FE=0 policy paths 各执行三次 Stage-B timing-only replay，保存逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；将 Stage-A 科学端点和 Stage-B 计时中位数组合成新 Utility。不得用 replay outcome 改写科学端点或选择性补跑。
+3. Replay planner 已有枚举能力；下一步实现 offline decision-state-to-terminal runner，物化并核对 plan，对 Skip/Query/Behavior-only 及 FE=0 policy paths 各执行三次 Stage-B timing-only replay，保存逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；将 Stage-A 科学端点和 Stage-B 计时中位数组合成新 Utility 与方案 A 主标签 `G_FE`。不得用 replay outcome 改写科学端点或选择性补跑。
 4. 对 LDA、Logistic Regression 与 Ridge 重新执行完整 `cv_group_id = function_id` nested OOF、first-trigger model selection、threshold/Random calibration、六组消融、baselines 与估计性统计分析。BBOB-validation 只作已见固定六函数内部评价。
 5. CEC2017 已按官方 29 题口径闭合，只作已见外部开发评价；CEC2022 和工程问题须在首次 outcome 前冻结 suite endpoints、constraint rule 与分析计划，才可承担前瞻确认。
 

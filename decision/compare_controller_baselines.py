@@ -27,12 +27,16 @@ from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 
 
+from utility_labels.fields import PRIMARY_EFFICACY_VALUE_COLUMN
+
+
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
 DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_EXPECTED_SPLIT = "bbob_validation"
-TARGET_COLUMN = "u_query_joint_lamT_1"
+TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe
+# behavior-only 仍用旧 Utility 列名；train_full_decision_model 默认输出该列
 BEHAVIOR_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
-BEHAVIOR_THRESHOLD_MODE = "oof_behavior_utility_first_trigger"
+BEHAVIOR_THRESHOLD_MODE = "oof_behavior_g_fe_first_trigger"
 RUN_KEY_COLUMNS = STATE_KEY_COLUMNS[:-1]
 ALL_ACCEPTED_OPPORTUNITIES = "all_accepted"
 MILESTONE_ONLY_OPPORTUNITIES = "milestone_only"
@@ -205,6 +209,7 @@ def compare_controller_baselines(
         },
         "scope_notes": [
             f"The whole-policy baseline comparison is expressed in the frozen {TARGET_COLUMN} label space.",
+            "The active Decision candidate set now contains four models: LDA, Logistic Regression, Ridge, and Random Forest Classifier.",
             "Every online policy contributes at most one first-trigger call and one Utility value per trajectory.",
             "The current B3 controller, Always Query, matched-rate Random, and Behavior-only policies may trigger "
             "on all accepted dynamic opportunities; milestone-only T0 may trigger only on the twelve budget milestones.",
@@ -393,7 +398,7 @@ def validate_time_only_training_summary(path: Path, query_id: str) -> None:
     if list(summary.get("feature_columns", [])) != ["bf_fe_ratio"]:
         raise ValueError("time-only training summary must use only bf_fe_ratio")
     if tuple(summary.get("models_trained", [])) != ACTIVE_MODEL_NAMES:
-        raise ValueError("time-only training must use the same frozen three-model candidate set")
+        raise ValueError("time-only training must use the same frozen candidate set")
     if summary.get("threshold_modes") != ["zero", FROZEN_THRESHOLD_MODE]:
         raise ValueError("time-only training must use the frozen OOF threshold protocol")
 

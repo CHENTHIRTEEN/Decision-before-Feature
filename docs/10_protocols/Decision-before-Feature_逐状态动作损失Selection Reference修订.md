@@ -8,8 +8,8 @@
 2. 正式 Selection Reference 改为逐共享状态运行候选动作，监督目标改为连续动作损失，而不是最佳算法类别。
 3. `remaining_budget_ratio` 作为连续输入，不再使用 nearest performance bucket；相邻 checkpoint 不再因 bucket 映射本身产生离散跳变。
 4. 主 Utility 仍评价是否调用当前 `query_id + selector` 下游流程，不把算法选择本身改写为本文贡献。
-5. 候选动作的实测 loss 已包含 native continuation 或 population transfer 的结果，query FE 也已通过减少后续优化预算计入；二者不能在主公式中再次相减。主公式只额外扣除尚未进入 loss 的时间、内存等非 FE 成本。
-6. 正式链路同时生成 `behavior_only_full_budget` 四动作 outcome 与 Selector；主联合策略效用和相对 Behavior-only 路径的 `query_operational_increment` 分开保存、分开解释。
+5. 候选动作的实测 loss 已包含 native continuation 或 population transfer 的结果，query FE 也已通过减少后续优化预算计入；二者不能在主公式中再次相减。方案 A 下，主功效改为等总 FE 的 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，runtime 不进入主功效。字段规范以《最小 Action Loss 字段规范 v1》为准：每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）；旧 Utility 变体仅作兼容诊断。
+6. 正式链路同时生成 `behavior_only_full_budget` 四动作 outcome 与 Selector；`query_operational_increment` 仅作为旧口径兼容与辅助诊断，不再作为主实验标签。
 
 ## 2. 与既有协议的冲突及裁决
 
@@ -22,7 +22,7 @@
 | 将 function ID、dimension、prefix algorithm ID 放入 Decision 输入 | 违反算法无关 Decision 输入边界 | 拒绝；这些字段只作 metadata 和分层报告 |
 | 将 query features 放入 Selection Reference | Selection Reference 是 Query 后的固定 query-specific selector | 接受；query features 不进入 Decision Model |
 | 将算法无关 behavior 放入 Selection Reference | 它描述当前 population、历史和成熟度，且 Query 前已经可得 | 接受；必须同时提供 full-budget behavior-only 主对照，query-adjusted state-only 只能作诊断 |
-| 在主 Utility 中再扣 query sampling FE | 等总 FE 协议已通过减少 continuation budget 计入 | 拒绝，避免重复计费 |
+| 在主功效中再扣 query sampling FE | 等总 FE 协议已通过减少 continuation budget 计入 | 拒绝，避免重复计费；主功效直接使用 `G_FE` |
 | 将 handoff 单列后再从实测 selector loss 中扣除 | population-transfer 影响已经进入实测 action loss | 拒绝作为主公式的额外减项；只作预先定义 transition mode 的稳健性比较 |
 | 把逐状态最小 loss 称为 VBS 或 oracle | 它只是已运行动作中的最小值 | 拒绝；称为“逐状态最佳已观测动作”或 `best observed action` |
 
@@ -112,7 +112,7 @@ Y(s_t,a)=\log_{10}(\operatorname{clip}(L(s_t,a),g_{\min},g_{\max}))
 
 ## 6. Utility 与诊断分解
 
-Selector 主 target 是第 5 节基于 continuation outcomes 的相对 continue-current 截断 `log10_gap`；Utility 不直接使用该 target。Stage-A 预指定单次 Selection Reference outcome 是 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success` 与 planned/effective FE 的唯一科学来源。Query sample 不进入 continuation population，但主 operational Query terminal best、observed first hit 与标准 ERT 必须计入真实 query sample evaluations；ERT 使用 `target_hit_observed`，完整路径且命中的 endpoint 另由 `endpoint_success` 表示。令五条 Stage-A operational 路径的非负 benchmark-reference raw gap 在取对数前按 suite 配置截断；另保存 query continuation-only gap 与 `query_sample_best_contribution_log10_gap`。对 BBOB train/validation 与 CEC2017：
+Selector 主 target 是第 5 节基于 continuation outcomes 的相对 continue-current 截断 `log10_gap`；Utility 不直接使用该 target。Stage-A 预指定单次 Selection Reference outcome 是 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success` 与 planned/effective FE 的唯一科学来源。Query sample 不进入 continuation population，但主 operational Query terminal best、observed first hit 与标准 ERT 必须计入真实 query sample evaluations；ERT 使用 `target_hit_observed`，完整路径且命中的 endpoint 另由 `endpoint_success` 表示。方案 A 下，主功效不再以 `query_operational_increment_lamT_*` 为唯一标签，而改用 `G_FE`；`query_operational_increment_lamT_*` 仅作为兼容诊断。令五条 Stage-A operational 路径的非负 benchmark-reference raw gap 在取对数前按 suite 配置截断；另保存 query continuation-only gap 与 `query_sample_best_contribution_log10_gap`。对 BBOB train/validation 与 CEC2017：
 
 \[
 \ell_k=\log_{10}\!\left(\min(\max(g_k,10^{-12}),10^{20})\right).
@@ -139,9 +139,9 @@ I_q(s_t)=(\ell_b-\ell_q)
 =U_{query}^{joint}(s_t)-U_b(s_t).
 \]
 
-其中 query sampling FE 已通过 Query path 使用较少 continuation FE 体现，不再额外相减。`u_query_joint_lamT_1` 是主 Decision target；`query_operational_increment_lamT_1` 必须分别在全 eligible states 与 Proposed first-trigger states 汇总，并只解释为固定模型、动作预算与 transition rule 下相对 Behavior-only 路径的操作性净增量。它包含 query FE/runtime、sample best、预算差和 Selector 差异，不是纯信息效应或因果 estimand。若 `U_joint>0` 而 `I_q<=0`，只能支持联合路径优于 SBS。主 `lambda_T=1` 表示 gap 与 runtime 的十进制数量级变化等权；memory 的主权重为 0、另作端点。
+其中 query sampling FE 已通过 Query path 使用较少 continuation FE 体现，不再额外相减。旧 `u_query_joint_lamT_1` / `query_operational_increment_lamT_1` 仅保留为过渡兼容字段；方案 A 的主标签是 `G_FE`，并由 `g_fe`、`g_fe_bounded`、`g_fe_gt_zero`、`g_fe_gt_practical` 派生。`query_operational_increment_lamT_1` 若仍输出，只作辅助诊断，并必须明确解释为 fixed-model、action-budget 与 transition rule 下相对 Behavior-only 路径的操作性净增量，不是主功效。它包含 query FE/runtime、sample best、预算差和 Selector 差异，不是纯信息效应或因果 estimand。若 `U_joint>0` 而 `I_q<=0`，只能支持联合路径优于 SBS。主 `lambda_T=1` 表示 gap 与 runtime 的十进制数量级变化等权；memory 的主权重为 0、另作端点。
 
-Query-adjusted state-only Selector 与 full Query Selector 在同一四动作矩阵上比较 OOF selected continuation-only `log10_gap`，输出 `query_feature_predictive_increment_log10_gap`。该诊断排除 query sample best，不新增 action losses，只表示 query features 的 OOF 边际预测贡献；不得把随机采样直接找到更优点归因于 features，也不得与 full-budget `query_operational_increment_lamT_*` 混称。正式五路径还真实计时 `query_matched_state_only` 与 `sampling_only_continue_current`，生成 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量；这些增量条件于固定协议，不作因果解释。
+Query-adjusted state-only Selector 与 full Query Selector 在同一四动作矩阵上比较 OOF selected continuation-only `log10_gap`，输出 `query_feature_predictive_increment_log10_gap`。该诊断排除 query sample best，不新增 action losses，只表示 query features 的 OOF 边际预测贡献；不得把随机采样直接找到更优点归因于 features，也不得与主功效 `G_FE` 混称。正式五路径仍可保留 `query_matched_state_only` 与 `sampling_only_continue_current` 作为辅助分解，但这些只作为旧 utility/诊断兼容，不再作为主实验标签。
 
 `runtime_selection` 必须包含单状态模型推理和动作选择，不能只计已有预测分数上的 `argmin` 时间；`runtime_handoff` 与 `runtime_query_optimization` 必须拆分保存，避免把 transfer 初始化隐含在后续优化中。
 

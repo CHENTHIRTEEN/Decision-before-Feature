@@ -1,6 +1,6 @@
 # Decision-before-Feature phase1 query-specific Utility label 字段规范
 
-> 唯一活动字段规范（2026-08-15）。Utility 使用配置截断后的 `log10_gap` 差与三次真实 decision-state-to-terminal future-path **censored median** wall-clock 的 `log10` ratio；raw observed median 只作诊断。共享 prefix 与分支前共同 Behavior/Decision 成本视为 sunk/common cost，FE=0 policy wall-clock 另存。旧 `performance_gain_norm`、`time_cost_norm`、单一 `u_query_lamT_*` 及由其生成的布尔标签全部失效。
+> 唯一活动字段规范（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。主功效采用等总 FE 下的 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`；其中 `epsilon_p` 为问题尺度协变稳定项，runtime 不进入主功效。每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）；旧 `performance_gain_norm`、`time_cost_norm`、单一 `u_query_lamT_*` 及由其生成的布尔标签全部失效，仅作兼容诊断。详见《最小 Action Loss 字段规范 v1》。
 
 ## 1. 文件范围与状态键
 
@@ -289,7 +289,7 @@ T^{raw}_{k,j}, & status_{k,j}=completed,\\
 \end{cases}
 \]
 
-`runtime_*_raw_observed_median` 是三次 raw observed 时间的中位数，只作诊断；主 `runtime_*_median` 是三次 censored 时间的中位数，五条路径的 $T_k$ 与所有主 Utility 只读后者。不得让快速失败降低主时间成本。
+`runtime_*_raw_observed_median` 是三次 raw observed 时间的中位数，只作诊断；主 `runtime_*_median` 是三次 censored 时间的中位数，五条路径的 $T_k$ 与所有主 Utility 只读后者。方案 A 里时间只作为主功效的参考/辅助端点，不进入 `G_FE` 主标签。不得让快速失败降低主时间成本。
 
 三类一致性分别定义：
 
@@ -334,7 +334,7 @@ need_query_joint_lamT_{0,025,05,1,2}
 need_behavior_only_full_budget_lamT_{0,025,05,1,2}
 ```
 
-布尔标签分别由对应 Utility 是否大于 0 得到。主 Decision target 为 `u_query_joint_lamT_1`；self-thresholded Behavior-only target 为 `u_behavior_only_full_budget_lamT_1`。`query_operational_increment_lamT_1` 必须在全 eligible-state summary 与 Proposed 同一 first-trigger state summary 中分别报告；它包含 acquisition、sample-best、预算与 Selector 差异，不用于把 query 描述为纯信息效应或因果 intervention。
+布尔标签分别由对应 Utility 是否大于 0 得到。方案 A 下，主 Decision target 为 `G_FE`（`g_fe`）；旧 `u_query_joint_lamT_1` 仅作兼容。self-thresholded Behavior-only target 为 `u_behavior_only_full_budget_lamT_1`（旧口径）。`query_operational_increment_lamT_1` 必须在全 eligible-state summary 与 Proposed 同一 first-trigger state summary 中分别报告；它包含 acquisition、sample-best、预算与 Selector 差异，不用于把 query 描述为纯信息效应或因果 intervention。
 
 对每个 lambda 还必须逐行满足：
 
@@ -382,7 +382,7 @@ BBOB train/validation 与 CEC2017 的单 state-action path timeout 为 `3600 s`�
 - 三次 future-path 计时缺失、order 不符合循环协议、raw time 非正、censoring 不可重算，或与 FE=0 policy wall-clock 混列；
 - observed hit/completion/endpoint success 关系不成立，三类一致性被压成一个布尔量，或两类 instability 未分开；
 - fold-role Selector artifact 路由缺失，导致 replay 未真实执行相应 Selector inference；
-- 三条 Utility 不能逐行重算或不满足 `I_q=U_q^{joint}-U_b`；
+- 三条 Utility 不能逐行重算或不满足 `I_q=U_q^{joint}-U_b`（旧口径）；方案 A 下 `G_FE` 不能从 `E_skip`、`E_query`、`epsilon_p` 逐行重算；
 - `FE_ratio != FE/FE_total`；
 - fold-specific SBS/Selector/Utility 来源不完整；
 - 失败行被删除，或 failure/cap/timeout 不可区分；
