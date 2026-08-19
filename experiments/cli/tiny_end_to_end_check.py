@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from experiments.algorithm_consistency_check import run_algorithm_consistency_check
-from experiments.stage0_resource_check import verify_stage0_resource_estimate
+from experiments.cli.algorithm_consistency_check import run_algorithm_consistency_check
+from experiments.cli.stage0_resource_check import verify_stage0_resource_estimate
 
 
 DEFAULT_CONFIGS = (
