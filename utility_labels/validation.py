@@ -602,6 +602,8 @@ def _validate_efficacy(row: dict) -> None:
         gap_query=max(e_query - benchmark, 0.0),
         epsilon_p=epsilon_p,
     )
+    if "action_loss" in row and not isclose(float(row["action_loss"]), float(row[PRIMARY_EFFICACY_VALUE_COLUMN]), rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("action_loss must match the primary efficacy value")
     if not isclose(g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
         raise ValueError(
             f"{PRIMARY_EFFICACY_VALUE_COLUMN} is inconsistent: got {g_fe}, expected {expected_g_fe}"

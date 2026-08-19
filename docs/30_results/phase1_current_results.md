@@ -1,10 +1,10 @@
-# Phase1 旧结果摘要（已撤回正式证据资格）
+# Phase1 历史结果摘要（已撤回正式证据资格）
 
-> 2026-08-14 统一撤回说明：本页数值来自 population-only 重建式 continuation、把 population 行号当作跨代个体身份的旧 Behavior、problem 级静态标签与 nearest performance bucket 的旧 Selection Reference、旧 max-scale/线性相对时间 Utility，以及被笼统称为 ELA 的 16 维自定义描述符。因此旧 behavior、landscape features、selection reference、utility labels、Decision Model 与下游评价不得作为论文证据。当前主 `descriptor_cheap_invariant` 已在统一 median/IQR preprocessing 后删除恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr`，为 14 维；该构念修正不能追溯性修复本页数值。
+> 2026-08-14 统一撤回说明：本页数值来自 population-only 重建式 continuation、把 population 行号当作跨代个体身份的旧 Behavior、problem 级静态标签与 nearest performance bucket 的旧 Selection Reference、max-scale/线性相对时间 Utility（历史），以及被笼统称为 ELA 的 16 维自定义描述符。因此旧 behavior、landscape features、selection reference、utility labels、Decision Model 与下游评价不得作为论文证据。当前主 `descriptor_cheap_invariant` 已在统一 median/IQR preprocessing 后删除恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr`，为 14 维；该构念修正不能追溯性修复本页数值。
 
-> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger 主功效选择（方案 A 为 `G_FE`；旧口径为 `u_query_joint_lamT_1`）；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
+> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger 主功效选择（方案 A 为 `G_FE`；主标签为 `G_FE`）；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
 
-旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和旧模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
+旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和历史模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
 
 当前有效的离线标签与最终评价可使用 `benchmark_reference_value` 与 known-optimum gap 口径，但这些字段只允许留在离线标签和评价层，不能进入 Behavior、Selection Reference 输入或 Decision X。
 
@@ -12,7 +12,7 @@
 
 本文仅保留截至 2026-08-11 已生成结果的撤回记录，用于定位受影响范围，不表示当前有效性能评价。当前没有一项正式内部或外部结果。
 
-本文只记录已撤回产物的历史范围和失效原因，不陈述任何当前有效性能结论，也不把内部 validation 旧数值扩展为 CEC2017、CEC2022 或工程问题结论。
+本文只记录已撤回产物的历史范围和失效原因，不陈述任何当前有效性能结论，也不把内部 validation 历史数值扩展为 CEC2017、CEC2022 或工程问题结论。
 
 ## 2. 数据范围
 
@@ -28,7 +28,7 @@
 | `U_ELA > 0` rows | 11,921 | 3,745 |
 | `U_ELA > 0` rate | 6.1322% | 5.7793% |
 
-旧模型曾使用 `primary_with_maturity` 的 23 个 `bf_*` 行为字段，但其中 7 个字段依赖跨 checkpoint 的行号对应关系，现已退出活动列契约。当前列契约为 34 个唯一输出、31 个正式输入与 3 个诊断字段，六组 `T0/B1/B2/B2+Motion/B2+Maturity/B3=1/19/25/28/28/31`；`primary_with_maturity` 当前只解析为 B2+Maturity，`all_candidates` 才是 B3。旧 23 字段模型数值不得迁移到当前列契约下解释。
+历史模型曾使用 `primary_with_maturity` 的 23 个 `bf_*` 行为字段，但其中 7 个字段依赖跨 checkpoint 的行号对应关系，现已退出活动列契约。当前列契约为 34 个唯一输出、31 个正式输入与 3 个诊断字段，六组 `T0/B1/B2/B2+Motion/B2+Maturity/B3=1/19/25/28/28/31`；`primary_with_maturity` 当前只解析为 B2+Maturity，`all_candidates` 才是 B3。旧 23 字段模型数值不得迁移到当前列契约下解释。
 
 ## 3. 已撤回的模型比较记录
 
@@ -49,7 +49,7 @@
 | LDA 调用中 `U_ELA>0` 比例 | LDA | 0.312806 |
 | 最高 top-10% efficacy/utility capture | Softmax Logistic | 0.646442 |
 
-这些指标回答不同问题，不能只按 RMSE 选模型。旧流程曾据此选择 LDA 并解释 top-10% capture；该选择未包含 fold-specific SBS/Selectors/Utility、first-trigger reconstruction 或当前 Utility，因此已经撤回，不能迁移到活动模型选择。
+这些指标回答不同问题，不能只按 RMSE 选模型。历史流程曾据此选择 LDA 并解释 top-10% capture；该选择未包含 fold-specific SBS/Selectors/Utility、first-trigger reconstruction 或当前 Utility，因此已经撤回，不能迁移到活动模型选择。
 
 ## 4. 调参与消融
 
@@ -60,7 +60,7 @@
 shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 - ELA call rate：0.0374691；
-- mean decision efficacy (旧口径 utility)：0.0043582；
+- mean decision efficacy (辅助口径 utility)：0.0043582；
 - efficacy/utility capture：0.560990；
 - precision：0.315074。
 
@@ -78,14 +78,14 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 当前 baseline/Pareto 报告使用的是较早的 `primary_with_maturity + Ridge` controller：
 
 - Ridge call rate：0.0266204；
-- mean decision efficacy (旧口径 utility)：0.00265025；
+- mean decision efficacy (辅助口径 utility)：0.00265025；
 - efficacy/utility capture：0.343901；
 - precision：0.267246；
-- Always ELA mean efficacy (旧口径 utility)：-0.0915294；
-- Random Analysis (`p=0.5`) mean efficacy (旧口径 utility) 约为 -0.0458；
+- Always ELA mean efficacy (辅助口径 utility)：-0.0915294；
+- Random Analysis (`p=0.5`) mean efficacy (辅助口径 utility) 约为 -0.0458；
 - Never ELA / SBS skip reference 的相对 utility 为 0。
 
-这些旧数值仅记录曾经进行过的 Always/Random/Ridge 比较，不再支持任何内部 validation 结论，也不预设重生成后 LDA 或 Ridge 仍是最优模型。baseline、消融和 Pareto 表必须在新 trajectory、action losses（按《最小 Action Loss 字段规范 v1》保留 canonical `action_loss`）与 utility labels 上全部重算。
+这些历史数值仅记录曾经进行过的 Always/Random/Ridge 比较，不再支持任何内部 validation 结论，也不预设重生成后 LDA 或 Ridge 仍是最优模型。baseline、消融和 Pareto 表必须在新 trajectory、action losses（按《最小 Action Loss 字段规范 v1》保留 canonical `action_loss`）与 utility labels 上全部重算。
 
 ## 6. 外部评价状态
 

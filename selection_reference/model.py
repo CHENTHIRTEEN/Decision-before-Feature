@@ -273,6 +273,7 @@ def prepare_state_matrix(
         "transition_mode",
         "action_status",
         "action_loss",
+        "action_loss",
         "action_loss_raw",
         "action_loss_norm",
         "log10_action_loss",
@@ -1435,8 +1436,7 @@ def selection_rows(
     )
     output["handoff_required"] = ~output["selected_equals_prefix"].astype(bool)
     output["handoff_type"] = output["selected_transition_mode"].astype(str)
-    output["selected_action_loss"] = selected_losses
-    output["selected_action_loss_raw"] = np.asarray(selected_raw_losses, dtype=float)
+    output["action_loss"] = selected_losses
     output["runtime_selected_action_optimization"] = selected_runtimes
     output["runtime_handoff"] = selected_handoff_runtimes
     output["runtime_handoff_repetitions"] = selected_handoff_repetitions
@@ -1460,7 +1460,7 @@ def selection_rows(
     output["selected_action_timed_out"] = selected_timed_out
     output["selected_action_path_completed"] = selected_path_completed
     output["selected_predicted_selector_target"] = selected_scores
-    output["selector_regret_raw"] = output["selected_action_loss"].astype(float) - output[
+    output["selector_regret_raw"] = output["action_loss"].astype(float) - output[
         "best_observed_loss"
     ].astype(float)
     output["selector_regret_norm"] = output["selector_regret_raw"].to_numpy(dtype=float) / np.maximum(
@@ -1481,7 +1481,7 @@ def selection_rows(
     output["query_preprocessing_id"] = states["query_preprocessing_id"].astype(str).to_numpy()
     output["performance_value_mode"] = "raw_objective"
     output["performance_loss_mode"] = "known_optimum_gap"
-    continuation_gap = output["selected_action_loss"].to_numpy(dtype=float)
+    continuation_gap = output["action_loss"].to_numpy(dtype=float)
     query_sample_gap = output["query_best_gap"].to_numpy(dtype=float)
     selected_completed = output["selected_action_path_completed"].to_numpy(dtype=bool)
     operational_query_gap = np.where(
@@ -1760,8 +1760,7 @@ def behavior_only_selection_rows(
         "population_transfer_initialization",
         "native_optimizer_state",
     )
-    output["selected_action_loss"] = np.asarray(selected_losses, dtype=float)
-    output["selected_action_loss_raw"] = np.asarray(selected_raw_losses, dtype=float)
+    output["action_loss"] = np.asarray(selected_losses, dtype=float)
     output["selected_predicted_selector_target"] = np.asarray(selected_scores, dtype=float)
     output["runtime_selected_action_optimization"] = np.asarray(selected_runtimes, dtype=float)
     output["runtime_handoff"] = np.asarray(selected_handoff_runtimes, dtype=float)
@@ -1785,7 +1784,7 @@ def behavior_only_selection_rows(
     output["selected_action_effective_FE"] = selected_effective_fe
     output["selected_action_timed_out"] = selected_timed_out
     output["selected_action_path_completed"] = selected_path_completed
-    output["p_behavior"] = output["selected_action_loss"].to_numpy(dtype=float)
+    output["p_behavior"] = output["action_loss"].to_numpy(dtype=float)
     output["behavior_path_observed_first_hit_FE"] = selected_first_hits
     output["behavior_path_target_hit_observed"] = selected_hit_observed
     output["behavior_path_target_hit_before_failure"] = (
@@ -1940,8 +1939,7 @@ def pre_run_selection_rows(
     output["selected_equals_prefix"] = True
     output["handoff_required"] = False
     output["handoff_type"] = "fresh_optimizer_initialization"
-    output["selected_action_loss"] = np.asarray(selected_gaps, dtype=float)
-    output["selected_action_loss_raw"] = np.asarray(selected_raw, dtype=float)
+    output["action_loss"] = np.asarray(selected_gaps, dtype=float)
     output["selected_action_first_hit_FE"] = selected_first_hits
     selected_hit_observed = np.asarray(
         [value is not None for value in selected_first_hits], dtype=bool
@@ -1966,7 +1964,7 @@ def pre_run_selection_rows(
     output["runtime_fresh_initialization"] = selected_initializations
     output["runtime_fresh_initialization_repetitions"] = selected_initialization_repetitions
     output["selected_execution_order_repetitions"] = selected_order_repetitions
-    continuation_gap = output["selected_action_loss"].to_numpy(dtype=float)
+    continuation_gap = output["action_loss"].to_numpy(dtype=float)
     query_gap = output["query_best_gap"].to_numpy(dtype=float)
     selected_completed = output["selected_action_path_completed"].to_numpy(dtype=bool)
     output["continuation_only_gap"] = continuation_gap

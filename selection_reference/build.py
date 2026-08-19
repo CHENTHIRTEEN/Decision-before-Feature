@@ -242,7 +242,7 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
         (reference.loc[~reference["handoff_required"].astype(bool), "runtime_handoff"].astype(float) == 0.0).all()
     ):
         raise ValueError("native selected actions must have zero handoff runtime")
-    regret = reference["selected_action_loss"].astype(float) - reference["best_observed_loss"].astype(float)
+    regret = reference["action_loss"].astype(float) - reference["best_observed_loss"].astype(float)
     if bool((regret < -1e-12).any()):
         raise ValueError("selector regret cannot be smaller than zero")
     if not bool((reference["selection_reference_protocol"].astype(str) == SELECTION_REFERENCE_PROTOCOL).all()):
@@ -297,7 +297,7 @@ def _validate_reference(reference: pd.DataFrame, portfolio: tuple[str, ...]) -> 
     incomplete = ~selected_completed
     if not np.allclose(
         reference.loc[incomplete, "p_query"].to_numpy(dtype=float),
-        reference.loc[incomplete, "selected_action_loss"].to_numpy(dtype=float),
+        reference.loc[incomplete, "action_loss"].to_numpy(dtype=float),
         rtol=0.0,
         atol=1e-12,
     ):

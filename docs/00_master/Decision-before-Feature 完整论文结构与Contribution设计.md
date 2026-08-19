@@ -1,6 +1,6 @@
 # Decision-before-Feature 完整论文结构与 Contribution 设计
 
-> 唯一活动版本（2026-08-14）。本文只定义研究叙事、贡献边界与 RQ—证据关系，不声称正式实验已经完成。旧“单一 Query Utility”“Search Maturity 是潜在状态”“Always Query 与 Traditional AAS 合并”“逐状态 policy 汇总”和 T0/B1/B2/B3 四组消融均退出。
+> 唯一活动版本。本文只定义研究叙事、贡献边界与 RQ—证据关系，不声称正式实验已经完成。旧的单一 Query Utility、Search Maturity 潜在状态、Always Query 与 Traditional AAS 合并、逐状态 policy 汇总和四组消融都已退出。
 
 ## 1. 论文定位与可检验主张
 
@@ -50,7 +50,7 @@ $$
 Stage-B 将每条 selected 路径从同一 decision state/RNG 到 terminal 真实运行预定三次，但只决定 timing。每次保存 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 的 censored time 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数，raw median 只作诊断。逐次保存 status、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、effective FE 与失败字段。路径身份、completed replays 内部 endpoint、Stage-A 到 completed replay 的 endpoint 一致性分别保存；Stage-B 内部 status instability 与 Stage-A/Stage-B completion instability 也分别保存。Stage-B 不得覆盖 Stage-A 科学端点或选择性补跑。共享 prefix 视为 sunk cost，FE=0 policy wall-clock 另报并遵循相同科学/计时分离。主设置 $\lambda_T=1,\lambda_M=0$：
 
 $$
-U_q^{joint}=(\ell_s-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_s),
+G_FE=(\ell_s-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_s),
 $$
 
 $$
@@ -58,15 +58,15 @@ U_b=(\ell_s-\ell_b)-\lambda_T(\log_{10}T_b-\log_{10}T_s),
 $$
 
 $$
-I_q=(\ell_b-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_b)
-=U_q^{joint}-U_b.
+query_operational_increment=(\ell_b-\ell_q)-\lambda_T(\log_{10}T_q-\log_{10}T_b)
+=G_FE-U_b.
 $$
 
 对应解释严格区分：
 
-- `u_query_joint_lamT_1`：固定 query、full Selector、动作选择与 continuation 的联合路径相对 Skip 的净差，是主 Decision target；
+- `G_FE`：固定 query、full Selector、动作选择与 continuation 的联合路径相对 Skip 的净差，是主 Decision target；
 - `u_behavior_only_full_budget_lamT_1`：不执行 query 的行为选择路径相对 Skip 的净差；
-- `query_operational_increment_lamT_1`：Query 路径相对 Behavior-only full-budget 路径的操作性增量，包含 query FE、时间、sample best 与预算差，不是纯信息效应；
+- `query_operational_increment`：Query 路径相对 Behavior-only full-budget 路径的操作性增量，包含 query FE、时间、sample best 与预算差，不是纯信息效应；
 - `query_feature_predictive_increment_log10_gap`：`query_adjusted_state_only_selector` 与 full Query Selector 在同一 query-budget 四动作 outcomes 上的 OOF selected continuation-only `log10_gap` 差；不新增 action losses、不计 sample best、不扣 acquisition cost，只是 query descriptors 的边际预测贡献诊断。
 
 Query sample 不进入 optimizer population，但属于真实 objective evaluations。Query terminal gap 使用 sample best 与 continuation best 的共同 best-so-far。`observed_first_hit_FE` 保留失败前已经发生的 target hit，`target_hit_observed` 驱动标准 ERT，`endpoint_success=target_hit_observed and path_completed` 另表示完整路径且命中；不得把这两个成功概念混用。另报 `query_first_hit_offset`、continuation-only gap 与 `query_sample_best_contribution_log10_gap`。
@@ -100,7 +100,7 @@ Search Maturity 只是由既有 Behavior 变量确定性计算的三维非线性
 
 SBS、Query/Behavior-only/FE=0 Selectors、Utility、Decision preprocessing/model、first-trigger threshold 与 Random calibration 全部进入 `cv_group_id = function_id` nested split。每个 outer fold 重算 `SBS_outer` 和全部上游组件；每个 inner fold又只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 与 Decision。这里的 group 是 function ID（即 `cv_group_id`），不是经典 landscape-family taxonomy；禁止先在完整 train 制成 labels 再执行 Decision-only OOF。
 
-Decision Model 活动候选固定为 LDA、Logistic Regression 与 Ridge。模型主选择使用 BBOB-train outer-holdout run-level first-trigger mean `u_query_joint_lamT_1`；AUROC、Average Precision、Spearman 是辅助指标，连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已被旧模型比较、调参与消融查看，只能作已见内部评价；CEC2017 也只能作已见外部开发评价。当前没有独立确认性结果。
+Decision Model 活动候选固定为 LDA、Logistic Regression 与 Ridge。模型主选择使用 BBOB-train outer-holdout run-level first-trigger mean `G_FE`；AUROC、Average Precision、Spearman 是辅助指标，连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已被历史模型比较、调参与消融查看，只能作已见内部评价；CEC2017 也只能作已见外部开发评价。
 
 ### Contribution 4：Resource-aware policy benchmarking
 
@@ -112,7 +112,7 @@ Decision Model 活动候选固定为 LDA、Logistic Regression 与 Ridge。模�
 
 目标分布限于 `descriptor_cheap_invariant`、SBS prefix、`phase1_dynamic_budget_event_v1` 合格状态。报告：
 
-- $U_q^{joint}$、$U_b$、$I_q$ 及组成；
+- $G_FE$、$U_b$、$query_operational_increment$ 及组成；
 - terminal 与 continuation-only `log10_gap`；
 - query sample best contribution、first hit、runtime；
 - state → run → static problem → fixed dimension stratum → function 的分布、效应与 95% CI。
@@ -184,7 +184,7 @@ handoff_required = not selected_equals_prefix
 
 ### Section 6 Results
 
-严格按 RQ1--RQ5 填入真实结果。每张主表同时保留 Utility、terminal `log10_gap`、runtime 和失败/coverage；不允许只展示 scalarized Utility。旧撤回结果不得填入占位符。
+严格按 RQ1--RQ5 填入真实结果。每张主表同时保留 Utility、terminal `log10_gap`、runtime 和失败/coverage；不允许只展示 scalarized Utility。不得填入占位符。
 
 ### Section 7 Discussion
 
@@ -221,4 +221,4 @@ function 是最高聚合层。BBOB-validation 的条件 CI 固定 F5/F9/F13/F14/
 - 把 Search Maturity 写成独立 latent state 或既有公认概念；
 - 由 AUROC、系数、SHAP 或单一 Utility 推出 feature 必要性；
 - 由 BBOB-validation 六个已见 functions 的 p 值重选模型，或把其估计性分析写成独立确认；
-- 把未执行、失败删除、代理运行或旧撤回数值写成正式证据。
+- 把未执行、失败删除、代理运行或旧历史数值写成正式证据。

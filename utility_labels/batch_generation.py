@@ -187,6 +187,7 @@ def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
                 "call_rate": float((target > 0.0).mean()),
                 f"mean_{TARGET_COLUMN}": float(target.mean()),
                 "mean_performance_gain_norm": float(frame["performance_gain_norm"].mean()),
+                "mean_action_loss": float(frame["action_loss"].mean()),
                 "mean_selector_regret_raw": float(frame["selector_regret_raw"].mean()),
                 **{f"mean_{column}": float(frame[column].mean()) for column in UTILITY_VALUE_COLUMNS},
             }

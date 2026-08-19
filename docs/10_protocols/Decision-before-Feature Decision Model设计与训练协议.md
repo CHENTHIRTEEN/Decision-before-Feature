@@ -1,6 +1,6 @@
 # Decision-before-Feature Decision Model 设计与训练协议
 
-> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。旧 18 模型搜索、预制完整-train Utility 上的伪 outer OOF、逐状态 threshold、四组 T0/B1/B2/B3 消融和 validation 参与比较的口径全部退出。本文件定义待实现与待运行的设计，不声称模型或正式结果已经生成。BBOB-validation 已被历史开发读取，只是已见内部评价集；CEC2017 已有历史在线诊断，只是已见外部开发集。主功效已切换为 `G_FE`，`u_query_joint_lamT_1` / `query_operational_increment_lamT_1` 仅保留兼容诊断。每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）；旧 Utility 变体仅作兼容诊断。
+> 唯一活动协议。本文定义 Decision Model、threshold、nested OOF、选模与部署口径；核心科学标签是 `G_FE`，其余 runtime / wall-clock 只作独立资源与计时维度。
 
 ## 1. 研究对象与信息时序
 
@@ -25,12 +25,12 @@ U_{query}^{joint}(s_t)=
 
 - `U_behavior_only_full_budget`：Behavior-only Selector 相对 Skip 的 full-budget 效用；
 - `G_FE`：等总 FE 下的主性能功效；由 `E_skip` 与 `E_query` 及 `epsilon_p` 计算，runtime 不进入主标签；
-- `query_operational_increment`：Query path 相对 full-budget Behavior-only path 的净增量，仅作兼容诊断；必须分别在全 eligible states 与同一 Proposed first-trigger states 报告；
+- `query_operational_increment`：Query path 相对 full-budget Behavior-only path 的净增量，作为诊断；必须分别在全 eligible states 与同一 Proposed first-trigger states 报告；
 - query-adjusted state-only/query-only/full Selector：只作信息来源诊断。
 
-主操作性情景固定为 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 是完整 sensitivity，不得按 train、validation 或 external result 改选。若主结果使用 `G_FE`，则该 `lambda_time` 组仅用于与旧 Utility 口径兼容的辅助诊断。旧 raw-gap max-scale、相对时间差或一次计时 Utility 全部失效。
+主操作性情景固定为 `lambda_time=1, lambda_memory=0`，表示 performance gap 与 runtime 的十进制数量级变化等权；`lambda_time={0,0.25,0.5,1,2}` 是完整 sensitivity，不得按 train、validation 或 external result 改选。若主结果使用 `G_FE`，则该 `lambda_time` 组仅用于与Utility 口径兼容的辅助诊断。旧 raw-gap max-scale、相对时间差或一次计时 Utility 全部失效。
 
-`I_q` 同时包含 query FE/runtime、sample best、较短 continuation budget 与 Selector 差异，不是纯信息效应或因果 estimand。若同一分析范围 `U_query_joint>0` 但 `I_q<=0`，只能支持联合路径优于 SBS，不能支持 query acquisition 优于 Behavior-only。正式五路径用 `query_matched_state_only` 与 `sampling_only_continue_current` 进一步分解 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量，并要求逐行加法一致；`query_feature_predictive_increment_log10_gap` 另保留为排除 sample best 的预测诊断。
+`query_operational_increment` 同时包含 query FE/runtime、sample best、较短 continuation budget 与 Selector 差异，不是纯信息效应或因果 estimand。若同一分析范围 `G_FE_joint>0` 但 `query_operational_increment<=0`，只能支持联合路径优于 SBS，不能支持 query acquisition 优于 Behavior-only。正式五路径用 `query_matched_state_only` 与 `sampling_only_continue_current` 进一步分解 descriptor-use、state-only-vs-sampling 与 sampling-direct 操作性增量，并要求逐行加法一致；`query_feature_predictive_increment_log10_gap` 另保留为排除 sample best 的预测诊断。
 
 ## 2. Decision 输入
 
@@ -67,7 +67,7 @@ U_{query}^{joint}(s_t)=
 | B2+Maturity | B2 + 3 deterministic maturity fields | 28 |
 | B3 | B2 + Motion + Maturity | 31 |
 
-`B2+Motion` 和 `B2+Maturity` 是兄弟组，分别识别 set-motion 与确定性 Maturity 变换的预测增量；B3 同时包含二者。Search Maturity 不增加原始信息，不称为 latent state、因果中介或已验证阶段。`all_candidates` 只是 B3 兼容别名，不是第七组；3 个 diagnostic-only 字段不进入任一组。
+`B2+Motion` 和 `B2+Maturity` 是兄弟组，分别识别 set-motion 与确定性 Maturity 变换的预测增量；B3 同时包含二者。Search Maturity 不增加原始信息，不称为 latent state、因果中介或已验证阶段。`all_candidates` 只是 B3 别名，不是第七组；3 个 diagnostic-only 字段不进入任一组。
 
 T0 主比较只用 12 个预算 milestones，称为 `milestone_only_T0`。B3 与 T0 的直接对比也在同一 milestone rows 上重算。event-only opportunity 的出现依赖 Behavior，因此完整动态 schedule 上的 `schedule_conditioned_T0` 只能作 sensitivity。
 
@@ -95,11 +95,11 @@ T0 仍是强制主 baseline，不并入或替换 Decision X。另增加估计性
 1. 从 outer-fit functions 的 `FE=FE_total` outcomes 计算 `SBS_outer`；
 2. 仅使用 `SBS_outer` prefixes 形成 outer-fit/outer-holdout 主 population；
 3. 在 outer-fit functions 内部 cross-fit Query Selector 与 Behavior-only Selector，生成不含同 function in-sample Selector prediction 的 outer-fit Decision labels；
-4. 由两套 Stage-A action matrices、selected replay plan、Stage-B 三次 state-to-terminal timing-only replay 和 Stage-A 截断 `log10_gap` 生成三类 Utility（旧口径）与方案 A 主标签 `G_FE`；
+4. 由两套 Stage-A action matrices、selected replay plan、Stage-B 三次 state-to-terminal timing-only replay 和 Stage-A 截断 `log10_gap` 生成三类 Utility（当前活动口径）与方案 A 主标签 `G_FE`；
 5. 对每个活动 Decision candidate，在 outer-fit functions 内做 inner function folds；每个 inner fold 必须只用 inner-fit functions 重新计算 `SBS_inner`，在 inner-fit 内 cross-fit 并重拟合两类 Selector，生成 inner-fit Decision labels，再拟合 preprocessing 与 Decision；
-6. inner-holdout Utility 与 score 只能由 `SBS_inner` 和 inner-fit 上游组件生成。拼接这些端到端 inner OOF rows，分别按 Query-joint 与 Behavior-only run-level first-trigger objective 冻结 outer threshold；T0 只读 milestones；方案 A 下主功效 `G_FE` 亦由同一链路生成，旧 `u_query_joint_lamT_1` 仅作兼容；
+6. inner-holdout Utility 与 score 只能由 `SBS_inner` 和 inner-fit 上游组件生成。拼接这些端到端 inner OOF rows，分别按 Query-joint 与 Behavior-only run-level first-trigger objective 冻结 outer threshold；T0 只读 milestones；方案 A 下主功效 `G_FE` 亦由同一链路生成，旧 `G_FE` 作为诊断；
 7. 用 `SBS_outer` 在全部 outer-fit functions 上重建 outer-fit labels，并拟合两类 Selector、Decision 与 preprocessing；
-8. 只在组件冻结后，对 outer holdout function 生成 Utility、score、first-trigger policy outcome 与所有 baseline 指标；方案 A 下主功效 `G_FE` 与旧 Utility 口径并行报告；
+8. 只在组件冻结后，对 outer holdout function 生成 Utility、score、first-trigger policy outcome 与所有 baseline 指标；方案 A 下主功效 `G_FE` 与Utility 口径并行报告；
 
 outer 或 inner holdout 均不得参与其评价链中的 SBS、Selector、Utility label、imputation、scaling、model、threshold、Random calibration、score-neighborhood 或 feature-group decision。不得先用完整 BBOB-train 生成 Utility labels 再仅对 Decision Model 分 folds，并把所得分数称为端到端 nested OOF。
 
@@ -117,7 +117,7 @@ J_r(\tau)=\min\{j:z_{rj}>\tau\}.
 
 四候选主选择只看 B3 上拼接 outer holdouts 后的 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）。并列顺序固定 LDA → Logistic Regression → Ridge → Random Forest Classifier。AUROC、Average Precision、Spearman、Ridge RMSE、T0、validation 或 external result 不改写选择。
 
-拼接 train outer OOF 只用于预设候选选择与开发期诊断。选择最大 OOF 候选后，同一 OOF 不能称为 selected procedure 的无偏 estimate。BBOB-validation 已被历史模型比较、调参、消融和采样设计读取，只能给 selected procedure 与 milestone-only B3--T0 的已见内部有限集估计；删除或撤回旧产物不能恢复“未见”状态。CEC2017 同样只作已见外部开发集估计。确认性外部证据只能来自本次协议冻结后才生成并首次运行的 CEC2022 与工程集合；三候选两两 outer-OOF 对比仍只是选模诊断。
+拼接 train outer OOF 只用于预设候选选择与开发期诊断。选择最大 OOF 候选后，同一 OOF 不能称为 selected procedure 的无偏 estimate。BBOB-validation 已被历史模型比较、调参、消融和采样设计读取，只能给 selected procedure 与 milestone-only B3--T0 的已见内部有限集估计；删除或历史旧产物不能恢复“未见”状态。CEC2017 同样只作已见外部开发集估计。确认性外部证据只能来自本次协议冻结后才生成并首次运行的 CEC2022 与工程集合；三候选两两 outer-OOF 对比仍只是选模诊断。
 
 选择模型名后，同一名字用于 T0、B1、B2、B2+Motion、B2+Maturity、B3 和 Behavior-only fit；每组仍按自身 train-only OOF scores 冻结 threshold，但不重新选模型或主 feature group。
 
@@ -138,16 +138,16 @@ BBOB-validation、CEC2017、CEC2022 与工程问题均只加载这些 BBOB-train
 
 模型选择、threshold、validation、baseline 和主策略指标全部使用 trajectory first-trigger。主指标包括：
 
-- run-level mean joint Utility（方案 A 主标签为 `G_FE`，旧 `u_query_joint_lamT_1` 仅作兼容）；
+- run-level mean joint Utility（方案 A 主标签为 `G_FE`，旧 `G_FE` 作为诊断）；
 - matched-trigger query operational increment；
 - run-level call/trigger/handoff rates；
-- first-call precision 与 non-beneficial first-call 主功效（方案 A 下为 `G_FE`，旧口径为 Utility）；
+- first-call precision 与 non-beneficial first-call 主功效（方案 A 下为 `G_FE`，当前活动口径为 Utility）；
 - first-trigger 主功效 capture；
 - final `log10_gap`、target-hit rate、endpoint-success rate、ERT；
 - decision-state future-path ratio、FE=0→terminal policy wall-clock 与 peak memory；
 - coverage 与失败敏感性。
 
-efficacy capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(0,U_t)`（方案 A 下 `U_t` 使用 `G_FE`，旧口径使用 `u_query_joint_lamT_1`）。策略分子只取其 first-trigger state 的 `max(0,U)`，未触发为 0。该分母不随策略触发时点改变，也不是可部署 policy；聚合时报告加权分子、分母和二者比值，并单报 `H_r=0` 的 run 比例。逐状态 AUROC/AP/Spearman 与 state-level capture 只能标为 auxiliary score diagnostics。
+efficacy capture 对所有策略共享同一 run-level hindsight opportunity reference：在 native SBS/default trajectory 的全部预定义合格机会中取 `H_r=max_t max(0,U_t)`（方案 A 下 `U_t` 使用 `G_FE`，当前活动口径使用 `G_FE`）。策略分子只取其 first-trigger state 的 `max(0,U)`，未触发为 0。该分母不随策略触发时点改变，也不是可部署 policy；聚合时报告加权分子、分母和二者比值，并单报 `H_r=0` 的 run 比例。逐状态 AUROC/AP/Spearman 与 state-level capture 只能标为 auxiliary score diagnostics。
 
 ## 8. 统计规则
 
@@ -169,7 +169,7 @@ Decision score 缺失或非有限时，该机会按 No-query；若 run 尚未触
 
 `paired_ert_strata` 与 `paired_hierarchical_ert_log10_ratio_interval` 当前也只是专用 ERT 计算核，尚无 suite 汇总 caller 将 ratio、attempted denominator/coverage、双向 failure sensitivity 与正式报告表接在同一分析链中。该 consumer 未实现前，专用 ERT 输出同样不得进入 suite 结论。
 
-旧重建式 trajectory、旧 Selection Reference、旧 Utility 数值、完整-train 预制 Utility 上的 Decision-only OOF、逐状态 threshold、旧 `oof_utility`、四组消融和 validation 参与的产物均无正式证据资格。只有通过第 5 节完整 outer/inner 上游链、整数 FE state coverage、Stage-A/Stage-B 字段分离、三次预定计时及 endpoint consistency/instability 检查和 first-trigger policy reconstruction 的新产物可进入模型选择或论文结果。
+旧重建式 trajectory、旧 Selection Reference、Utility 数值、完整-train 预制 Utility 上的 Decision-only OOF、逐状态 threshold、旧 `oof_utility`、四组消融和 validation 参与的产物均无正式证据资格。只有通过第 5 节完整 outer/inner 上游链、整数 FE state coverage、Stage-A/Stage-B 字段分离、三次预定计时及 endpoint consistency/instability 检查和 first-trigger policy reconstruction 的新产物可进入模型选择或论文结果。
 
 ## 10. 生成顺序
 
@@ -178,7 +178,7 @@ outer-fit complete-budget outcomes -> SBS_outer
 -> two action-loss matrices once
 -> cross-fitted Query/Behavior-only Selectors -> fold-role selected replay plan
 -> Stage-B three-repeat decision-state future-path timing only
--> Stage-A log-gap + Stage-B median log-runtime joint/behavior/operational-increment Utility（旧口径）；方案 A 下另由 `G_FE` 主标签
+-> Stage-A log-gap + Stage-B median log-runtime joint/behavior/operational-increment Utility（当前活动口径）；方案 A 下另由 `G_FE` 主标签
 -> inner-fold-specific SBS/Selectors/Utility/Decision OOF + first-trigger thresholds（方案 A 下 Utility 由 `G_FE` 主标签替代）
 -> outer-fit final components
 -> one outer-holdout evaluation
@@ -186,3 +186,17 @@ outer-fit complete-budget outcomes -> SBS_outer
 -> full-train OOF threshold and final refit
 -> frozen seen-set estimation + untouched external confirmation after suite closure
 ```
+
+
+## 11. Selection Reference appendix
+
+Selection Reference 作为固定下游性能回归组件，与 Decision Model 分离，但其活动口径已在本协议中冻结：
+
+- 活动算法池固定为 `DE` / `PSO` / `CMA-ES` / `SHADE`；`continue_current` 是语义动作，不是第五个算法。
+- 每个共享状态输出 Query-adjusted 与 Behavior-only full-budget 两套四动作 outcome；Query-adjusted 读取 query descriptors，Behavior-only 不读取。
+- Selector 主 target 是相对 `continue_current` 的 `clipped_log10_gap_advantage_vs_continue_current`；逐状态最小观测损失只作 `best observed action` 诊断。
+- Query-adjusted state-only selector 只作 query features 的边际预测贡献诊断，不作为主实验标签。
+- `selected_equals_default`、`selected_equals_prefix`、`handoff_required` 与 `handoff_type` 必须逐行保存；`handoff_required = not selected_equals_prefix = (handoff_type == population_transfer_initialization)`。
+- 静态 VBS 只作 problem-level hindsight reference，不逐 seed 选最小算法。
+
+Selection Reference / portfolio 的更细分动作说明、较小字段契约和再解释内容已并入 `Offline Utility Label`、`最小ActionLoss字段规范` 与本文件。

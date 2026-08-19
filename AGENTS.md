@@ -236,6 +236,8 @@ Decision Model 活动候选固定为：
 - Ridge；
 - Random Forest Classifier（`n_estimators=200, max_depth=8, max_features=sqrt`）。
 
+离线 action-loss 生成不得用 wall-clock time 定义科学标签。主结果一律是严格等总 FE 预算下的 FE-indexed optimization losses；`G_FE`、action labels、best-action labels 和 Controller targets 均不得把 runtime 作为组成项。wall-clock/runtime 只保留给端到端部署评价与资源分析。
+
 模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。
 
 **并列处理规则：** 活动候选的 tie-break 顺序为 LDA → Logistic Regression → Ridge → Random Forest Classifier。四个候选在 B3 特征组上按 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）选择，并列时按上述顺序破局。Random Forest 与 LDA/LogReg/Ridge 并列处理，即四者在同一协议下公平竞争，RF 只在严格优于其他三者时被选中。
@@ -289,14 +291,14 @@ Function Family Split。
 
 # 4. ELA Utility
 
-令 $\ell_k$ 为路径 $k$ 的 suite-specific floor/cap 截断后 terminal `log10_gap`，$T_k$ 为同一 decision state 到 terminal 的三次删失 wall-clock 中位数。主 `lambda_time=1` 时：
+令 $\ell_k$ 为路径 $k$ 的 suite-specific floor/cap 截断后 terminal `log10_gap`，$T_k$ 为同一 decision state 到 terminal 的三次删失 wall-clock 中位数。这里的 $G_{FE}$ 仅表示等总 FE 下的主功效，不使用 wall-clock 来定义科学标签。主 `lambda_time=1` 时：
 
 $$
 U_{query}^{joint}=(\ell_{skip}-\ell_{query})
 -\lambda_T\log_{10}(T_{query}/T_{skip}).
 $$
 
-主 Decision target 固定为 `u_query_joint_lamT_1`，标签必须离线生成。还必须保存 Behavior-only Utility、Query 相对 Behavior-only 的 `query_operational_increment_lamT_1`、matched-acquisition descriptor-use increment、state-only-vs-sampling increment 和 sampling-direct increment，并逐行满足五路径加法分解。联合效用、操作性增量和 query-feature 预测诊断不得互相替代。
+主 Decision target 固定为 canonical `action_loss` 体系下的主效用标签，标签必须离线生成。还必须保存 Behavior-only Utility、Query 相对 Behavior-only 的 `query_operational_increment`、matched-acquisition descriptor-use increment、state-only-vs-sampling increment 和 sampling-direct increment，并逐行满足五路径加法分解。所有主标签均基于 FE-indexed optimization losses；联合效用、操作性增量和 query-feature 预测诊断不得互相替代，也不得把 runtime 当作科学标签组成项。
 
 ---
 

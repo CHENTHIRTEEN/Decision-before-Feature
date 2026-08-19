@@ -8,7 +8,7 @@
 2. `../DEVELOPMENT_DECISIONS.md`：已冻结的可执行协议。
 3. `00_master/`：研究问题、数学定义、论文结构和引用边界。
 4. `10_protocols/`：数据、标签、模型、baseline 和成本评价协议。
-5. `30_results/`：只记录已撤回旧结果的影响范围；完整两阶段链重生成后再新增正式结果。
+5. `30_results/`：只记录已历史旧结果的影响范围；完整两阶段链重生成后再新增正式结果。
 6. `20_extensions/`：尚未进入主实验的扩展问题。
 7. `archive/`：已被当前规格取代的历史材料。
 
@@ -66,8 +66,8 @@ behavior columns: 34 outputs / 31 formal inputs / 3 diagnostic-only
 feature groups: T0/B1/B2/B2+Motion/B2+Maturity/B3 = 1/19/25/28/28/31
 primary query: descriptor_cheap_invariant = 14 columns / lhs_50d / 5% FE
 robustness queries: pflacco_standard_invariant = 37; pflacco_broad_invariant = 52
-primary target: u_query_joint_lamT_1
-operational increment: query_operational_increment_lamT_1
+primary target: G_FE
+operational increment: query_operational_increment
 predictive diagnostic: query_feature_predictive_increment_log10_gap
 algorithm switch: population transfer
 Selection Reference: statewise action-loss regression with continuous remaining budget
@@ -76,7 +76,7 @@ Decision X: algorithm-agnostic behavior only
 policy unit: run-level first trigger, at most once
 ```
 
-SBS 只从相应 fit functions 的完整预算终值表计算：raw gap 按配置截断并取 `log10_gap`，再按 run → static problem（function × dimension × instance）→ fixed dimension stratum → function 等权聚合，选择均值最低算法；并列按 `de,pso,cmaes,shade`。outer/inner/full-train 分别重算。`0.20–0.60` decision trajectory 不提供 SBS 终值；`all_candidates` 只是 B3 兼容别名，`primary_with_maturity` 只对应 B2+Maturity。
+SBS 只从相应 fit functions 的完整预算终值表计算：raw gap 按配置截断并取 `log10_gap`，再按 run → static problem（function × dimension × instance）→ fixed dimension stratum → function 等权聚合，选择均值最低算法；并列按 `de,pso,cmaes,shade`。outer/inner/full-train 分别重算。`0.20–0.60` decision trajectory 不提供 SBS 终值；`all_candidates` 只是 B3 别名，`primary_with_maturity` 只对应 B2+Maturity。
 
 统一 median/IQR preprocessing 后恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr` 已从主 query 活动 whitelist 删除，因此 cheap 从 16 列改为 14 列；query ID、`lhs_50d`、5% FE 和既有 action-loss 设计不变。
 
@@ -93,7 +93,7 @@ preliminary/min_support 的扩展计划和归因记录已移动到 `archive/min_
 
 ## 30_results
 
-- `phase1_current_results.md`：已撤回旧 BBOB 结果的范围、不能迁移的结论及当前正式证据缺口；不是当前正式结果页。
+- `phase1_current_results.md`：已历史旧 BBOB 结果的范围、不能迁移的结论及当前正式证据缺口；不是当前正式结果页。
 
 ## 90_literature
 

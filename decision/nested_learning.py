@@ -1141,7 +1141,7 @@ def _selector_performance_summary(
     fold_role: str,
     sbs_algorithm: str,
 ) -> pd.DataFrame:
-    selected_loss = rows["selected_action_loss"].to_numpy(dtype=float)
+    selected_loss = rows["action_loss"].to_numpy(dtype=float)
     best_loss = rows["best_observed_loss"].to_numpy(dtype=float)
     return pd.DataFrame(
         [

@@ -191,18 +191,18 @@ The corresponding Behavior-only full-budget utility is
 \end{equation}
 and the operational Query increment over that path is
 \begin{align}
-  I_q(S_t)
+  query_operational_increment(S_t)
   &=(\ell_b-\ell_q)
   -\lambda_T\bigl(\log_{10}T_q-\log_{10}T_b\bigr)\\
   &=U_q^{\mathrm{joint}}(S_t)-U_b(S_t).
   \label{eq:operational-increment}
 \end{align}
-$I_q$ includes query evaluations, sample-best contribution, unequal
+$query_operational_increment$ includes query evaluations, sample-best contribution, unequal
 continuation budgets, acquisition time, and the difference between the two
 fitted selectors.  It is an operational path comparison, not a
 pure-information or causal estimand.  We report it both over all eligible
 states and over states first triggered by the proposed policy.  If
-$U_q^{\mathrm{joint}}>0$ but $I_q\leq0$ in the corresponding population, the
+$U_q^{\mathrm{joint}}>0$ but $query_operational_increment\leq0$ in the corresponding population, the
 evidence supports the joint Query/full-selector path over SBS, but not query
 acquisition over the full-budget Behavior-only path.
 
@@ -224,16 +224,16 @@ decomposition provides the component increments $D_q$, $S_q$, and $A_q$ whose
 sum equals $U_q^{\mathrm{joint}}$.  Neither comparison separately identifies
 a causal contribution of the descriptors, because sampling, sample-best, FE,
 runtime, and budget effects are entangled.  The five-path decomposition is
-an interpretation tool; the binary label itself uses $I_q$ so that the
+an interpretation tool; the binary label itself uses $query_operational_increment$ so that the
 query is judged against the best available no-query policy.
 
 The continuous joint utility is retained, but the binary label is aligned with
 query acquisition against the best available no-query policy:
 \begin{equation}
-  y_q(S_t)=\mathbf{1}\!\left[I_q(S_t)>0\right],
+  y_q(S_t)=\mathbf{1}\!\left[query_operational_increment(S_t)>0\right],
   \label{eq:query-label}
 \end{equation}
-with \(I_q\) defined in Eq.~\eqref{eq:operational-increment}.  This choice means a state is positive only when the query path improves on the best available no-query comparator, not merely on native Skip.  The Decision input contains only information available before the query.  It excludes query descriptors, benchmark and algorithm identity, optimizer parameters, known-optimum gaps, action outcomes, and future states.
+with \(query_operational_increment\) defined in Eq.~\eqref{eq:operational-increment}.  This choice means a state is positive only when the query path improves on the best available no-query comparator, not merely on native Skip.  The Decision input contains only information available before the query.  It excludes query descriptors, benchmark and algorithm identity, optimizer parameters, known-optimum gaps, action outcomes, and future states.
 
 \subsection{First-trigger policy}
 

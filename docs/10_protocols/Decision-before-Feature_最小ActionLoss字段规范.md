@@ -1,11 +1,11 @@
 # 最小 Action Loss 字段规范 v1
 
-> 唯一活动字段规范（2026-08-16）。本文定义 action loss shard 的最小必需字段集合。方案 A 主功效为 `G_FE`（等总 FE，runtime 不进入主标签）；时间保留为辅助端点。旧 `u_query_joint_lamT_*` / `need_query_joint_lamT_*` / `performance_gain_norm` / `time_cost_norm` 等仅作兼容诊断，不作为活动训练或评估的默认 target。
+> 唯一活动字段规范（2026-08-16）。本文定义 action loss shard 的最小必需字段集合。方案 A 主功效为 `G_FE`（等总 FE，runtime 不进入主标签）；时间保留为辅助端点。这里的 action loss 是 FE-indexed optimization loss，不是 wall-clock/runtime 标签。旧 `G_FE` / `g_fe_gt_zero` / `g_fe` / `runtime_ratio` 等作为诊断，不作为活动训练或评估的默认 target。
 
 ## 1. 核心原则
 
 1. 每条 action 记录只保留一个 canonical loss（`action_loss`）。
-2. canonical loss 必须能从科学端点和时间端点复算或校验。
+2. canonical loss 必须是 FE-indexed optimization loss，并且只能由科学端点复算或校验；不得用 wall-clock time 定义科学标签。
 3. 不能只保留"收敛时间"或"找到最优解时间"作为唯一 action loss。
 4. 时间是辅助端点，不是主功效标签的组成部分。
 5. 凡是不能从其他字段无损复算、会影响 action 排序、会影响 selector 训练、会影响失败/完成解释或会影响时间端点比较的字段，都必须保留。
@@ -26,7 +26,11 @@
 
 ## 3. 最小必需字段
 
+> 说明：这里的 action losses 是按固定总 FE 预算比较的科学标签，不是 wall-clock/runtime 标签。
+
 ### 3.1 行标识字段
+
+> 这些字段用于标识 FE-indexed optimization loss 记录，不用于定义 wall-clock 科学标签。
 
 每条记录的唯一键：
 
@@ -118,6 +122,8 @@ completed repetition 的 censored time = raw；timed_out/failed repetition 的 c
 
 ### 3.5 方案 A 主功效字段
 
+> `g_fe` 是按等总 FE 预算定义的主功效；runtime 仅作为独立资源/计时端点保存。
+
 在 utility label 层附加，不在 action loss shard 层：
 
 | 字段 | 含义 |
@@ -156,20 +162,20 @@ completed repetition 的 censored time = raw；timed_out/failed repetition 的 c
 
 | 字段 | 退役原因 |
 |---|---|
-| `u_query_lamT_*` | 旧单一 Utility，已被 `g_fe` 替代 |
-| `u_query_joint_lamT_*` | 旧 joint Utility，仅作兼容诊断 |
-| `u_behavior_only_full_budget_lamT_*` | 旧 behavior-only Utility，仅作兼容 |
-| `need_query_joint_lamT_*` | 旧布尔标签，被 `g_fe_gt_zero` 替代 |
+| `G_FE` | 旧单一 Utility，已被 `g_fe` 替代 |
+| `G_FE` | 旧 joint Utility，作为诊断 |
+| `u_behavior_only_full_budget_lamT_*` | 旧 behavior-only Utility，作为诊断 |
+| `g_fe_gt_zero` | 旧布尔标签，被 `g_fe_gt_zero` 替代 |
 | `need_behavior_only_full_budget_lamT_*` | 旧 behavior-only 布尔标签 |
-| `query_operational_increment_lamT_*` | 旧增量，仅作兼容 |
-| `performance_gain_norm` | 旧归一化增益，已失效 |
-| `performance_gain_norm_gap` | 旧 gap 版本 |
-| `time_cost_norm` | 旧时间归一化，已被 censored median 替代 |
+| `query_operational_increment` | 旧增量，作为诊断 |
+| `g_fe` | 旧归一化增益，已失效 |
+| `g_fe_bounded` | 旧 gap 版本 |
+| `runtime_ratio` | 旧时间归一化，已被 censored median 替代 |
 | `analysis_compute_cost_norm` | 旧计算成本归一化 |
 | `memory_cost_norm` | 旧内存归一化 |
 | `runtime_*_failure_worst_case_median` | 旧别名，等同 censored median |
 
-旧 `results/ela/`、`FE_analysis`、`p_ela`、`u_ela_*`、`need_ela_*` 和缺少当前协议字段的 artifact 均为撤回结果，活动读取器必须明确拒绝。
+旧 `results/ela/`、`FE_analysis`、`p_ela`、`u_ela_*`、`need_ela_*` 和缺少当前协议字段的 artifact 均为历史结果，活动读取器必须明确拒绝。
 
 ## 6. 一致性校验入口
 

@@ -29,7 +29,7 @@ PRIMARY_EFFICACY_COLUMNS = (
     PRIMARY_EFFICACY_LABEL_COLUMN,
 )
 
-# 旧 Utility 标签（保留为兼容字段）
+# Utility 标签（旧口径保留为兼容字段）
 UTILITY_VALUE_COLUMNS = (
     "u_query_joint_lamT_0",
     "u_query_joint_lamT_025",
@@ -187,8 +187,7 @@ UTILITY_COLUMNS = (
     "p_query_raw",
     "loss_skip",
     "loss_query",
-    "selected_action_loss",
-    "selected_action_loss_raw",
+    "action_loss",
     "best_observed_algorithm",
     "best_observed_loss",
     "selected_matches_best_observed",

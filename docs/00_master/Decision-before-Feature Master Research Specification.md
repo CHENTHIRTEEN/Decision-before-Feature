@@ -1,6 +1,6 @@
 # Decision-before-Feature Master Research Specification
 
-> 实现同步（2026-08-15）：完整 optimizer-state continuation 已替换 checkpoint 重建机制。正式 estimand 分为 Query/full-Selector 联合策略效用、Behavior-only full-budget 效用与二者差；性能只使用预指定 Stage-A 单次科学运行经配置截断后的 `log10_gap`，时间只使用 Stage-B 三次真实 decision-state-to-terminal future-path wall-clock 中位数的 `log10` ratio，共享 prefix 视为 sunk cost。Stage-B replay 不改写科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 或 planned/effective FE；FE=0→terminal policy wall-clock 是独立政策端点。SBS、两类 Selector、Utility、Decision 与 first-trigger threshold 必须在 outer/inner function 链中逐层拟合。活动 query ID 统一为 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant`。BBOB-validation 与 CEC2017 分别降级为已见内部评价集和已见外部开发集；确认性外部证据等待完整冻结后首次运行的 CEC2022 与工程集合。旧 Utility、labels、逐行 threshold、模型和评价结果已撤回，必须从相应依赖位置重生成。
+> 实现同步（2026-08-15）：完整 optimizer-state continuation 已替换 checkpoint 重建机制。正式 estimand 分为 Query/full-Selector 联合策略效用、Behavior-only full-budget 效用与二者差；性能只使用预指定 Stage-A 单次科学运行经配置截断后的 `log10_gap`，时间只使用 Stage-B 三次真实 decision-state-to-terminal future-path wall-clock 中位数的 `log10` ratio，共享 prefix 视为 sunk cost。Stage-B replay 不改写科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 或 planned/effective FE；FE=0→terminal policy wall-clock 是独立政策端点。SBS、两类 Selector、Utility、Decision 与 first-trigger threshold 必须在 outer/inner function 链中逐层拟合。活动 query ID 统一为 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant`。BBOB-validation 与 CEC2017 分别降级为已见内部评价集和已见外部开发集；确认性外部证据等待完整冻结后首次运行的 CEC2022 与工程集合。Utility、labels、逐行 threshold、模型和评价结果已历史，必须从相应依赖位置重生成。
 
 ## 0. Document Purpose
 
@@ -405,7 +405,7 @@ $$
 
 known reference/gap 只用于离线标签与最终评价，不进入 trajectory/Behavior、Selector 输入或 Decision X。主 Query gap (g_q) 包含 query sample best；另报告 continuation-only gap 与 `query_sample_best_contribution_log10_gap`。
 
-Stage A 的一次科学运行与 Selection Reference outcome 决定五条路径的 terminal gap、observed hit、completion、endpoint success 与科学路径 FE，保存 `scientific_endpoint_source=stage_a_selection_reference_outcome`。Stage B 在同一固定机器、线程与预加载进程中，从同一 complete state/RNG 对每条 selected path 真实 replay 3 次，但只决定 wall-clock。canonical path order 按 `cyclic_complete_path_v1` 循环移位；逐次保存 `timing_replay_status in {completed,timed_out,failed}`、raw observed runtime、censored runtime、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、effective FE、timeout、order position 与组件时间。completed repetition 的 censored runtime 等于 raw observed runtime；timed-out/failed repetition 的 censored runtime 为 `max(raw observed runtime, role timeout)`。三次 raw time 原样保留但不按 status 筛选，五条路径各自的主 $T_k$ 固定取三次 censored runtime 的中位数；raw observed median 只作诊断，不得补跑。路径身份、completed replays 内部 endpoint、Stage-A 到 completed replay endpoint 分别使用独立 consistency 字段；Stage-B status instability 与 Stage-A/Stage-B completion instability 也分别保存。Stage-A path 未完成时，completed replays 不能覆盖 Stage-A 失败端点。planned FE 必须保持路径身份一致；replay effective FE 不与 Stage A 或其他 repetitions 强制相同。旧 `failure_worst_case` 只可作为相同 censored 值的兼容别名。共享 prefix 为 sunk cost。FE=0→terminal policy wall-clock 另存且不进入 Utility。不得用 CPU time、批量 prediction 秒数、复制时间或事后选择的重复替代。
+Stage A 的一次科学运行与 Selection Reference outcome 决定五条路径的 terminal gap、observed hit、completion、endpoint success 与科学路径 FE，保存 `scientific_endpoint_source=stage_a_selection_reference_outcome`。Stage B 在同一固定机器、线程与预加载进程中，从同一 complete state/RNG 对每条 selected path 真实 replay 3 次，但只决定 wall-clock。canonical path order 按 `cyclic_complete_path_v1` 循环移位；逐次保存 `timing_replay_status in {completed,timed_out,failed}`、raw observed runtime、censored runtime、`observed_first_hit_FE`、`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、effective FE、timeout、order position 与组件时间。completed repetition 的 censored runtime 等于 raw observed runtime；timed-out/failed repetition 的 censored runtime 为 `max(raw observed runtime, role timeout)`。三次 raw time 原样保留但不按 status 筛选，五条路径各自的主 $T_k$ 固定取三次 censored runtime 的中位数；raw observed median 只作诊断，不得补跑。路径身份、completed replays 内部 endpoint、Stage-A 到 completed replay endpoint 分别使用独立 consistency 字段；Stage-B status instability 与 Stage-A/Stage-B completion instability 也分别保存。Stage-A path 未完成时，completed replays 不能覆盖 Stage-A 失败端点。planned FE 必须保持路径身份一致；replay effective FE 不与 Stage A 或其他 repetitions 强制相同。旧 `failure_worst_case` 只可作为相同 censored 值的别名。共享 prefix 为 sunk cost。FE=0→terminal policy wall-clock 另存且不进入 Utility。不得用 CPU time、批量 prediction 秒数、复制时间或事后选择的重复替代。
 
 三个 Utility 定义为：
 
@@ -420,14 +420,14 @@ U_b=(\ell_{skip}-\ell_b)
 $$
 
 $$
-I_q=(\ell_b-\ell_q)
+query_operational_increment=(\ell_b-\ell_q)
 -\lambda_T(\log_{10}T_q-\log_{10}T_b)
 =U_{query}^{joint}-U_b.
 $$
 
-Query sampling FE 已通过较少 continuation budget进入 outcome，不能再次按 FE 扣除。$U_{query}^{joint}$ 回答 Query/full-Selector operational path 是否优于 native SBS；$I_q$ 回答相对 full-budget Behavior-only path 的操作性净增量，包含 query FE、sample best、时间、budget 与 transition，不能称纯信息效应。`query_feature_predictive_increment_log10_gap` 才是同预算/同动作矩阵上的 OOF 预测诊断，但仍不作因果解释。
+Query sampling FE 已通过较少 continuation budget进入 outcome，不能再次按 FE 扣除。$U_{query}^{joint}$ 回答 Query/full-Selector operational path 是否优于 native SBS；$query_operational_increment$ 回答相对 full-budget Behavior-only path 的操作性净增量，包含 query FE、sample best、时间、budget 与 transition，不能称纯信息效应。`query_feature_predictive_increment_log10_gap` 才是同预算/同动作矩阵上的 OOF 预测诊断，但仍不作因果解释。
 
-第一篇论文主操作性情景固定为 $\lambda_T=1,\lambda_M=0$；$\lambda_T=1$ 表示 gap 与 runtime 的十进制数量级变化等权。$\lambda_T\in\{0,0.25,0.5,1,2\}$ 只作完整预设敏感性分析。所有 raw-gap max-scale、线性相对时间和一次计时旧 Utility 全部失效。
+第一篇论文主操作性情景固定为 $\lambda_T=1,\lambda_M=0$；$\lambda_T=1$ 表示 gap 与 runtime 的十进制数量级变化等权。$\lambda_T\in\{0,0.25,0.5,1,2\}$ 只作完整预设敏感性分析。所有 raw-gap max-scale、线性相对时间和一次计时Utility 全部失效。
 
 逐状态最佳已观测动作只用于诊断分解：
 
@@ -465,9 +465,9 @@ $$
 \widehat U_{query}^{joint}
 $$
 
-同名冻结模型家族还单独拟合 $U_b$，得到 self-thresholded Behavior-only policy。它使用自身的 BBOB-train inner-OOF first-trigger threshold，不复用 Query policy threshold，也不重新选择模型家族。$I_q$ 的政策级报告则在 Proposed 首次触发的同一 state 上匹配 Query 与 Behavior-only 路径；self-thresholded policy 与 matched-trigger query 操作性增量是两个不同对象。
+同名冻结模型家族还单独拟合 $U_b$，得到 self-thresholded Behavior-only policy。它使用自身的 BBOB-train inner-OOF first-trigger threshold，不复用 Query policy threshold，也不重新选择模型家族。$query_operational_increment$ 的政策级报告则在 Proposed 首次触发的同一 state 上匹配 Query 与 Behavior-only 路径；self-thresholded policy 与 matched-trigger query 操作性增量是两个不同对象。
 
-$I_q$ 的活动字段名为 `query_operational_increment_lamT_*`。它必须在全部 eligible states 与 Proposed first-trigger states 两个范围分别报告，并包含 query FE/runtime、sample best、较短 continuation budget 和 Selector 差异；它不是纯信息效应或因果 estimand。若 $U_q^{joint}>0$ 而同一范围 $I_q\le0$，只能支持联合 Query/full-Selector 路径优于 SBS，不能支持 query acquisition 优于 full-budget Behavior-only。正式五路径加入 matched-acquisition 的 `query_matched_state_only` 与 `sampling_only_continue_current`，分别构造 descriptor-use、state-only-vs-sampling 和 sampling-direct 增量，并要求三项逐行加和为 $U_q^{joint}$。这些量是固定模型、query realization、预算和 transition rule 下的操作性分解，不作因果解释。
+$query_operational_increment$ 的活动字段名为 `query_operational_increment`。它必须在全部 eligible states 与 Proposed first-trigger states 两个范围分别报告，并包含 query FE/runtime、sample best、较短 continuation budget 和 Selector 差异；它不是纯信息效应或因果 estimand。若 $G_FE>0$ 而同一范围 $query_operational_increment\le0$，只能支持联合 Query/full-Selector 路径优于 SBS，不能支持 query acquisition 优于 full-budget Behavior-only。正式五路径加入 matched-acquisition 的 `query_matched_state_only` 与 `sampling_only_continue_current`，分别构造 descriptor-use、state-only-vs-sampling 和 sampling-direct 增量，并要求三项逐行加和为 $G_FE$。这些量是固定模型、query realization、预算和 transition rule 下的操作性分解，不作因果解释。
 
 ---
 
@@ -475,13 +475,13 @@ $I_q$ 的活动字段名为 `query_operational_increment_lamT_*`。它必须在�
 
 活动候选固定为：
 
-- LDA classification：预测 `u_query_joint_lamT_1 > 0` 的分类分数；
-- Logistic Regression classification：预测 `u_query_joint_lamT_1 > 0` 的分类分数；
-- Ridge regression：预测连续 `u_query_joint_lamT_1`。
+- LDA classification：预测 `G_FE > 0` 的分类分数；
+- Logistic Regression classification：预测 `G_FE > 0` 的分类分数；
+- Ridge regression：预测连续 `G_FE`。
 
 不继续把 Random Forest、XGBoost、LightGBM、MLP 或其变体加入 Decision Model 活动模型搜索。Selection Reference 中固定的 action-loss Random Forest regression 属于不同组件，不受本条影响。
 
-主模型按 BBOB-train outer-function OOF 的 run-level first-trigger mean `u_query_joint_lamT_1` 选择。每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`，cross-fit Query 与 Behavior-only Selectors生成 outer-fit Decision labels。每个 inner fold 还必须只用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selectors、生成三类 Utility并拟合 preprocessing/Decision；inner-holdout Utility 与 score 只能由 inner-fit 上游组件产生。拼接端到端 inner OOF outcomes 后分别拟合两个 first-trigger thresholds。outer holdout 只在全部组件冻结后评价一次，不得影响 SBS、Selector、Utility、preprocessing、Decision、threshold 或 Random calibration。不得先在完整 BBOB-train 生成一张 Selector/Utility 表，再把它当作端到端 OOF 证据。随后用完整 BBOB-train 的 grouped-by-function 上游 OOF 分数按 first-trigger 规则冻结 `oof_utility_first_trigger` 与 `oof_behavior_utility_first_trigger`，并冻结 Proposed OOF call rate/trigger-FE 分布；最后在完整 train 重拟合 SBS、Selectors 与 Decision fits。train outer OOF 只承担候选选择和开发期诊断，不是选中 procedure 的无偏估计。BBOB-validation 已被历史开发读取，只给已见内部有限集估计；CEC2017 只给已见外部开发估计。selected procedure 与 milestone-only B3--T0 的确认性证据等待闭合后首次运行的 CEC2022 与工程集合。
+主模型按 BBOB-train outer-function OOF 的 run-level first-trigger mean `G_FE` 选择。每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`，cross-fit Query 与 Behavior-only Selectors生成 outer-fit Decision labels。每个 inner fold 还必须只用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selectors、生成三类 Utility并拟合 preprocessing/Decision；inner-holdout Utility 与 score 只能由 inner-fit 上游组件产生。拼接端到端 inner OOF outcomes 后分别拟合两个 first-trigger thresholds。outer holdout 只在全部组件冻结后评价一次，不得影响 SBS、Selector、Utility、preprocessing、Decision、threshold 或 Random calibration。不得先在完整 BBOB-train 生成一张 Selector/Utility 表，再把它当作端到端 OOF 证据。随后用完整 BBOB-train 的 grouped-by-function 上游 OOF 分数按 first-trigger 规则冻结 `oof_utility_first_trigger` 与 `oof_behavior_utility_first_trigger`，并冻结 Proposed OOF call rate/trigger-FE 分布；最后在完整 train 重拟合 SBS、Selectors 与 Decision fits。train outer OOF 只承担候选选择和开发期诊断，不是选中 procedure 的无偏估计。BBOB-validation 已被历史开发读取，只给已见内部有限集估计；CEC2017 只给已见外部开发估计。selected procedure 与 milestone-only B3--T0 的确认性证据等待闭合后首次运行的 CEC2022 与工程集合。
 
 主拟合使用 `cluster_balanced_fit`：在每个 fit fold 内依次使 function、fixed dimension stratum、static problem 与 optimizer run 等权，再把 run 权重等分到其合格 states，并把 fold 内 row weights 归一化到均值 1。`sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动修正训练权重；imputation/scaling 与三个候选 estimator 尚未完成统一的 cluster-weight wiring，是模型冻结 blocker。
 
@@ -634,7 +634,7 @@ VBS 保留为标准静态 problem-level hindsight reference。对每个 `problem
 
 ## Decision Metrics
 
-- 主选择：outer-function OOF run-level first-trigger mean `u_query_joint_lamT_1`
+- 主选择：outer-function OOF run-level first-trigger mean `G_FE`
 - 辅助：AUROC、Average Precision、Spearman
 - 连续 Utility 回归：Ridge 的 RMSE
 - 策略：run-level query call rate、first-trigger utility capture、precision under first calls、`query_operational_increment`、最终优化性能
@@ -656,7 +656,7 @@ VBS 保留为标准静态 problem-level hindsight reference。对每个 `problem
 
 RQ1 的目标分布固定为 `descriptor_cheap_invariant`、SBS prefix 和 `phase1_dynamic_budget_event_v1` eligible states。统一聚合层级为 state → run → static problem → fixed dimension stratum → function：run 内 eligible states 等权；`function × dimension × instance` static problem 内 paired optimizer runs 等权；每个 `function × dimension` 内 static problems 等权；最后在 function 内使 10D/20D/40D 固定 strata 等权。policy endpoint 从 run 层开始同序聚合。function 是顶层统计单位；state、seed、instance 或 function × dimension 不是独立顶层复制。
 
-BBOB-validation 的 estimand 是 F5、F9、F13、F14、F19、F24 六个固定 functions 的等权有限集均值，条件于这 6 个 functions、冻结 dimensions/instances/static problems 与固定 query realizations。历史模型比较、调参、消融与采样设计已经读取该集合，因此它是已见内部评价集；撤回旧结果不能恢复未见性。CEC2017 已有历史 online/targeted 诊断，是已见外部开发集。二者均不提供确认性证据，也不支持 function 或 transformed-instance 超总体推断。
+BBOB-validation 的 estimand 是 F5、F9、F13、F14、F19、F24 六个固定 functions 的等权有限集均值，条件于这 6 个 functions、冻结 dimensions/instances/static problems 与固定 query realizations。历史模型比较、调参、消融与采样设计已经读取该集合，因此它是已见内部评价集；历史旧结果不能恢复未见性。CEC2017 已有历史 online/targeted 诊断，是已见外部开发集。二者均不提供确认性证据，也不支持 function 或 transformed-instance 超总体推断。
 
 当前 BBOB 的 3 instances × 30 optimizer seeds 与 CEC2017 的 30 seeds 没有仓内 precision/power 依据，只是固定开发期采样设计；报告必须给出实际区间宽度，不能把重复次数本身当作充分性证明。CEC2022 与工程问题必须在首次 outcome 前冻结 endpoint-specific precision target、只使用开发集合方差信息的 repeats 确定方法与最终重复数；未闭合时不得启动对应前瞻评价。
 
@@ -725,7 +725,7 @@ Decision-before-Feature 是否减少无效 query 调用？
 | B2+Maturity | B2 + 3 deterministic maturity fields | 28 |
 | B3 | B2 + movement/maturity behavior | 31 |
 
-六组使用相同的 Decision dataset、outer-function 链、同名模型、train-only preprocessing 与 run-level first-trigger threshold 过程。`B2+Motion` 与 `B2+Maturity` 是兄弟组，用于区分 motion 与派生 Maturity；不得按 observed result 选择其中一组作为新的主输入。`all_candidates` 仅是 B3 的兼容别名，不含 3 个 `diagnostic_only` 字段。算法特定参数仍禁止进入 Decision 输入。`dimension_stratified_T0` 是额外估计性静态上下文诊断，不是第七个 Decision 输入组。
+六组使用相同的 Decision dataset、outer-function 链、同名模型、train-only preprocessing 与 run-level first-trigger threshold 过程。`B2+Motion` 与 `B2+Maturity` 是兄弟组，用于区分 motion 与派生 Maturity；不得按 observed result 选择其中一组作为新的主输入。`all_candidates` 仅是 B3 的别名，不含 3 个 `diagnostic_only` 字段。算法特定参数仍禁止进入 Decision 输入。`dimension_stratified_T0` 是额外估计性静态上下文诊断，不是第七个 Decision 输入组。
 
 ---
 
@@ -758,7 +758,7 @@ BBOB train + validation 包含 25,920 个基础 optimizer runs、至少 311,040 
 7. `pre_run_aas_fe0` 在 FE=0 独立生成，online `FE_query` 只按实际触发路径收费；
 8. replay planner 目前仅有枚举能力；offline decision-state-to-terminal runner 尚未实现，fold-role-complete plan 尚未物化实测并核对，均为正式运行 blocker。runner 实现后还必须把 Stage-A 科学端点与 Stage-B timing-only 字段分开，保存三次 future-path wall-clock 与独立 FE=0 policy wall-clock、`cyclic_complete_path_v1` order、线程、机器、组件、原始时间、逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；三次预定重复不得选择性重跑；
 9. 72 个 trajectory/final-performance pair、reference/final gap/log10 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success`、失败字段、cap/floor/timeout 与 coverage denominator 完整，trajectory/Behavior 不含这些 outcome 输入字段；ERT 使用逐 function × dimension 重算的专用 ratio bootstrap，零命中 stratum 不删除；
-10. CEC2022 的配置及工程集合的配置/factory/constraint endpoints 在首次确认性 outcome 前补齐并冻结；活动输出不读取撤回产物，BBOB-validation/CEC2017 不标为确认性。
+10. CEC2022 的配置及工程集合的配置/factory/constraint endpoints 在首次确认性 outcome 前补齐并冻结；活动输出不读取历史产物，BBOB-validation/CEC2017 不标为确认性。
 
 任一项未确认时不得启动正式矩阵。上述数字是计划下界，不是已经完成的运行量。
 

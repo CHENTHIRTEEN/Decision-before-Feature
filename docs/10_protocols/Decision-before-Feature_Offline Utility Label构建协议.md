@@ -1,6 +1,6 @@
 # Decision-before-Feature Offline Utility Label 构建协议
 
-> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。本文件直接维护联合策略 estimand、Behavior-only 对照和 first-trigger 数据契约；每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）。旧单一 `U_query`、一次性完整-train Selector 标签和逐状态 policy 汇总不再使用。
+> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。本文件直接维护联合策略 estimand、Behavior-only 对照和 first-trigger 数据契约；每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）。这里的 canonical loss 是严格等总 FE 预算下的 FE-indexed optimization loss，不得用 wall-clock time 定义科学标签。旧单一 `G_FE`、一次性完整-train Selector 标签和逐状态 policy 汇总不再使用。
 
 ## 1. 研究问题与标签边界
 
@@ -139,7 +139,7 @@ timing_replay_timeout_seconds
 runtime_*_raw_observed
 ```
 
-每次 raw observed wall-clock 必须为有限正数并原样保留。对每条 path/repetition 定义 censored runtime：completed 时等于 raw；timed_out/failed 时等于 `max(raw, role timeout)`。Utility row 同时保存三次 raw/censored repetitions、`runtime_*_raw_observed_median` 与主 `runtime_*_median`；后者是 censored median，五条路径各自的 $T_k$ 只读该值。旧 `runtime_*_failure_worst_case_*` 仅可作为相同 censored 值的过渡兼容别名。这样 timed-out/failed 的快速返回不会降低主时间成本。
+每次 raw observed wall-clock 必须为有限正数并原样保留。对每条 path/repetition 定义 censored runtime：completed 时等于 raw；timed_out/failed 时等于 `max(raw, role timeout)`。Utility row 同时保存三次 raw/censored repetitions、`runtime_*_raw_observed_median` 与主 `runtime_*_median`；后者是 censored median，五条路径各自的 $T_k$ 只读该值。旧 `runtime_*_failure_worst_case_*` 仅可作为相同 censored 值的过渡别名。这样 timed-out/failed 的快速返回不会降低主时间成本。
 
 每条路径分别保存三类一致性：
 
@@ -166,7 +166,7 @@ U_b=(\ell_{skip}-\ell_b)
 \]
 
 \[
-I_q=(\ell_b-\ell_q)
+query_operational_increment=(\ell_b-\ell_q)
 -\lambda_T(\log_{10}T_q-\log_{10}T_b)
 =U_{query}^{joint}-U_b.
 \]
@@ -174,16 +174,16 @@ I_q=(\ell_b-\ell_q)
 主字段为：
 
 ```text
-u_query_joint_lamT_1
+G_FE
 u_behavior_only_full_budget_lamT_1
-query_operational_increment_lamT_1
+query_operational_increment
 ```
 
 主情景固定 `lambda_T=1, lambda_M=0`；`lambda_T=1` 表示 gap 与 runtime 的十进制数量级变化等权。`lambda_T={0,0.25,0.5,1,2}` 必须完整报告，不能依据任何正式结果改选；memory 是独立 endpoint。query FE 已通过缩短 `B_t^q` 进入 performance，不能再次扣除，population transfer 也已进入 observed action loss。
 
-`I_q` 包含 query FE/runtime、sample best、较短 continuation budget 与两个 Selector 的差异，不是纯信息效应或因果 estimand。它必须在全 eligible states 与 Proposed first-trigger states 两个范围分别汇总；若同一范围 `U_query_joint>0` 但 `I_q<=0`，只能支持联合路径优于 SBS。正式五路径还用 `query_matched_state_only` 与 `sampling_only_continue_current` 逐行计算 descriptor-use、state-only-vs-sampling 和 sampling-direct 三项增量；三项之和必须等于 `U_query_joint`。该分解条件于固定模型、query realization、预算和 transition rule，不作因果解释。
+`query_operational_increment` 包含 query FE/runtime、sample best、较短 continuation budget 与两个 Selector 的差异，不是纯信息效应或因果 estimand。它必须在全 eligible states 与 Proposed first-trigger states 两个范围分别汇总；若同一范围 `G_FE_joint>0` 但 `query_operational_increment<=0`，只能支持联合路径优于 SBS。正式五路径还用 `query_matched_state_only` 与 `sampling_only_continue_current` 逐行计算 descriptor-use、state-only-vs-sampling 和 sampling-direct 三项增量；三项之和必须等于 `G_FE_joint`。该分解条件于固定模型、query realization、预算和 transition rule，不作因果解释。
 
-Utility 是预设 scalarization，不代表普适资源偏好。主结果必须同时报告 `log10_gap` 与 `log10` wall-clock ratio；两者方向冲突时写明 trade-off。所有基于 raw-gap max-scale、线性相对 runtime 或单次计时的旧 Utility 数值全部失效，即使字段名相同也不得复用。
+Utility 是预设 scalarization，不代表普适资源偏好。主结果必须同时报告 `log10_gap` 与 `log10` wall-clock ratio；两者方向冲突时写明 trade-off。所有基于 raw-gap max-scale、线性相对 runtime 或单次计时的Utility 数值全部失效，即使字段名相同也不得复用。
 
 ## 7. Outer-fold-specific 标签生成
 
@@ -233,4 +233,19 @@ complete trajectory + final outcome
 
 当前 offline decision-state-to-terminal runner、`cv_group_id = function_id` cross-fitted Selector artifact 持久化与路由尚未实现；在三者闭合且 replay plan 物化核对前，Stage-B 与最终 Utility 均不可执行。
 
-旧单一 `u_query_lamT_*`、旧 max-scale/relative-time Utility、静态 problem/budget bucket Selection Reference、重建式 continuation、一次计时复制、非嵌套 labels 和逐状态 policy summary 无正式证据资格。基础 trajectory 仅在 trajectory/snapshot/seed/time-truncation 检查通过后可作为新链输入。
+旧单一 `G_FE`、旧 max-scale/relative-time Utility、静态 problem/budget bucket Selection Reference、重建式 continuation、一次计时复制、非嵌套 labels 和逐状态 policy summary 无正式证据资格。基础 trajectory 仅在 trajectory/snapshot/seed/time-truncation 检查通过后可作为新链输入。
+
+
+## 11. Field manifest
+
+本节吸收 `phase1_utility_label_column_spec` 的核心字段约定，作为当前活动字段清单：
+
+- 文件作用域：`results/utility_labels/{query_id}/`，每张表只对应一个活动 query。
+- 状态键：`(split, problem_id, family, dimension, prefix_algorithm, seed, FE)`，其中 `FE` 必须是实际整数评价数。
+- Query metadata：`query_id`、`query_protocol`、`query_preprocessing_id`、`query_feature_columns`、`sample_design_id`、`FE_query`。
+- FE 账本：`FE_total`、`FE_prefix`、`FE_query`、`FE_skip_optimization`、`FE_query_optimization`、`FE_behavior_only_optimization`。
+- Outcome 诊断：`p_skip`、`p_query`、`p_query_continuation_only`、`p_behavior_only`、selected / best observed action 与 regret / range 字段。
+- Gap / timing：五条路径的 raw / clipped / log10 gap、三次 raw / censored runtime 及其 median。
+- 一致性：`target_hit_observed`、`target_hit_before_failure`、`path_completed`、`endpoint_success`、三类 consistency 与两类 instability。
+- 兼容字段：`first_hit_FE` / `success` 只可作为严格别名；旧 `runtime_ratio`、`performance_gain_norm`、`time_cost_norm` 等均为历史字段。
+- 旧 `phase1_utility_label_column_spec` 仅保留为历史来源，不再作为独立活动协议。

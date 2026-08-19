@@ -184,7 +184,7 @@ def paired_utility_label_view(
         *key,
         "action_budget_mode",
         "p_query",
-        "selected_action_loss",
+        "action_loss",
         "selected_algorithm",
         "selected_action",
         "selected_equals_default",
@@ -444,7 +444,7 @@ def paired_utility_label_view(
     matched_columns = [
         *key,
         "p_query",
-        "selected_action_loss",
+        "action_loss",
         "selected_algorithm",
         "selected_action",
         "selected_equals_default",
@@ -465,7 +465,7 @@ def paired_utility_label_view(
 
     state_only_rename = {
         "p_query": "p_query_matched_state_only",
-        "selected_action_loss": "query_matched_state_only_continuation_only_gap",
+        "action_loss": "query_matched_state_only_continuation_only_gap",
         **{
             column: f"query_matched_state_only_{column}"
             for column in (
@@ -495,7 +495,7 @@ def paired_utility_label_view(
 
     sampling_rename = {
         "p_query": "p_sampling_only_continue_current",
-        "selected_action_loss": "sampling_only_continuation_only_gap",
+        "action_loss": "sampling_only_continuation_only_gap",
         **{
             column: f"sampling_only_{column}"
             for column in (
@@ -652,6 +652,8 @@ def paired_utility_label_view(
     output["performance_gain_raw"] = skip_loss - query_loss
     output["performance_gain_norm"] = query_gain
     output["behavior_performance_gain_norm"] = behavior_gain
+    output["action_loss"] = output["action_loss"].astype(float)
+    output["action_loss_raw"] = (output["benchmark_reference_value"].to_numpy(dtype=float) + operational_query_gap).astype(float)
     output["runtime_query_total"] = query_runtime
     output["runtime_no_query_total"] = skip_runtime
     output["runtime_behavior_total"] = behavior_runtime
@@ -679,7 +681,7 @@ def paired_utility_label_view(
         - output["best_observed_loss"].to_numpy(dtype=float)
     )
     output["selector_regret_raw"] = (
-        output["selected_action_loss"].to_numpy(dtype=float)
+        output["action_loss"].to_numpy(dtype=float)
         - output["best_observed_loss"].to_numpy(dtype=float)
     )
     output["selected_matches_best_observed"] = (
@@ -785,6 +787,7 @@ def paired_utility_label_view(
     output["g_fe"] = g_fe
     output["g_fe_bounded"] = g_fe_bounded
     output["g_fe_gt_zero"] = positive_efficacy_label(g_fe)
+    # canonical action_loss columns already populated upstream
     # delta_practical is set externally; default to 0.0 before calibration
     output["delta_practical"] = 0.0
     output["g_fe_gt_practical"] = meaningful_efficacy_label(g_fe, 0.0)

@@ -147,12 +147,12 @@ $$
 \ell_k=\log_{10}\left(\min\{\max(g_k,10^{-12}),10^{20}\}\right).
 $$
 
-Stage-B 将 `skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget` 五条 selected 路径从同一 decision state/RNG 到 terminal 真实执行预定三次，但只用于计时；按 `cyclic_complete_path_v1` 交错顺序。每次保留 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 的 censored time 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数。raw observed median 只作诊断，旧 failure-worst-case 字段只作同一 censored 值的兼容别名。每次保存 status、observed hit、path completion、endpoint success、effective FE 与失败字段。路径身份、completed replays 内部 endpoint 和 Stage-A 到 completed replay 的 endpoint 一致性分别保存；Stage-B 内部 status instability 与 Stage-A/Stage-B completion instability 也分别保存。任何 replay 都不得改写 Stage-A 科学端点或被选择性补跑。共享 prefix 视为 sunk cost；FE=0→terminal online policy wall-clock 另作政策端点，不进入 Utility。
+Stage-B 将 `skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget` 五条 selected 路径从同一 decision state/RNG 到 terminal 真实执行预定三次，但只用于计时；按 `cyclic_complete_path_v1` 交错顺序。每次保留 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 的 censored time 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数。raw observed median 只作诊断，旧 failure-worst-case 字段只作同一 censored 值的别名。每次保存 status、observed hit、path completion、endpoint success、effective FE 与失败字段。路径身份、completed replays 内部 endpoint 和 Stage-A 到 completed replay 的 endpoint 一致性分别保存；Stage-B 内部 status instability 与 Stage-A/Stage-B completion instability 也分别保存。任何 replay 都不得改写 Stage-A 科学端点或被选择性补跑。共享 prefix 视为 sunk cost；FE=0→terminal online policy wall-clock 另作政策端点，不进入 Utility。
 
 主配置 $\lambda_T=1,\lambda_M=0$：
 
 $$
-U_q^{joint}
+G_FE
 =(\ell_s-\ell_q)
 -\lambda_T(\log_{10}T_q-\log_{10}T_s),
 $$
@@ -164,19 +164,19 @@ U_b
 $$
 
 $$
-I_q
+query_operational_increment
 =(\ell_b-\ell_q)
 -\lambda_T(\log_{10}T_q-\log_{10}T_b)
-=U_q^{joint}-U_b.
+=G_FE-U_b.
 $$
 
-`u_query_joint_lamT_1` 是主 Decision target；其二元标签为
+`G_FE` 是主 Decision target；其二元标签为
 
 $$
-y_q=\mathbb I[U_q^{joint}>0].
+y_q=\mathbb I[G_FE>0].
 $$
 
-`query_operational_increment_lamT_1` 比较两条可操作路径，包含 query sample FE、sample best、预算差、Selector 和 runtime，不得称为纯信息效应或 causal effect。
+`query_operational_increment` 比较两条可操作路径，包含 query sample FE、sample best、预算差、Selector 和 runtime，不得称为纯信息效应或 causal effect。
 
 另定义 query-feature 预测诊断：
 
@@ -286,7 +286,7 @@ outer-fit functions
 
 每个 inner fold 又必须只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 和 Decision。不得先用完整 BBOB-train 生成标签，再对 Decision 单独 OOF。
 
-主模型选择指标为拼接 outer holdout 后，按 first-trigger policy 重建的 run-level mean `u_query_joint_lamT_1`。AUROC、Average Precision 和 Spearman 只作辅助；连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已在旧流程中用于模型比较、调参与消融，不能再作为未查看评价集或 selected procedure 的无偏性能估计；当前流程仍禁止用其继续拟合或重选。
+主模型选择指标为拼接 outer holdout 后，按 first-trigger policy 重建的 run-level mean `G_FE`。AUROC、Average Precision 和 Spearman 只作辅助；连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已在历史流程中用于模型比较、调参与消融，不能再作为未查看评价集或 selected procedure 的无偏性能估计；当前流程仍禁止用其继续拟合或重选。
 
 主拟合权重依次使 function、固定 dimension stratum、static problem 与 optimizer run 等权，再把每个 run 的权重均分给其 eligible states，并缩放到平均 row weight 为 1。旧 `sample_weight=1` 只作敏感性。现有 estimator wiring 尚未闭合该权重，闭合前不得启动正式拟合。
 

@@ -288,7 +288,7 @@ definition and full downstream selector, and statewise handoffs use the same
 population-transfer rule.  The pre-run AAS and behavior-only selectors are
   separate prespecified estimators because their available information and action
   budgets differ.  A distinct matched-trigger Behavior-only diagnostic acts at
-  the proposed controller's trigger solely to compute $I_q$; it is not the
+  the proposed controller's trigger solely to compute $query_operational_increment$; it is not the
   self-thresholded baseline.  Query-adjusted state-only, query-only, Behavior-only,
   and full selector regressions remain component diagnostics in addition to the
   policy-level baseline.
@@ -319,7 +319,7 @@ weights, which is a formal pre-run blocker; nested first-trigger evaluation does
 not by itself correct fitting weights.
 
 Policy-level reporting includes run-call rate, first-trigger precision, mean
-joint decision Utility, matched-trigger $I_q$, and terminal outcomes.  If
+joint decision Utility, matched-trigger $query_operational_increment$, and terminal outcomes.  If
 $J_r^\pi$ is policy $\pi$'s first trigger, its run Utility is
 \begin{equation}
   U_r^\pi=
@@ -360,7 +360,7 @@ controller-inference time, query
 sampling and descriptor-computation time, downstream-selection latency, and
 peak memory.  These full-run wall-clock values include the realized prefix and
 are reported separately from the decision-state-to-terminal future-path times
-that enter $U_q^{\mathrm{joint}}$, $U_b$, and $I_q$.  Success targets are suite specific and are fixed independently
+that enter $U_q^{\mathrm{joint}}$, $U_b$, and $query_operational_increment$.  Success targets are suite specific and are fixed independently
 of the observed policy contrasts.  Cost--performance reporting retains all
 nine prespecified comparison roles but uses eight distinct primary-population
 outcomes because Never Query and SBS share one native outcome.  Traditional
@@ -439,7 +439,7 @@ increments.  RQ4 does not treat the four suites as a four-contrast family:
 each suite and endpoint has a separate finite-set estimate, and any within-suite
 multiplicity scope must be fixed before that suite's first outcome.  Suites and
 endpoints are not pooled.  VBS, query-configuration and
-$\lambda_T$ robustness, matched-trigger $I_q$, and selector diagnostics are not
+$\lambda_T$ robustness, matched-trigger $query_operational_increment$, and selector diagnostics are not
 members of these prespecified auxiliary Holm families.  Analytically identical
 Never Query/SBS outcomes
 enter each summary and multiplicity count once.

@@ -1,6 +1,6 @@
 # Decision-before-Feature 维度与泛化实验设计
 
-> 唯一活动说明（2026-08-15）。本文只定义 dimension 分层与外部泛化边界。BBOB-validation 已被旧模型比较、调参与消融查看，只作已见内部评价；CEC2017 也已有 preliminary/targeted 结果，只作已见外部开发评价。二者均不用于当前调参、选模、特征组选择或 threshold，也不能承担独立确认。CEC2017 的 F2/F30 口径、CEC2022 与工程问题配置仍是运行前 blocker。
+> 唯一活动说明（2026-08-15）。本文只定义 dimension 分层与外部泛化边界。BBOB-validation 已被历史模型比较、调参与消融查看，只作已见内部评价；CEC2017 也已有 preliminary/targeted 结果，只作已见外部开发评价。二者均不用于当前调参、选模、特征组选择或 threshold，也不能承担独立确认。CEC2017 的 F2/F30 口径、CEC2022 与工程问题配置仍是运行前 blocker。
 
 ## 1. 主 BBOB 设置
 
@@ -43,7 +43,7 @@ $$
 
 在 BBOB train OOF 和冻结 validation 内分别报告 10D、20D、40D 的：
 
-- $G_{\mathrm{FE}}$（方案 A 主标签）、$U_q^{joint}$、$U_b$、$I_q$（旧口径兼容）；
+- $G_{\mathrm{FE}}$（方案 A 主标签）、$U_b$、`query_operational_increment`；
 - terminal/continuation-only `log10_gap`、target-hit rate、endpoint-success rate、ERT；
 - first-trigger call/trigger/handoff；
 - query/sample/optimization/runtime 组成；
@@ -69,7 +69,7 @@ CEC2022 与工程问题尚未冻结具体 functions/problems、dimension、bound
 
 Function 是最高聚合层。层级固定为 run → static problem → fixed dimension stratum → function。BBOB-validation 的 10,000 次条件 bootstrap 保留全部六个已见固定 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。Dimension 与 static problems 均为固定 strata；function-resampling 只作函数组成敏感性，不进入主 CI，也不产生 transformed-instance 超总体推断。
 
-Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先冻结有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。方案 A 下主功效以 `G_FE` 为主，旧 Utility 仅作兼容。
+Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先冻结有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。方案 A 下主功效以 `G_FE` 为主，Utility 仅作历史记录。
 
 ## 6. 可支持的结论
 

@@ -19,8 +19,8 @@ emitted by the prespecified dynamic opportunity process.  It reports the joint Q
   \small
   \begin{tabularx}{\textwidth}{@{}l c c c c c c c@{}}
     \toprule
-    Stratum & Coverage & $\Pr(U_q^{joint}\le0)$ & Mean $U_q^{joint}$
-    & Mean $U_b$ & Mean $I_q$ & Query--Skip $\Delta\ell$
+    Stratum & Coverage & $\Pr(G_FE\le0)$ & Mean $G_FE$
+    & Mean $U_b$ & Mean $query_operational_increment$ & Query--Skip $\Delta\ell$
     & $T_q/T_s$ \\
     \midrule
     BBOB-train outer OOF, all eligible states & -- & -- & -- & -- & -- & -- & -- \\
@@ -38,7 +38,7 @@ emitted by the prespecified dynamic opportunity process.  It reports the joint Q
   \centering
   \fbox{\parbox[c][42mm][c]{0.94\textwidth}{\centering
   \TBD{TBD-RQ1-FIG-01}\\[0.8ex]
-  Function-balanced distributions of $U_q^{joint}$, $U_b$, and $I_q$; paired
+  Function-balanced distributions of $G_FE$, $U_b$, and $query_operational_increment$; paired
   terminal/continuation-only $\log_{10}$ gaps; query-sample contribution and
   decision-state-to-terminal future-path runtime ratio by FE ratio and dimension.}}
   \caption{RQ1 distributional summary.  Curves and bins are descriptive and do
@@ -51,21 +51,21 @@ which retain all six fixed validation functions, dimensions, and static
 problems and resample only paired optimizer seeds within each fixed problem,
 function-level effects, and
 prespecified sign-flip comparisons remain to be computed.  The prevalence of
-$U_q^{joint}\le0$ is estimated without a predeclared majority direction.
+$G_FE\le0$ is estimated without a predeclared majority direction.
 
 \TBD{TBD-RQ1-CLAIM-01} Any conclusion must state the fixed query realization,
 target state
 distribution, effect direction, endpoint-specific interval, and coverage.  A
 joint advantage alone does not establish a descriptor-information advantage;
-if $I_q\le0$, it supports only the joint path over SBS.  Both all-eligible-state
-and proposed-triggered $I_q$ are required.  Even when they agree, the absent matched-acquisition fourth path prevents descriptor-only operational attribution.  The five-path operational decomposition remains the interpretation layer, but the binary acquisition label itself is Query versus the best available no-query policy, with Behavior-only as the primary comparator.
+if $query_operational_increment\le0$, it supports only the joint path over SBS.  Both all-eligible-state
+and proposed-triggered $query_operational_increment$ are required.  Even when they agree, the absent matched-acquisition fourth path prevents descriptor-only operational attribution.  The five-path operational decomposition remains the interpretation layer, but the binary acquisition label itself is Query versus the best available no-query policy, with Behavior-only as the primary comparator.
 
 \FloatBarrier
 
 \subsection{RQ2: Does Behavior add decision value beyond elapsed budget?}
 
 Model-family selection uses B3 only and the concatenated outer-holdout
-first-trigger $U_q^{joint}$.  These outcomes select among candidates and provide
+first-trigger $G_FE$.  These outcomes select among candidates and provide
 development diagnostics; after selection they are not an unbiased estimate of
 the selected procedure.  AUROC, average precision, and Spearman correlation
 are secondary; continuous-Utility RMSE is defined only for Ridge.  After the
@@ -135,7 +135,7 @@ share one native outcome.  Always Query and Traditional pre-run AAS are distinct
 the former queries the first online state, whereas the latter queries at FE zero
 and starts one selected algorithm from native initialization.  The
 self-thresholded Behavior-only policy has its own $U_b$ threshold; the
-matched-trigger Behavior-only diagnostic used for $I_q$ is not a baseline.
+matched-trigger Behavior-only diagnostic used for $query_operational_increment$ is not a baseline.
 
 \begin{table*}[t]
   \caption{RQ3 end-to-end outcomes.  Eight non-duplicated outcomes represent
@@ -160,7 +160,7 @@ matched-trigger Behavior-only diagnostic used for $I_q$ is not a baseline.
     \bottomrule
     \multicolumn{8}{l}{\TBD{TBD-RQ3-TAB-01}: separate decision-state future-path and FE-zero-to-terminal policy times; add query/total FEs, ERT,
     first-trigger FE, first-call precision, non-beneficial-call loss, shared
-    hindsight capture, matched-trigger $I_q$, coverage, failures, and 95\% CIs.} \\
+    hindsight capture, matched-trigger $query_operational_increment$, coverage, failures, and 95\% CIs.} \\
   \end{tabularx}
 \end{table*}
 
@@ -331,7 +331,7 @@ analysis window.
     \texttt{pflacco\_broad\_invariant} & Three evaluated representations only \\
     Time weight & $\lambda_T\in\{0,0.25,0.5,1,2\}$ with terminal gap and runtime & Primary $\lambda_T=1$ unchanged \\
     Predictive query increment & OOF state-only versus full-query selected continuation-only gap & No sample best or acquisition cost \\
-    Operational query increment & Matched-trigger $I_q=U_q^{joint}-U_b$ & Not a pure-information or causal effect \\
+    Operational query increment & Matched-trigger $query_operational_increment=G_FE-U_b$ & Not a pure-information or causal effect \\
     Action relations & \texttt{selected\_equals\_default},
     \texttt{selected\_equals\_prefix}, \texttt{handoff\_required}, transition type & No generic same/changed alias \\
     Reservoir diagnostic & \texttt{trajectory\_query\_reservoir\_v1}, zero extra FE & Not pooled with independent-LHS estimands \\

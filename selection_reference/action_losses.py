@@ -454,7 +454,6 @@ def _evaluate_one_candidate_action(
         "failure_type": failure_type,
         "failure_message": failure_message,
         "action_loss": float(gap_loss),
-        "action_loss_raw": raw_loss,
         "loss_gap_raw": float(gap_loss),
         "loss_gap_norm": float(gap_loss),
         "runtime_handoff": float(runtime_handoff),
@@ -1313,8 +1312,7 @@ def _complete_pre_run_diagnostics(
     for row in outcomes:
         row["best_observed_algorithm"] = best_algorithm
         row["best_observed_loss"] = best_loss
-        row["action_loss_norm"] = float((float(row["action_loss"]) - best_loss) / scale)
-        row["loss_gap_norm"] = float(row["action_loss_norm"])
+        row["loss_gap_norm"] = float((float(row["action_loss"]) - best_loss) / scale)
         row["log10_action_loss"] = _clipped_log10_loss(
             float(row["action_loss"]),
             floor=log10_gap_floor,
@@ -1357,8 +1355,7 @@ def _complete_action_diagnostics(
     for row in outcomes:
         row["best_observed_algorithm"] = best_algorithm
         row["best_observed_loss"] = best_loss
-        row["action_loss_norm"] = float((float(row["action_loss"]) - best_loss) / scale)
-        row["loss_gap_norm"] = float(row["action_loss_norm"])
+        row["loss_gap_norm"] = float((float(row["action_loss"]) - best_loss) / scale)
         row["log10_action_loss"] = _clipped_log10_loss(
             float(row["action_loss"]),
             floor=log10_gap_floor,
@@ -1498,9 +1495,6 @@ def _schema() -> pa.Schema:
         ("execution_order", pa.int32()),
         ("execution_order_repetitions", pa.list_(pa.int32())),
         ("action_loss", pa.float64()),
-        ("action_loss_raw", pa.float64()),
-        ("action_loss_norm", pa.float64()),
-        ("log10_action_loss", pa.float64()),
         ("selector_target_loss", pa.float64()),
         ("loss_gap_raw", pa.float64()),
         ("loss_gap_norm", pa.float64()),
@@ -1570,8 +1564,6 @@ def _pre_run_schema() -> pa.Schema:
             ("execution_order_repetitions", pa.list_(pa.int32())),
             ("action_loss", pa.float64()),
             ("action_loss_raw", pa.float64()),
-            ("action_loss_norm", pa.float64()),
-            ("log10_action_loss", pa.float64()),
             ("selector_target_loss", pa.float64()),
             ("loss_gap_raw", pa.float64()),
             ("loss_gap_norm", pa.float64()),

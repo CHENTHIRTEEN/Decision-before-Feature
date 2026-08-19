@@ -2,7 +2,7 @@
 
 本记录汇总三组材料：此前通过本地 Zotero 核读的 10 篇 Elsevier 期刊论文、当前项目 `docs/90_literature` 中的 5 篇独立全文，以及与本文方法相邻的 Zotero 研究。Zotero parent key 是文献条目标识，attachment key 是实际读取的附件标识，二者均不同于 BibTeX citation key。Jankovic et al. (2022) 当前只以项目内 PDF 为证据来源，未绑定 Zotero parent 或 attachment。
 
-撤回状态核对口径：截至 2026-08-13，10 个 DOI 的 Crossref 类型均为 `journal-article`，`relation`、`update-to`、`updated-by` 均为空；Zotero 索引全文未检出 `retracted` 或 `withdrawn` 标记。这表示本轮核对未发现撤回信息，不构成永久状态保证。
+历史状态核对口径：截至 2026-08-13，10 个 DOI 的 Crossref 类型均为 `journal-article`，`relation`、`update-to`、`updated-by` 均为空；Zotero 索引全文未检出 `retracted` 或 `withdrawn` 标记。这表示本轮核对未发现历史信息，不构成永久状态保证。
 
 ## A. 已核读的 10 篇 Elsevier 期刊论文
 
@@ -321,7 +321,7 @@
 4. query gate 与下游 portfolio action selector 分离，并显式区分 native continuation 与 population-transfer initialization；
 5. 选模和阈值只使用 BBOB-training function families，held-out BBOB、CEC 与工程问题不反馈到 preprocessing、特征选择、模型或阈值。
 
-因此可使用的表述是：**“Among the literature reviewed here, we did not identify a method that makes the same pre-query, cost-adjusted information-acquisition decision.”** 这是一项由当前核读语料限定的 gap 陈述，不是绝对首创声明。文献只支持问题的合理性、邻近方法的任务边界以及冻结评价设计；它们不支持将 RQ1--RQ5、BBOB-validation、CEC2017、CEC2022 或工程问题结果写成已经验证，也不支持使用任何已撤回实验数值。
+因此可使用的表述是：**“Among the literature reviewed here, we did not identify a method that makes the same pre-query, cost-adjusted information-acquisition decision.”** 这是一项由当前核读语料限定的 gap 陈述，不是绝对首创声明。文献只支持问题的合理性、邻近方法的任务边界以及冻结评价设计；它们不支持将 RQ1--RQ5、BBOB-validation、CEC2017、CEC2022 或工程问题结果写成已经验证，也不支持使用任何已历史实验数值。
 
 ## F. 与当前 BibTeX 的题名和 DOI 对照
 
