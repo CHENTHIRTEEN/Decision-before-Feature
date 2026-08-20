@@ -73,18 +73,9 @@ evaluation under the current protocol.  The four-algorithm portfolio and dynamic
 unchanged, and all learned components are then held fixed at their
 BBOB-training estimates.
 
-CEC2022 and engineering problems form separate components of RQ4.  Their
-problem sets, dimensions, bounds, budgets, target errors, error floors and
-caps, wall-time limits, and official constraint-handling rules are specified
-before any policy outcomes are inspected.  A run that raises an optimizer
-exception, returns a non-finite objective value, exceeds its fixed wall-time
-limit, or violates a suite-defined completion condition is retained as a run
-failure.  A target hit observed before that failure remains a target hit for
-standard ERT, while path completion is false and completion-conditioned
-endpoint success is false.  A failed path with no observed hit contributes its
-full planned budget to ERT.  The path receives the prespecified suite-level
-worst rank and capped error for summaries that require a finite value; the cap
-is never estimated from observed policy contrasts.
+CEC2022, MA-BBOB, and engineering problems form separate components of RQ4 and training-proxy robustness experiments.  Their problem sets, dimensions, bounds, budgets, target errors, error floors and caps, wall-time limits, and official constraint-handling rules are specified before any policy outcomes are inspected.  A run that raises an optimizer exception, returns a non-finite objective value, exceeds its fixed wall-time limit, or violates a suite-defined completion condition is retained as a run failure.  A target hit observed before that failure remains a target hit for standard ERT, while path completion is false and completion-conditioned endpoint success is false.  A failed path with no observed hit contributes its full planned budget to ERT.  The path receives the prespecified suite-level worst rank and capped error for summaries that require a finite value; the cap is never estimated from observed policy contrasts.
+
+MA-BBOB is included as the prospective generated training suite for transfer and robustness checks.  The implementation uses the IOHexperimenter `ManyAffine` problem family as the source generator, with the same 24 BBOB components, instance-controlled weights, and bounded domain described in Vermetten et al. (2023).  In this repository it is treated as a generated dataset source rather than a new decision target family: the benchmark adapter exposes `mabbob_fXXX_iYY_dD` identifiers, while the prospective suite configuration fixes functions, dimensions, instances, seeds, budget, and failure rules before any outcome is observed.
 
 For every external suite, an attempted query whose descriptor group cannot be
 computed remains in the coverage denominator and is recorded as a query

@@ -24,6 +24,7 @@ class Problem:
     reference_value: float | None = None
     close_callback: CloseCallback | None = None
     cv_group_id: str = ""
+    boundary_handling: str = "clip"
 
     def __post_init__(self) -> None:
         if not str(self.problem_id) or not str(self.function_id) or not str(self.family):
@@ -45,6 +46,9 @@ class Problem:
             if not np.isfinite(reference_value):
                 raise ValueError("reference_value must be finite when provided")
             object.__setattr__(self, "reference_value", reference_value)
+        if str(self.boundary_handling) not in {"clip", "reflect"}:
+            raise ValueError("boundary_handling must be clip or reflect")
+        object.__setattr__(self, "boundary_handling", str(self.boundary_handling))
         object.__setattr__(self, "bounds", bounds)
 
     @property

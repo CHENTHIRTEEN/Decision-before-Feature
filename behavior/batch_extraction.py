@@ -25,8 +25,8 @@ def extract_behavior_shards(
 
     for config_path in config_paths:
         config = load_config(config_path)
-        if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022"}:
-            raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022")
+        if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022", "mabbob"}:
+            raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022, mabbob")
 
         for shard in make_shards(config, only_functions, only_dimensions):
             require_complete_shard_outputs(shard)

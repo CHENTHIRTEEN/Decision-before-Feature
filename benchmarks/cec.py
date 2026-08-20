@@ -59,4 +59,5 @@ def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
         objective=objective,
         reference_value=coerce_reference_value(function_object, ("bias", "fopt", "best_value", "optimum")),
         cv_group_id=f"cec{year}_f{function:02d}",
+        boundary_handling="reflect",
     )

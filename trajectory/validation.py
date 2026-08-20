@@ -293,9 +293,9 @@ def _validate_function_metadata(row: dict) -> None:
     elif problem_id.startswith("cec2017_"):
         expected_function_id = f"cec2017_f{function:02d}"
         expected_family = "cec2017_unassigned_landscape_family"
-    elif problem_id.startswith("cec2022_"):
-        expected_function_id = f"cec2022_f{function:02d}"
-        expected_family = "cec2022_unassigned_landscape_family"
+    elif problem_id.startswith("mabbob_"):
+        expected_function_id = f"mabbob_c{function:03d}"
+        expected_family = "mabbob_affine_combination"
     else:
         raise ValueError(f"unsupported problem_id for function metadata: {problem_id}")
     if str(row["function_id"]) != expected_function_id:

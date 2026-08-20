@@ -36,6 +36,8 @@ PSO_MAX_VELOCITY_RATE = 0.2
 SHADE_MEMORY_SIZE = 5
 NO_QUERY_TRANSFER_EVENT = 1
 QUERY_TRANSFER_EVENT = 2
+BOUNDARY_HANDLING_CLIP = "clip"
+BOUNDARY_HANDLING_REFLECT = "reflect"
 
 
 @dataclass
@@ -433,7 +435,7 @@ def _start_de_generation(state: DEState, problem: Problem) -> None:
         choices = np.delete(indices, i)
         r1, r2, r3 = rng.choice(choices, size=3, replace=False)
         mutant = source[r1] + state.mutation_factor * (source[r2] - source[r3])
-        mutant = np.clip(mutant, problem.lower_bounds, problem.upper_bounds)
+        mutant = _apply_boundary_handling(mutant, problem.lower_bounds, problem.upper_bounds, boundary_handling=getattr(problem, 'boundary_handling', 'clip'))
         mask = rng.random(dimension) < state.crossover_rate
         mask[int(rng.integers(dimension))] = True
         trials[i] = np.where(mask, mutant, source[i])
@@ -500,7 +502,12 @@ def _start_pso_generation(state: PSOState, problem: Problem) -> None:
     )
     maximum = state.max_velocity_rate * (problem.upper_bounds - problem.lower_bounds)
     velocities = np.clip(velocities, -maximum, maximum)
-    positions = np.clip(state.positions + velocities, problem.lower_bounds, problem.upper_bounds)
+    positions = _apply_boundary_handling(
+        state.positions + velocities,
+        problem.lower_bounds,
+        problem.upper_bounds,
+        boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+    )
     state.pending_positions = positions
     state.pending_velocities = velocities
     state.pending_fitness = np.full(len(positions), np.nan, dtype=float)
@@ -547,7 +554,12 @@ def _start_cmaes_generation(state: CMAESState, problem: Problem) -> None:
     z = rng.standard_normal((len(state.population), problem.dimension))
     y = (z * strategy.axis_scales) @ strategy.eigenvectors.T
     population = state.mean + state.sigma * y
-    population = np.clip(population, problem.lower_bounds, problem.upper_bounds)
+    population = _apply_boundary_handling(
+        population,
+        problem.lower_bounds,
+        problem.upper_bounds,
+        boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+    )
     strategy.pending_population = population
     strategy.pending_fitness = np.full(len(population), np.nan, dtype=float)
     strategy.pending_index = 0
@@ -665,7 +677,12 @@ def _start_shade_generation(state: SHADEState, problem: Problem) -> None:
             union_size=len(union),
         )
         mutant = population[i] + f_value * (pbest - population[i]) + f_value * (population[r1] - union[r2])
-        mutant = np.clip(mutant, problem.lower_bounds, problem.upper_bounds)
+        mutant = _apply_boundary_handling(
+            mutant,
+            problem.lower_bounds,
+            problem.upper_bounds,
+            boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+        )
         mask = rng.random(dimension) < cr_value
         mask[int(rng.integers(dimension))] = True
         trials[i] = np.where(mask, mutant, population[i])
@@ -866,6 +883,36 @@ def _update_best(state: OptimizerState, value: float, position: np.ndarray) -> N
     if value < state.best_fitness:
         state.best_fitness = float(value)
         state.best_position = np.asarray(position, dtype=float).copy()
+
+
+def _apply_boundary_handling(
+    values: np.ndarray,
+    lower_bounds: np.ndarray,
+    upper_bounds: np.ndarray,
+    *,
+    boundary_handling: str,
+) -> np.ndarray:
+    if boundary_handling == BOUNDARY_HANDLING_CLIP:
+        return np.clip(values, lower_bounds, upper_bounds)
+    if boundary_handling == BOUNDARY_HANDLING_REFLECT:
+        values = np.asarray(values, dtype=float).copy()
+        lower = np.asarray(lower_bounds, dtype=float)
+        upper = np.asarray(upper_bounds, dtype=float)
+        span = upper - lower
+        if np.any(span <= 0.0):
+            raise ValueError("upper bounds must be larger than lower bounds")
+        for axis in range(values.shape[-1]):
+            lo = lower[axis]
+            hi = upper[axis]
+            width = hi - lo
+            if width <= 0.0:
+                continue
+            coord = values[..., axis]
+            shifted = np.mod(coord - lo, 2.0 * width)
+            reflected = np.where(shifted <= width, shifted, 2.0 * width - shifted) + lo
+            values[..., axis] = reflected
+        return values
+    raise ValueError(f"unsupported boundary_handling: {boundary_handling}")
 
 
 def _validate_population(problem: Problem, population: np.ndarray, fitness: np.ndarray) -> None:

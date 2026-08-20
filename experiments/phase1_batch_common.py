@@ -19,11 +19,12 @@ from trajectory.sampling import get_sampling_spec
 
 FROZEN_PHASE1_POPULATION_SIZE = 40
 FROZEN_PHASE1_FE_PER_DIMENSION = 1000
-SUPPORTED_PHASE1_SUITES = ("bbob", "cec2017", "cec2022")
+SUPPORTED_PHASE1_SUITES = ("bbob", "cec2017", "cec2022", "mabbob")
 FUNCTION_FAMILY_PROTOCOL_BY_SUITE = {
     "bbob": BBOB_FUNCTION_FAMILY_PROTOCOL,
     "cec2017": "cec2017_unassigned_landscape_family_v1",
     "cec2022": "cec2022_unassigned_landscape_family_v1",
+    "mabbob": "mabbob_affine_combination_v1",
 }
 REQUIRED_ENDPOINT_FIELDS = (
     "failure_loss_cap",
@@ -131,7 +132,7 @@ def validate_dynamic_collection_config(config: dict) -> None:
     suite = str(config.get("suite", "")).lower()
     if suite not in SUPPORTED_PHASE1_SUITES:
         raise ValueError(
-            "phase1 dynamic collection supports suites: bbob, cec2017, cec2022"
+            "phase1 dynamic collection supports suites: bbob, cec2017, cec2022, mabbob"
         )
     observed_family_protocol = str(config.get("function_family_protocol", ""))
     expected_family_protocol = FUNCTION_FAMILY_PROTOCOL_BY_SUITE[suite]
@@ -255,7 +256,9 @@ def function_id_name(suite: str, function: int) -> str:
     if suite_name == "bbob":
         return bbob_function_id(function)
     if suite_name in {"cec2017", "cec2022"}:
-        return f"{suite_name}_f{int(function):02d}"
+        return f"{suite_name}_unassigned_landscape_family"
+    if suite_name == "mabbob":
+        return f"mabbob_c{int(function):03d}"
     raise ValueError(f"unsupported benchmark suite for shard function ID: {suite}")
 
 
@@ -264,7 +267,9 @@ def landscape_family_name(suite: str, function: int) -> str:
     if suite_name == "bbob":
         return bbob_landscape_family(function)
     if suite_name in {"cec2017", "cec2022"}:
-        return f"{suite_name}_unassigned_landscape_family"
+        return f"{suite_name}_f{int(function):02d}"
+    if suite_name == "mabbob":
+        return "mabbob_affine_combination"
     raise ValueError(f"unsupported benchmark suite for landscape family: {suite}")
 
 

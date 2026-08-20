@@ -53,9 +53,11 @@ Dimension 分层是 heterogeneity analysis，不把每个 function--dimension �
 
 ### 4.3 Cross-benchmark evaluation
 
-BBOB-train 冻结的 SBS、Selectors、Decision preprocessing/model、feature group、threshold 和 Random calibration 原样用于外部 suite。已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题分别报告，不池化为单一“OOD”分数，也不把任一外部 suite 用于重新训练。只有在本轮冻结后先完成配置/端点/分析规则、再首次生成 outcome 的外部集合可承担独立确认。
+BBOB-train 冻结的 SBS、Selectors、Decision preprocessing/model、feature group、threshold 和 Random calibration 原样用于外部 suite。已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022、前瞻 MA-BBOB 与前瞻工程问题分别报告，不池化为单一“OOD”分数，也不把任一外部 suite 用于重新训练。只有在本轮冻结后先完成配置/端点/分析规则、再首次生成 outcome 的外部集合可承担独立确认。
 
 CEC2017 当前维度、seeds 和预算写为 10D/30D/50D、30 seeds、$1000D$；但 `configs/phase1_cec2017_test.yaml` 使用 F1--F29，即包含 F2、排除 F30。项目内尚无依据确认该函数集与所用实现/官方口径一致，必须在运行前核对并冻结，不能静默改配置或先看结果。
+
+MA-BBOB 由 IOHexperimenter 的 `ManyAffine` 生成器提供，适合作为训练用生成数据集和 transfer robustness 基准。它与 BBOB 的关系是“由 BBOB 组合生成的外部问题集”，不是 BBOB 的 instance split。训练用 MA-BBOB 的 functions、instances、dimensions 与 seeds 必须在 `configs/prospective_suites.yaml` 中冻结后使用，且不回填到 BBOB-train / validation。
 
 CEC2022 与工程问题尚未冻结具体 functions/problems、dimension、bounds、budget、success target、gap floor/cap、timeout、first-hit 和 constraint-handling rule，因此当前不能执行或声称覆盖。
 

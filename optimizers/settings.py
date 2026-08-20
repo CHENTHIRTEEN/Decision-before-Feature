@@ -13,6 +13,7 @@ class OptimizerSettings:
     population_size: int = 40
     checkpoint_ratios: tuple[float, ...] = DEFAULT_CHECKPOINT_RATIOS
     sampling_protocol: str | None = None
+    boundary_handling: str = "clip"
 
     def validate(self, fe_total: int) -> None:
         if self.population_size < 4:
@@ -26,6 +27,8 @@ class OptimizerSettings:
             if ratio <= previous or ratio > 1.0:
                 raise ValueError("checkpoint ratios must be strictly increasing and <= 1.0")
             previous = ratio
+        if self.boundary_handling not in {"clip", "reflect"}:
+            raise ValueError("boundary_handling must be clip or reflect")
         if self.sampling_protocol is not None:
             spec = get_sampling_spec(self.sampling_protocol)
             monitor_gaps = [

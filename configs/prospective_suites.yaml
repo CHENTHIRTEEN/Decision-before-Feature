@@ -20,7 +20,7 @@ suites:
     log10_gap_cap: 1.0e20
     failure_loss_cap: 1.0e20
 
-  - name: ma_bbob
+  - name: mabbob
     functions: [1, 2, 3, 4, 5]
     dimensions: [10, 20]
     instances: [1, 2, 3]

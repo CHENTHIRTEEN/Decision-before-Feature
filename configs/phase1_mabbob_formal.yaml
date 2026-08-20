@@ -1,0 +1,26 @@
+suite: mabbob
+split: mabbob_formal
+function_family_protocol: mabbob_affine_combination_v1
+# Combined formal subset selected from the 1-100 and 101-200 pilot batches.
+# Candidate definitions use only BBOB-train components.
+functions: [1, 16, 6, 67, 20, 47, 41, 22, 58, 71, 3, 2, 86, 8, 72, 62, 96, 45, 68, 4, 92, 93, 98, 97, 113, 188, 112, 141, 176, 191, 109, 162]
+instances: [1]
+dimensions: [10]
+seeds: [1, 2]
+FE_total_by_dimension:
+  10: 10000
+population_size: 40
+failure_loss_cap: 1.0e20
+log10_gap_floor: 1.0e-12
+log10_gap_cap: 1.0e20
+success_gap_target: 1.0e-8
+action_timeout_seconds: 3600
+timing_replay_timeout_seconds: 3600
+policy_timeout_seconds: 3600
+first_hit_recording: every_objective_evaluation
+timing_repetitions: 3
+timing_order_protocol: cyclic_complete_path_v1
+algorithms: [de, pso, cmaes, shade]
+sampling_protocol: phase1_dynamic_budget_event_v1
+boundary_handling: reflect
+output: results/phase1_mabbob/trajectories.parquet

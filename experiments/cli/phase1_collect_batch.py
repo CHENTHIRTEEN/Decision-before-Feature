@@ -39,6 +39,8 @@ def _run_one(
         "instance": instance,
         "dimension": dimension,
     }
+    if str(config["suite"]).lower() == "mabbob":
+        problem_config["candidate_id"] = function
     settings = OptimizerSettings(
         population_size=int(config["population_size"]),
         sampling_protocol=str(config["sampling_protocol"]),
@@ -64,6 +66,8 @@ def _run_one(
             if suite == "bbob"
             else f"{suite}_f{int(function):02d}_d{int(dimension)}"
         )
+        if suite == "mabbob":
+            problem_id = f"mabbob_c{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
         failure = FinalPerformanceRecord.from_failure(
             problem_id=problem_id,
             function_id=function_id_name(suite, function),

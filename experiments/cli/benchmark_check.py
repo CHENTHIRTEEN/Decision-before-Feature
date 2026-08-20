@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--dimension", type=int, action="append", default=None)
     args = parser.parse_args()
 
-    suites = [str(value).lower() for value in (args.suite or ["cec2017", "cec2022"])]
+    suites = [str(value).lower() for value in (args.suite or ["cec2017", "cec2022", "mabbob"])]
     functions = [int(value) for value in (args.function or [1])]
     dimensions = [int(value) for value in (args.dimension or [10])]
     failed = []

@@ -7,13 +7,15 @@ import numpy as np
 
 from benchmarks.bbob import make_bbob_problem
 from benchmarks.cec import make_cec_problem
-from benchmarks.core import Problem, coerce_reference_value
+from benchmarks.core import Problem
+from benchmarks.mabbob import make_mabbob_problem
 
 
 _PROBLEM_ID_PATTERNS = {
     "bbob": re.compile(r"^bbob_f(\d{3})_i(\d+)_d(\d+)$"),
     "cec2017": re.compile(r"^cec2017_f(\d{2})_d(\d+)$"),
     "cec2022": re.compile(r"^cec2022_f(\d{2})_d(\d+)$"),
+    "mabbob": re.compile(r"^mabbob_c(\d{3})_i(\d{2})_d(\d+)$"),
 }
 
 
@@ -32,6 +34,13 @@ def make_problem(config: dict) -> Problem:
             year=int(suite.removeprefix("cec")),
             function=int(config["function"]),
             dimension=dimension,
+        )
+    if suite == "mabbob":
+        return make_mabbob_problem(
+            candidate_id=int(config.get("candidate_id", config.get("function", 1))),
+            dimension=dimension,
+            instance=int(config.get("instance", 1)),
+            boundary_handling=str(config.get("boundary_handling", "clip")),
         )
 
     raise ValueError(f"unsupported benchmark suite: {suite}")
@@ -57,6 +66,14 @@ def _problem_config_from_id(problem_id: str) -> dict[str, int | str]:
             return {
                 "suite": suite,
                 "function": function,
+                "instance": instance,
+                "dimension": dimension,
+            }
+        if suite == "mabbob":
+            candidate_id, instance, dimension = (int(value) for value in match.groups())
+            return {
+                "suite": suite,
+                "candidate_id": candidate_id,
                 "instance": instance,
                 "dimension": dimension,
             }

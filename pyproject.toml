@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "coco-experiment>=2.8.2",
+    "ioh==0.3.22",
     "numpy>=2.5.1",
     "opfunu>=1.0.4",
     "pandas>=3.0.5",
@@ -53,4 +54,4 @@ requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["benchmarks*", "optimizers*", "trajectory*", "experiments*", "behavior*", "landscape_queries*", "selection_reference*", "utility_labels*", "decision*"]
+include = ["benchmarks*", "optimizers*", "trajectory*", "experiments*", "behavior*", "landscape_queries*", "selection_reference*", "utility_labels*", "decision*", "benchmarks*"]
