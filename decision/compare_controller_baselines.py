@@ -10,6 +10,15 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from decision.baseline_protocol import (
+    BASELINE_PROTOCOL,
+    BaselinePolicySpec,
+    PORTFOLIO,
+    fixed_one_switch_mask,
+    random_one_switch_mask,
+    validate_action_outcome_columns,
+    validate_baseline_state_frame,
+)
 from decision.model_protocol import ACTIVE_MODEL_NAMES, FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.matched_random import (
     MatchedRandomCalibration,
@@ -59,6 +68,9 @@ def compare_controller_baselines(
     predictions_path: Path,
     time_only_predictions_path: Path,
     behavior_only_predictions_path: Path,
+    fixed_switch_predictions_path: Path | None = None,
+    random_switch_predictions_path: Path | None = None,
+    switch_benefit_predictions_path: Path | None = None,
     output_dir: Path,
     model_name: str,
     threshold_mode: str,
@@ -119,6 +131,13 @@ def compare_controller_baselines(
         query_id,
         target_column=BEHAVIOR_TARGET_COLUMN,
     )
+    baseline_protocol = _build_optional_baseline_protocol(
+        predictions=predictions,
+        fixed_switch_predictions_path=fixed_switch_predictions_path,
+        random_switch_predictions_path=random_switch_predictions_path,
+        switch_benefit_predictions_path=switch_benefit_predictions_path,
+        random_seed=random_seed,
+    )
     _check_prediction_alignment(predictions, time_only_predictions)
     _check_behavior_prediction_alignment(predictions, behavior_only_predictions)
     policies = _policy_frames(
@@ -147,6 +166,8 @@ def compare_controller_baselines(
 
     summary = {
         "experiment": "phase1_refined_sampling_controller_baseline_comparison",
+        "baseline_protocol": BASELINE_PROTOCOL,
+        "baseline_protocol_specs": baseline_protocol,
         "query_id": query_id,
         "query_protocol": get_query_spec(query_id).protocol,
         "sample_design_id": get_query_spec(query_id).sample_design_id,
@@ -249,6 +270,50 @@ def compare_controller_baselines(
     print(f"wrote controller baseline relative summary to {output_dir / 'controller_baseline_relative_summary.parquet'}")
     print(f"wrote controller baseline report to {report_path}")
     return summary
+
+
+def _build_optional_baseline_protocol(
+    *,
+    predictions: pd.DataFrame,
+    fixed_switch_predictions_path: Path | None,
+    random_switch_predictions_path: Path | None,
+    switch_benefit_predictions_path: Path | None,
+    random_seed: int,
+) -> dict[str, Any]:
+    """Validate optional one-switch inputs without silently fabricating outcomes."""
+    specs = [
+        BaselinePolicySpec("behavior_only_das", "behavior_only", requires_action_outcomes=False),
+        BaselinePolicySpec("fixed_1switch", "fixed_one_switch", requires_action_outcomes=True),
+        BaselinePolicySpec("random_1switch", "random_one_switch", requires_action_outcomes=True),
+        BaselinePolicySpec("switch_benefit_rf", "predicted_switch_benefit", requires_action_outcomes=True),
+    ]
+    result: dict[str, Any] = {
+        "protocol": BASELINE_PROTOCOL,
+        "seed": int(random_seed),
+        "portfolio": list(PORTFOLIO),
+        "policies": [spec.__dict__ for spec in specs],
+        "optional_inputs": {},
+    }
+    for name, path in (
+        ("fixed_1switch", fixed_switch_predictions_path),
+        ("random_1switch", random_switch_predictions_path),
+        ("switch_benefit_rf", switch_benefit_predictions_path),
+    ):
+        if path is None:
+            result["optional_inputs"][name] = {"status": "not_provided"}
+            continue
+        if not path.exists():
+            raise FileNotFoundError(f"{name} baseline input does not exist: {path}")
+        frame = pq.read_table(path).to_pandas()
+        validate_baseline_state_frame(frame, artifact=f"{name} baseline input")
+        if name == "switch_benefit_rf":
+            validate_action_outcome_columns(frame)
+        result["optional_inputs"][name] = {
+            "status": "validated",
+            "path": str(path),
+            "rows": int(len(frame)),
+        }
+    return result
 
 
 def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
@@ -1343,6 +1408,9 @@ def main() -> None:
     parser.add_argument("--predictions", type=Path, default=None)
     parser.add_argument("--time-only-predictions", type=Path, default=None)
     parser.add_argument("--behavior-only-predictions", type=Path, default=None)
+    parser.add_argument("--fixed-switch-predictions", type=Path, default=None)
+    parser.add_argument("--random-switch-predictions", type=Path, default=None)
+    parser.add_argument("--switch-benefit-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--threshold-mode", default=DEFAULT_THRESHOLD_MODE)
@@ -1361,6 +1429,9 @@ def main() -> None:
         behavior_only_predictions_path=args.behavior_only_predictions
         or query_root
         / "feature_group_ablation/B3/all_accepted/validation_behavior_only_predictions.parquet",
+        fixed_switch_predictions_path=args.fixed_switch_predictions,
+        random_switch_predictions_path=args.random_switch_predictions,
+        switch_benefit_predictions_path=args.switch_benefit_predictions,
         output_dir=args.output_dir or query_root / "controller_baseline_comparison",
         model_name=args.model_name,
         threshold_mode=args.threshold_mode,

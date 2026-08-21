@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -36,11 +38,15 @@ def make_problem(config: dict) -> Problem:
             dimension=dimension,
         )
     if suite == "mabbob":
+        manifest_entry = config.get("manifest_entry")
+        if manifest_entry is None:
+            manifest_entry = _load_mabbob_manifest_entry(config)
         return make_mabbob_problem(
             candidate_id=int(config.get("candidate_id", config.get("function", 1))),
             dimension=dimension,
             instance=int(config.get("instance", 1)),
             boundary_handling=str(config.get("boundary_handling", "clip")),
+            manifest_entry=manifest_entry,
         )
 
     raise ValueError(f"unsupported benchmark suite: {suite}")
@@ -54,6 +60,34 @@ def problem_bounds(problem_id: str) -> tuple[np.ndarray, np.ndarray]:
         return problem.lower_bounds.copy(), problem.upper_bounds.copy()
     finally:
         problem.close()
+
+
+def _manifest_path_from_config(config: dict) -> Path | None:
+    output = config.get("output")
+    if output:
+        output_path = Path(str(output))
+        candidate = output_path.with_name("mabbob_diversity_manifest.json")
+        if candidate.exists():
+            return candidate
+    manifest_path = config.get("manifest_path")
+    if manifest_path:
+        path = Path(str(manifest_path))
+        if path.exists():
+            return path
+    return None
+
+
+def _load_mabbob_manifest_entry(config: dict) -> dict | None:
+    manifest_path = _manifest_path_from_config(config)
+    if manifest_path is None:
+        return None
+    function = int(config.get("candidate_id", config.get("function", 1)))
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    for entry in manifest.get("selected", []):
+        if int(entry.get("candidate_id", -1)) == function:
+            return entry
+    return None
 
 
 def _problem_config_from_id(problem_id: str) -> dict[str, int | str]:

@@ -8,6 +8,8 @@ seeds: [1, 2]
 FE_total_by_dimension:
   10: 10000
 population_size: 40
+efficacy_repetitions: 1
+efficacy_aggregation: median
 failure_loss_cap: 1.0e20
 log10_gap_floor: 1.0e-12
 log10_gap_cap: 1.0e20

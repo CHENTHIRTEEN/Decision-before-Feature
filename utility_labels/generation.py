@@ -32,7 +32,7 @@ from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCH
 from utility_labels.efficacy import (
     EFFICACY_FORMULA_PROTOCOL,
     efficacy_bounded,
-    efficacy_log,
+    efficacy_from_repetitions,
     meaningful_efficacy_label,
     positive_efficacy_label,
     problem_scale_epsilon,
@@ -636,6 +636,7 @@ def paired_utility_label_view(
         "clipped_log10_gap_difference_minus_lambda_log10_complete_path_runtime_ratio"
     )
     output["efficacy_formula_protocol"] = EFFICACY_FORMULA_PROTOCOL
+    output["efficacy_label_contract_protocol"] = "equal_total_fe_log_gap_ratio_v1_repetition_aware"
     output["log10_gap_floor"] = floor
     output["log10_gap_cap"] = cap
     output["log10_gap_skip"] = log_skip
@@ -774,10 +775,11 @@ def paired_utility_label_view(
         output["p_query_raw"].to_numpy(dtype=float) - benchmark_ref,
         0.0,
     )
-    g_fe = efficacy_log(
-        gap_skip=e_skip,
-        gap_query=e_query,
+    g_fe, repetition_stats = efficacy_from_repetitions(
+        gap_skip_reps=[e_skip],
+        gap_query_reps=[e_query],
         epsilon_p=epsilon_p,
+        aggregation="median",
     )
     g_fe_bounded = efficacy_bounded(
         gap_skip=e_skip,
@@ -786,6 +788,21 @@ def paired_utility_label_view(
     )
     output["g_fe"] = g_fe
     output["g_fe_bounded"] = g_fe_bounded
+    output["g_fe_n_repetitions"] = repetition_stats["n_repetitions"]
+    output["g_fe_sign_flip_rate"] = repetition_stats["sign_flip_rate"]
+    output["g_fe_aggregation"] = "median"
+    output["g_fe_uncertainty_protocol"] = "t_interval_95_v1"
+    for column, values in repetition_stats.items():
+        if column == "n_repetitions":
+            continue
+        output[column] = values
+    # Keep a fixed parquet contract while allowing legacy R=1 inputs. Missing
+    # repetitions remain null and are never interpreted as observed repeats.
+    from utility_labels.fields import PAIR_REPETITION_SERIES_COLUMNS
+
+    for column in PAIR_REPETITION_SERIES_COLUMNS:
+        if column not in output:
+            output[column] = np.nan
     output["g_fe_gt_zero"] = positive_efficacy_label(g_fe)
     # canonical action_loss columns already populated upstream
     # delta_practical is set externally; default to 0.0 before calibration
@@ -1482,6 +1499,9 @@ def utility_schema() -> pa.Schema:
         "timing_environment_id",
         "peak_memory_measurement_status",
         "efficacy_formula_protocol",
+        "g_fe_aggregation",
+        "g_fe_uncertainty_protocol",
+        "efficacy_label_contract_protocol",
     }
     boolean_columns = {
         "selected_equals_default",
@@ -1555,6 +1575,7 @@ def utility_schema() -> pa.Schema:
         "g_fe_gt_practical",
     }
     integer_columns = {
+        "g_fe_n_repetitions",
         "dimension",
         "seed",
         "FE",

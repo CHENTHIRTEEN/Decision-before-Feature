@@ -190,7 +190,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "coco-experiment", specifier = ">=2.8.2" },
-    { name = "ioh", specifier = "<=0.3.22" },
+    { name = "ioh", specifier = "==0.3.22" },
     { name = "numpy", specifier = ">=2.5.1" },
     { name = "opfunu", specifier = ">=1.0.4" },
     { name = "pandas", specifier = ">=3.0.5" },

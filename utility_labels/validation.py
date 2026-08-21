@@ -35,6 +35,9 @@ from utility_labels.fields import (
     SCIENTIFIC_PATH_STATUS_PROTOCOL,
     TIMING_REPLAY_STATUSES,
     TIMING_REPLAY_STATUS_PROTOCOL,
+    PAIR_REPETITION_COUNT_COLUMNS,
+    PAIR_REPETITION_SERIES_COLUMNS,
+    PAIR_REPETITION_SUMMARY_COLUMNS,
     UTILITY_LAMBDAS,
     UTILITY_VALUE_COLUMNS,
 )
@@ -108,6 +111,7 @@ def _validate_row(row: dict) -> None:
     _validate_complete_path_timing(row)
     _validate_utility_values(row)
     _validate_efficacy(row)
+    _validate_efficacy_repetition_contract(row)
     _validate_ert(row)
 
 
@@ -604,12 +608,71 @@ def _validate_efficacy(row: dict) -> None:
     )
     if "action_loss" in row and not isclose(float(row["action_loss"]), float(row[PRIMARY_EFFICACY_VALUE_COLUMN]), rel_tol=0.0, abs_tol=EPS):
         raise ValueError("action_loss must match the primary efficacy value")
-    if not isclose(g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
+    repetitions = int(row.get("g_fe_n_repetitions", 1))
+    if repetitions == 1 and not isclose(g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
         raise ValueError(
             f"{PRIMARY_EFFICACY_VALUE_COLUMN} is inconsistent: got {g_fe}, expected {expected_g_fe}"
         )
     if bool(row[PRIMARY_EFFICACY_LABEL_COLUMN]) != (g_fe > 0.0):
         raise ValueError(f"{PRIMARY_EFFICACY_LABEL_COLUMN} must equal {PRIMARY_EFFICACY_VALUE_COLUMN} > 0")
+
+
+def _validate_efficacy_repetition_contract(row: dict) -> None:
+    required = {
+        *PAIR_REPETITION_COUNT_COLUMNS,
+        *PAIR_REPETITION_SERIES_COLUMNS,
+        *PAIR_REPETITION_SUMMARY_COLUMNS,
+        "g_fe_aggregation",
+        "g_fe_uncertainty_protocol",
+        "efficacy_label_contract_protocol",
+    }
+    missing = sorted(required.difference(row))
+    if missing:
+        raise ValueError(f"efficacy repetition contract is missing columns: {missing}")
+    repetitions = int(row["g_fe_n_repetitions"])
+    if repetitions < 1 or repetitions > len(PAIR_REPETITION_SERIES_COLUMNS):
+        raise ValueError("g_fe_n_repetitions must be between 1 and the supported series width")
+    if str(row["g_fe_aggregation"]) not in {"median", "mean", "trimmed_mean"}:
+        raise ValueError("g_fe_aggregation is unsupported")
+    if str(row["g_fe_uncertainty_protocol"]) != "t_interval_95_v1":
+        raise ValueError("g_fe_uncertainty_protocol is inconsistent")
+    if str(row["efficacy_label_contract_protocol"]) != "equal_total_fe_log_gap_ratio_v1_repetition_aware":
+        raise ValueError("efficacy_label_contract_protocol is inconsistent")
+    repetitions_values = np.asarray(
+        [row[column] for column in PAIR_REPETITION_SERIES_COLUMNS], dtype=float
+    )
+    observed = repetitions_values[:repetitions]
+    missing_tail = repetitions_values[repetitions:]
+    if not np.isfinite(observed).all():
+        raise ValueError("observed g_fe repetitions must be finite")
+    if missing_tail.size and np.isfinite(missing_tail).any():
+        raise ValueError("unobserved g_fe repetitions must remain null")
+    median = float(np.median(observed))
+    mean = float(np.mean(observed))
+    std = float(np.std(observed, ddof=1)) if repetitions > 1 else 0.0
+    if not isclose(float(row["g_fe_median"]), median, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("g_fe_median is inconsistent with repetition values")
+    if not isclose(float(row["g_fe_mean"]), mean, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("g_fe_mean is inconsistent with repetition values")
+    if not isclose(float(row["g_fe_std"]), std, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("g_fe_std is inconsistent with repetition values")
+    ci_low = float(row["g_fe_ci_low"])
+    ci_high = float(row["g_fe_ci_high"])
+    ci_width = float(row["g_fe_ci_width"])
+    if not all(isfinite(value) for value in (ci_low, ci_high, ci_width)):
+        raise ValueError("g_fe confidence interval fields must be finite")
+    if not isclose(ci_width, ci_high - ci_low, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("g_fe_ci_width is inconsistent")
+    signs = np.sign(observed)
+    expected_flips = float(
+        sum(signs[index] != signs[index - 1] and signs[index] != 0 and signs[index - 1] != 0
+            for index in range(1, repetitions))
+        / max(repetitions - 1, 1)
+    )
+    if not isclose(float(row["g_fe_sign_flip_rate"]), expected_flips, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("g_fe_sign_flip_rate is inconsistent")
+    if not isclose(float(row[PRIMARY_EFFICACY_VALUE_COLUMN]), median, rel_tol=0.0, abs_tol=EPS):
+        raise ValueError("primary g_fe must equal the robust median efficacy")
 
 
 def _validate_utility_values(row: dict) -> None:

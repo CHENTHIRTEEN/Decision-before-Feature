@@ -1,5 +1,7 @@
 # MA-BBOB 方案总结
 
+> **📚 相关实施文档**：`scheme_mabbob_diversity_pilot.md` — MA-BBOB diversity pilot 完整方案与实施细节
+
 ## 核心思路
 
 本次实验不建议继续采用“BBOB 固定若干函数 × 30 seeds × 大量重复”的数据采集方式，而应将数据采集目标改为：
@@ -67,6 +69,13 @@ MA-BBOB 的价值在于通过函数组合
 > **Pure BBOB anchors + MA-BBOB bridges**
 >
 > 纯 BBOB 锚点 + MA-BBOB 桥接景观
+
+**✅ 已实施**：参考 RL-DAS 的数据集生成方法，已实现 manifest 驱动的 MA-BBOB diversity pilot。详见 `scheme_mabbob_diversity_pilot.md`。
+
+- **42 个定义的 diversity 池**：A 锚点 10 + B 跨类 bridge 16 + C sparse K=3 10 + D composition-like 6
+- **24 个正式子集**：分层配额选择（8 anchor + 8 pairwise + 4 triple + 4 dense）
+- **生成器**：`generate-mabbob-diversity-pool` CLI
+- **选择器**：`select-mabbob-formal-subset` CLI
 
 具体而言：
 
@@ -155,6 +164,16 @@ Z^{behavior}_p = [Z_{DE}, Z_{PSO}, Z_{CMA}, Z_{SHADE}].
 | Prefix seeds              |                        5–8 |                       5–8 |
 | Algorithms                |           DE/PSO/CMA/SHADE |                      同上 |
 
+**✅ 已实施的 pilot 规模**：
+| 部分 | 数量 |
+|------|------|
+| Pure BBOB anchors | 10 |
+| MA-BBOB pairwise bridges | 16 |
+| MA-BBOB sparse 3-way | 10 |
+| MA-BBOB dense/composition-like | 6 |
+| **Pilot 总计** | **42** |
+| **Formal 子集** | **24** |
+
 40D 建议在协议开发阶段作为 **dimension stress test**：
 
 \[
@@ -164,6 +183,8 @@ D_{train}=\{10,20\},\qquad D_{stress}=40.
 如果论文不主张跨维度泛化，则模型冻结后可以再将 40D 加回正式训练；如果主张跨维度泛化，则应将 40D 严格作为独立压力测试或 OOD 维度，而不是在开发过程中随意混入训练集。
 
 ## 避免 MA-BBOB 的 component leakage
+
+**✅ 已实施**：manifest 中每个 entry 带 `is_val_component` 标记，选择脚本默认排除 val component 进入 train 正式集。
 
 当前的函数划分为：
 

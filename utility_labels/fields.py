@@ -8,6 +8,10 @@ TIMING_REPLAY_STATUS_PROTOCOL = "stage_b_completed_timed_out_failed_v1"
 TIMING_REPLAY_STATUSES = frozenset({"completed", "timed_out", "failed"})
 
 EFFICACY_FORMULA_PROTOCOL = "equal_total_fe_log_gap_ratio_v1"
+EFFICACY_LABEL_CONTRACT_PROTOCOL = "equal_total_fe_log_gap_ratio_v1_repetition_aware"
+EFFICACY_REPETITION_PROTOCOL = "paired_continuation_repetitions_v1"
+EFFICACY_AGGREGATION_DEFAULT = "median"
+EFFICACY_UNCERTAINTY_PROTOCOL = "t_interval_95_v1"
 EFFICACY_COLUMNS = (
     "g_fe",
     "g_fe_bounded",
@@ -15,6 +19,25 @@ EFFICACY_COLUMNS = (
     "g_fe_gt_practical",
     "epsilon_p",
     "delta_practical",
+)
+
+PAIR_REPETITION_COUNT_COLUMNS = (
+    "g_fe_n_repetitions",
+    "g_fe_sign_flip_rate",
+    "g_fe_aggregation",
+    "g_fe_uncertainty_protocol",
+    "efficacy_label_contract_protocol",
+)
+PAIR_REPETITION_SERIES_COLUMNS = tuple(
+    f"g_fe_rep_{index}" for index in range(1, 6)
+)
+PAIR_REPETITION_SUMMARY_COLUMNS = (
+    "g_fe_median",
+    "g_fe_mean",
+    "g_fe_std",
+    "g_fe_ci_low",
+    "g_fe_ci_high",
+    "g_fe_ci_width",
 )
 
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
@@ -460,4 +483,7 @@ UTILITY_COLUMNS = (
     *NEED_QUERY_COLUMNS,
     *NEED_BEHAVIOR_ONLY_COLUMNS,
     *EFFICACY_COLUMNS,
+    *PAIR_REPETITION_COUNT_COLUMNS,
+    *PAIR_REPETITION_SERIES_COLUMNS,
+    *PAIR_REPETITION_SUMMARY_COLUMNS,
 )

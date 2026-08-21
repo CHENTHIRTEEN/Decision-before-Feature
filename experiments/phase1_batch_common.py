@@ -5,6 +5,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Literal
 
+import json
 import yaml
 
 from benchmarks.bbob import (
@@ -26,7 +27,10 @@ FUNCTION_FAMILY_PROTOCOL_BY_SUITE = {
     "cec2022": "cec2022_unassigned_landscape_family_v1",
     "mabbob": "mabbob_affine_combination_v1",
 }
+MABBBOB_DIVERSITY_MANIFEST_NAME = "mabbob_diversity_manifest.json"
 REQUIRED_ENDPOINT_FIELDS = (
+    "efficacy_repetitions",
+    "efficacy_aggregation",
     "failure_loss_cap",
     "log10_gap_floor",
     "log10_gap_cap",
@@ -182,6 +186,13 @@ def _validate_endpoint_config(config: dict) -> None:
     missing = [field for field in REQUIRED_ENDPOINT_FIELDS if field not in config]
     if missing:
         raise ValueError(f"formal suite config is missing endpoint fields: {missing}")
+
+    efficacy_repetitions = int(config["efficacy_repetitions"])
+    if efficacy_repetitions not in {1, 3, 5}:
+        raise ValueError("efficacy_repetitions must be one of 1, 3, or 5")
+    aggregation = str(config["efficacy_aggregation"])
+    if aggregation not in {"median", "mean", "trimmed_mean"}:
+        raise ValueError("efficacy_aggregation must be median, mean, or trimmed_mean")
 
     failure_cap = float(config["failure_loss_cap"])
     gap_floor = float(config["log10_gap_floor"])
