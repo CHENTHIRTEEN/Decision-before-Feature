@@ -70,7 +70,7 @@ from trajectory.window_statistics import NativeUpdateWindowRecorder
 
 
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
-DEFAULT_TRAIN_CONFIG_PATH = Path("configs/phase1_bbob_train.yaml")
+DEFAULT_TRAIN_CONFIG_PATH = Path("configs/phase1_train.yaml")
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
 DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
 DEFAULT_RANDOM_REPETITIONS = 30
@@ -1899,6 +1899,7 @@ def _tracked_problem(
         objective=objective,
         reference_value=problem.reference_value,
         close_callback=problem.close,
+        boundary_handling=problem.boundary_handling,
     )
 
 

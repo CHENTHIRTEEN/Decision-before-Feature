@@ -125,6 +125,12 @@ class CMAESState:
     evaluations: int
     best_fitness: float
     best_position: np.ndarray
+    # Upper bound applied to sigma after each update. Defaults to inf so
+    # hand-built states keep their exact behavior; native and transferred
+    # initialization set it to 3x the mean domain span, far above any healthy
+    # native sigma (observed max ~1.2x the 0.3*span initialization) but low
+    # enough to stop sigma divergence from producing inf/nan populations.
+    sigma_upper_bound: float = float("inf")
 
     @property
     def algorithm(self) -> str:
@@ -610,7 +616,13 @@ def _finish_cmaes_generation(state: CMAESState) -> None:
         + strategy.c_mu * rank_mu
     )
     state.covariance_matrix = 0.5 * (state.covariance_matrix + state.covariance_matrix.T)
-    state.sigma *= exp((strategy.c_sigma / strategy.damping) * (path_norm / strategy.chi_n - 1.0))
+    # Ill-conditioned covariance can inflate path_norm so that exp() overflows
+    # (OverflowError at sigma *= exp(...)). The clip is exact identity whenever the
+    # exponent stays within +/-50 and only caps otherwise-divergent sigma growth,
+    # following the sigma-explosion safeguards behind pycma's TolUpX criterion.
+    sigma_exponent = (strategy.c_sigma / strategy.damping) * (path_norm / strategy.chi_n - 1.0)
+    state.sigma *= exp(float(np.clip(sigma_exponent, -50.0, 50.0)))
+    state.sigma = float(min(state.sigma, state.sigma_upper_bound))
     state.sigma = float(max(state.sigma, np.finfo(float).tiny))
     _update_cmaes_eigensystem(state)
     state.population = population
@@ -729,7 +741,9 @@ def _empty_cmaes_state(
 ) -> CMAESState:
     dimension = problem.dimension
     mean = (problem.lower_bounds + problem.upper_bounds) / 2.0
-    sigma = 0.3 * float(np.mean(problem.upper_bounds - problem.lower_bounds))
+    span_mean = float(np.mean(problem.upper_bounds - problem.lower_bounds))
+    sigma = 0.3 * span_mean
+    sigma_upper_bound = 3.0 * span_mean
     covariance = np.eye(dimension, dtype=float)
     strategy = _cmaes_strategy_state(dimension, population_size, covariance)
     return CMAESState(
@@ -746,6 +760,7 @@ def _empty_cmaes_state(
         evaluations=0,
         best_fitness=float("inf"),
         best_position=mean.copy(),
+        sigma_upper_bound=sigma_upper_bound,
     )
 
 
@@ -764,10 +779,21 @@ def _transferred_cmaes_state(
     mean = np.sum(weights[:, None] * population[order[: len(weights)]], axis=0)
     centered = population - np.mean(population, axis=0)
     sample_covariance = centered.T @ centered / max(population_size - 1, 1)
+    # A population of size N contributes at most rank N-1: at population_size <=
+    # dimension the raw sample covariance is rank-deficient, so its inverse square
+    # root amplifies null-space directions up to the absolute 1e-30 eigenvalue floor
+    # and overflows the sigma update. Floor eigenvalues relative to the largest one
+    # (warm-start covariance regularization as in WS-CMA-ES and pycma conditioning
+    # safeguards) and derive sigma from the median floored eigenvalue.
+    covariance_eigenvalues, covariance_eigenvectors = np.linalg.eigh(sample_covariance)
+    eigenvalue_floor = max(float(np.max(covariance_eigenvalues)) * 1e-10, np.finfo(float).tiny)
+    covariance_eigenvalues = np.maximum(covariance_eigenvalues, eigenvalue_floor)
     span_mean = float(np.mean(problem.upper_bounds - problem.lower_bounds))
-    sigma = float(max(np.mean(np.std(population, axis=0)), 1e-6 * span_mean))
-    covariance = sample_covariance / max(sigma * sigma, np.finfo(float).tiny)
-    covariance += np.eye(dimension, dtype=float) * 1e-12
+    sigma = float(sqrt(float(np.median(covariance_eigenvalues))))
+    sigma = float(np.clip(sigma, 1e-6 * span_mean, 0.3 * span_mean))
+    covariance = (covariance_eigenvectors * covariance_eigenvalues) @ covariance_eigenvectors.T
+    covariance /= max(sigma * sigma, np.finfo(float).tiny)
+    covariance = 0.5 * (covariance + covariance.T)
     strategy = _cmaes_strategy_state(dimension, population_size, covariance)
     return CMAESState(
         population=population,
@@ -783,6 +809,7 @@ def _transferred_cmaes_state(
         evaluations=0,
         best_fitness=best_fitness,
         best_position=best_position,
+        sigma_upper_bound=3.0 * span_mean,
     )
 
 
@@ -805,7 +832,8 @@ def _cmaes_strategy_state(
     damping = float(1.0 + 2.0 * max(0.0, sqrt((mu_effective - 1.0) / (dimension + 1.0)) - 1.0) + c_sigma)
     chi_n = float(sqrt(dimension) * (1.0 - 1.0 / (4.0 * dimension) + 1.0 / (21.0 * dimension * dimension)))
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-    eigenvalues = np.maximum(eigenvalues, 1e-30)
+    eigenvalue_floor = max(float(np.max(eigenvalues)) * 1e-10, np.finfo(float).tiny)
+    eigenvalues = np.maximum(eigenvalues, eigenvalue_floor)
     axis_scales = np.sqrt(eigenvalues)
     inverse = eigenvectors @ np.diag(1.0 / axis_scales) @ eigenvectors.T
     return CMAESStrategyState(
@@ -825,7 +853,13 @@ def _cmaes_strategy_state(
 
 def _update_cmaes_eigensystem(state: CMAESState) -> None:
     eigenvalues, eigenvectors = np.linalg.eigh(state.covariance_matrix)
-    eigenvalues = np.maximum(eigenvalues, 1e-30)
+    # Relative eigenvalue floor: with population_size <= dimension every rank-mu
+    # update keeps injecting rank-deficient components, and an absolute floor
+    # lets C^{-1/2} amplify those directions (sigma divergence). Healthy native
+    # covariances stay far below this conditioning bound (observed max ~1.4e3),
+    # so the floor is an identity operation on native paths.
+    eigenvalue_floor = max(float(np.max(eigenvalues)) * 1e-10, np.finfo(float).tiny)
+    eigenvalues = np.maximum(eigenvalues, eigenvalue_floor)
     state.covariance_matrix = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
     strategy = state.strategy_state
     strategy.eigenvectors = eigenvectors

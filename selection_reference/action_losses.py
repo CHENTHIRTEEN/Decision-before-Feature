@@ -16,12 +16,14 @@ from benchmarks.core import Problem
 from experiments.phase1_batch_common import (
     algorithms,
     as_int_list,
+    expand_suite_configs,
     fe_total_for_dimension,
     function_id_name,
     landscape_family_name,
     load_config,
     make_shards,
     require_complete_shard_outputs,
+    runtime_problem_config,
 )
 from landscape_queries.specs import SAMPLE_DESIGN_SPECS, get_sample_design_spec
 from optimizers import (
@@ -133,7 +135,39 @@ class _TimedObjective:
             bounds=self.problem.bounds.copy(),
             objective=self,
             reference_value=self.problem.reference_value,
+            boundary_handling=self.problem.boundary_handling,
         )
+
+
+def resolve_action_loss_config(config_path: Path, *, suite_split: str | None) -> dict:
+    """Resolve one flat suite config for action-loss generation.
+
+    Combined configs expand to their per-suite sections; exactly one storage
+    split must remain after filtering, so a single `--output` always maps to
+    one suite and one split.
+    """
+    sections = expand_suite_configs(load_config(config_path))
+    if len(sections) == 1:
+        config = sections[0]
+        if suite_split is not None and split_name(config) != suite_split:
+            raise ValueError(
+                f"--suite-split {suite_split} does not match the single-suite config "
+                f"{config_path} ({split_name(config)})"
+            )
+        return config
+    if suite_split is None:
+        available = [split_name(section) for section in sections]
+        raise ValueError(
+            f"{config_path} is a combined config; pass --suite-split one of {available}"
+        )
+    matches = [section for section in sections if split_name(section) == suite_split]
+    if len(matches) != 1:
+        available = [split_name(section) for section in sections]
+        raise ValueError(
+            f"--suite-split {suite_split} matched no suite section in {config_path}; "
+            f"available: {available}"
+        )
+    return matches[0]
 
 
 def generate_state_action_losses(
@@ -150,12 +184,13 @@ def generate_state_action_losses(
     max_states: int | None,
     workers: int,
     overwrite: bool,
+    suite_split: str | None = None,
 ) -> dict[str, int | str]:
     if output_path.exists():
         if not overwrite:
             raise FileExistsError(f"state-action loss output already exists; pass --overwrite: {output_path}")
         output_path.unlink()
-    config = load_config(config_path)
+    config = resolve_action_loss_config(config_path, suite_split=suite_split)
     if action_budget_mode not in ACTION_BUDGET_MODES:
         raise ValueError(f"unsupported action budget mode: {action_budget_mode}")
     if action_budget_mode in {QUERY_ADJUSTED_BUDGET, PRE_RUN_QUERY_ADJUSTED_BUDGET}:
@@ -912,7 +947,11 @@ def _evaluate_shard_rows(
         if not all_prefixes and prefix_algorithm != default_algorithm:
             continue
         function, instance, dimension = _parse_problem_id(problem_id, suite=suite)
-        problem = make_problem({"suite": suite, "function": function, "instance": instance, "dimension": dimension})
+        problem = make_problem(
+            runtime_problem_config(
+                config, function=function, instance=instance, dimension=dimension
+            )
+        )
         final_performance_row = final_by_run[(problem_id, prefix_algorithm, seed)]
         if not bool(final_performance_row.get("path_completed", True)):
             continue
@@ -1057,12 +1096,9 @@ def _evaluate_pre_run_shard(
     used_states = 0
     for instance in as_int_list(config, "instances"):
         problem = make_problem(
-            {
-                "suite": suite,
-                "function": int(function),
-                "instance": int(instance),
-                "dimension": int(dimension),
-            }
+            runtime_problem_config(
+                config, function=int(function), instance=int(instance), dimension=int(dimension)
+            )
         )
         try:
             reference_value = problem.reference_value
@@ -1415,6 +1451,11 @@ def _parse_problem_id(problem_id: str, *, suite: str) -> tuple[int, int, int]:
         if match is None:
             raise ValueError(f"invalid BBOB problem_id: {problem_id}")
         return tuple(int(value) for value in match.groups())
+    if suite_name == "mabbob":
+        match = re.match(r"^mabbob_c(\d{3})_i(\d+)_d(\d+)$", problem_id)
+        if match is None:
+            raise ValueError(f"invalid MA-BBOB problem_id: {problem_id}")
+        return tuple(int(value) for value in match.groups())
     if suite_name in {"cec2017", "cec2022"}:
         match = re.match(rf"^{suite_name}_f(\d{{2}})_d(\d+)$", problem_id)
         if match is None:
@@ -1597,7 +1638,13 @@ def main() -> None:
         description="Evaluate every portfolio action from each shared optimizer state."
     )
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--train-config", type=Path, default=Path("configs/phase1_bbob_train.yaml"))
+    parser.add_argument("--train-config", type=Path, default=Path("configs/phase1_train.yaml"))
+    parser.add_argument(
+        "--suite-split",
+        default=None,
+        help="Storage split to select when --config is a combined config "
+        "(e.g. mabbob_validation); single-suite configs must match it if given.",
+    )
     parser.add_argument("--action-budget-mode", choices=ACTION_BUDGET_MODES, required=True)
     parser.add_argument("--sample-design-id", choices=sorted(SAMPLE_DESIGN_SPECS), default=None)
     parser.add_argument("--output", type=Path, required=True)
@@ -1629,6 +1676,7 @@ def main() -> None:
         max_states=args.max_states,
         workers=args.workers,
         overwrite=args.overwrite,
+        suite_split=args.suite_split,
     )
 
 

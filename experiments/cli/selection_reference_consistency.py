@@ -64,7 +64,13 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
     checked = 0
 
     problem = make_problem(
-        {"suite": "bbob", "function": function, "instance": instance, "dimension": dimension}
+        {
+            "suite": "bbob",
+            "function": function,
+            "instance": instance,
+            "dimension": dimension,
+            "boundary_handling": str(config.get("boundary_handling", "clip")),
+        }
     )
     try:
         for prefix_algorithm in portfolio:
@@ -155,7 +161,13 @@ def _check_query_specific_regression(
         instance = int(config["instances"][0])
         fe_total = fe_total_for_dimension(config, dimension)
         problem = make_problem(
-            {"suite": "bbob", "function": function, "instance": instance, "dimension": dimension}
+            {
+                "suite": "bbob",
+                "function": function,
+                "instance": instance,
+                "dimension": dimension,
+                "boundary_handling": str(config.get("boundary_handling", "clip")),
+            }
         )
         try:
             sample = sample_problem(
@@ -543,7 +555,13 @@ def _check_action_loss_budget_separation(
     fe_total = fe_total_for_dimension(config, dimension)
     prefix_algorithm = portfolio[0]
     problem = make_problem(
-        {"suite": "bbob", "function": function, "instance": instance, "dimension": dimension}
+        {
+            "suite": "bbob",
+            "function": function,
+            "instance": instance,
+            "dimension": dimension,
+            "boundary_handling": str(config.get("boundary_handling", "clip")),
+        }
     )
     frames = []
     try:
@@ -654,7 +672,7 @@ def _milestone_sampling_metadata(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check query-specific shared-state candidate actions on real BBOB.")
-    parser.add_argument("--config", type=Path, default=Path("configs/phase1_bbob_train.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/phase1_train.yaml"))
     args = parser.parse_args()
     check_state_action_continuations(config_path=args.config)
 
