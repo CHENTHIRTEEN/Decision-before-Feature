@@ -10,7 +10,7 @@ from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 OPTIMIZER_STATE_MODE = "native_optimizer_state_with_dynamic_sampling_v4"
 
 
-@dataclass(frozen=True)
+@dataclass
 class TrajectoryRecord:
     problem_id: str
     function_id: str

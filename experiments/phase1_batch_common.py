@@ -18,8 +18,8 @@ from optimizers.settings import OptimizerSettings
 from trajectory.sampling import get_sampling_spec
 
 
-FROZEN_PHASE1_POPULATION_SIZE = 40
-FROZEN_PHASE1_FE_PER_DIMENSION = 1000
+PREDEFINED_PHASE1_POPULATION_SIZE = 40
+PREDEFINED_PHASE1_FE_PER_DIMENSION = 1000
 SUPPORTED_PHASE1_SUITES = ("bbob", "cec2017", "cec2022", "mabbob")
 FUNCTION_FAMILY_PROTOCOL_BY_SUITE = {
     "bbob": BBOB_FUNCTION_FAMILY_PROTOCOL,
@@ -47,7 +47,7 @@ TIMING_REPETITIONS = 3
 TIMING_ORDER_PROTOCOL = "cyclic_complete_path_v1"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Shard:
     suite: str
     function: int
@@ -127,7 +127,7 @@ def algorithms(config: dict) -> list[str]:
         raise ValueError(f"unsupported algorithms: {unsupported}")
     if tuple(names) != SUPPORTED_ALGORITHMS:
         raise ValueError(
-            "formal algorithm portfolio must be exactly de, pso, cmaes, shade in frozen order"
+            "formal algorithm portfolio must be exactly de, pso, cmaes, shade in predefined order"
         )
     return names
 
@@ -148,7 +148,7 @@ def validate_dynamic_collection_config(config: dict) -> None:
         )
     if "checkpoint_ratios" in config:
         raise ValueError(
-            "checkpoint_ratios is not part of the frozen dynamic protocol; "
+            "checkpoint_ratios is not part of the predefined dynamic protocol; "
             "use sampling_protocol instead"
         )
 
@@ -156,10 +156,10 @@ def validate_dynamic_collection_config(config: dict) -> None:
         str(config.get("sampling_protocol", ""))
     ).protocol
     population_size = int(config["population_size"])
-    if population_size != FROZEN_PHASE1_POPULATION_SIZE:
+    if population_size != PREDEFINED_PHASE1_POPULATION_SIZE:
         raise ValueError(
             "formal phase1 population_size must be exactly "
-            f"{FROZEN_PHASE1_POPULATION_SIZE}"
+            f"{PREDEFINED_PHASE1_POPULATION_SIZE}"
         )
 
     algorithms(config)
@@ -170,7 +170,7 @@ def validate_dynamic_collection_config(config: dict) -> None:
     _validate_endpoint_config(config)
     for dimension in dimensions:
         fe_total = fe_total_for_dimension(config, dimension)
-        expected_fe_total = FROZEN_PHASE1_FE_PER_DIMENSION * dimension
+        expected_fe_total = PREDEFINED_PHASE1_FE_PER_DIMENSION * dimension
         if fe_total != expected_fe_total:
             raise ValueError(
                 f"formal phase1 FE_total for {dimension}D must be "
@@ -262,6 +262,85 @@ def split_name(config: dict) -> str:
     return stem[: -len(suffix)] if stem.endswith(suffix) else stem
 
 
+# Keys a combined-config suite section may override. Everything else
+# (dimensions, seeds, budgets, endpoints, boundary handling, algorithms,
+# sampling protocol) is shared across suites of one split so the predefined
+# per-suite specs cannot drift apart.
+COMBINED_CONFIG_SUITE_KEYS = (
+    "suite",
+    "split",
+    "functions",
+    "instances",
+    "function_family_protocol",
+    "output",
+    "manifest_path",
+    "selection_manifest_path",
+)
+
+
+def expand_suite_configs(config: dict) -> list[dict]:
+    """Expand a combined multi-suite config into flat per-suite configs.
+
+    Combined configs carry a `suites` list; all other top-level keys are
+    shared. Each suite section keeps its own storage `split` and `output` so
+    the on-disk shard layout and downstream split-name read contracts
+    (bbob_train / mabbob_formal / ...) stay unchanged. The top-level
+    `dataset` label is the logical train/validation identity only.
+    """
+    sections = config.get("suites")
+    if sections is None:
+        return [config]
+    if not isinstance(sections, list) or not sections:
+        raise ValueError("combined config must define a non-empty suites list")
+    common = {key: value for key, value in config.items() if key not in ("suites", "dataset")}
+    expanded: list[dict] = []
+    seen_suites: set[str] = set()
+    for section in sections:
+        if not isinstance(section, dict):
+            raise ValueError("each suites entry must be a mapping")
+        unknown = sorted(set(section).difference(COMBINED_CONFIG_SUITE_KEYS))
+        if unknown:
+            raise ValueError(
+                "suite sections may only override "
+                f"{sorted(COMBINED_CONFIG_SUITE_KEYS)}; got {unknown}"
+            )
+        suite = str(section.get("suite", "")).lower()
+        if suite in seen_suites:
+            raise ValueError(f"combined config repeats suite {suite}")
+        seen_suites.add(suite)
+        suite_config = dict(common)
+        suite_config.update(section)
+        expanded.append(suite_config)
+    return expanded
+
+
+def load_suite_configs(path: Path) -> list[dict]:
+    return expand_suite_configs(load_config(path))
+
+
+def runtime_problem_config(config: dict, *, function: int, instance: int, dimension: int) -> dict:
+    """Build the per-run benchmark config.
+
+    Every suite forwards `boundary_handling` when declared so formal runs
+    cannot silently fall back to a per-suite default boundary rule; MA-BBOB
+    additionally requires `manifest_path` so problem construction cannot
+    silently fall back to the legacy generator.
+    """
+    problem_config = {
+        "suite": config["suite"],
+        "function": function,
+        "instance": instance,
+        "dimension": dimension,
+    }
+    if "boundary_handling" in config:
+        problem_config["boundary_handling"] = config["boundary_handling"]
+    if str(config["suite"]).lower() == "mabbob":
+        problem_config["candidate_id"] = function
+        if "manifest_path" in config:
+            problem_config["manifest_path"] = config["manifest_path"]
+    return problem_config
+
+
 def function_id_name(suite: str, function: int) -> str:
     suite_name = str(suite).lower()
     if suite_name == "bbob":
@@ -311,8 +390,16 @@ def selected_dimensions(config: dict, only_dimensions: list[int] | None = None) 
 
 
 def shard_output_path(config: dict, function: int, dimension: int) -> Path:
+    suite = str(config["suite"]).lower()
     base_dir = Path(config["output"]).parent / split_name(config)
-    return base_dir / function_id_name(str(config["suite"]), function) / f"dimension_{dimension}" / "trajectories.parquet"
+    # CEC function_id is intentionally an unassigned landscape family label,
+    # but shard storage still needs a unique directory for each function.
+    directory_name = (
+        f"{suite}_f{int(function):02d}"
+        if suite in {"cec2017", "cec2022"}
+        else function_id_name(suite, function)
+    )
+    return base_dir / directory_name / f"dimension_{dimension}" / "trajectories.parquet"
 
 
 def make_shards(

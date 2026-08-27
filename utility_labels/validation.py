@@ -5,6 +5,7 @@ from math import isclose, isfinite
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pyarrow.parquet as pq
 
 from landscape_queries.specs import QUERY_PREPROCESSING_VERSION, get_query_spec
@@ -24,6 +25,7 @@ from utility_labels.fields import (
     NEED_BEHAVIOR_ONLY_COLUMNS,
     NEED_QUERY_COLUMNS,
     PRIMARY_EFFICACY_LABEL_COLUMN,
+    PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS,
     PRIMARY_EFFICACY_VALUE_COLUMN,
     QUERY_DESCRIPTOR_USE_INCREMENT_COLUMNS,
     QUERY_MATCHED_STATE_ONLY_UTILITY_COLUMNS,
@@ -41,6 +43,7 @@ from utility_labels.fields import (
     UTILITY_LAMBDAS,
     UTILITY_VALUE_COLUMNS,
 )
+from utility_labels.efficacy import efficacy_log
 
 
 EPS = 1e-12
@@ -74,6 +77,10 @@ RETIRED_COLUMNS = {
 
 def validate_utility_label_file(path: str | Path) -> dict[str, int]:
     table = pq.read_table(path)
+    if "utility_protocol" in table.column_names:
+        protocols = set(table.column("utility_protocol").to_pylist())
+        if protocols == {"primary_equal_total_fe_efficacy_v1"}:
+            return _validate_primary_efficacy_frame(table.to_pandas())
     retired = sorted(RETIRED_COLUMNS.intersection(table.column_names))
     if retired:
         raise ValueError(f"utility label file contains retired columns: {retired}")
@@ -83,6 +90,157 @@ def validate_utility_label_file(path: str | Path) -> dict[str, int]:
     for row in rows:
         _validate_row(row)
     return {"rows": len(rows)}
+
+
+def _validate_primary_efficacy_frame(frame: pd.DataFrame) -> dict[str, int]:
+    required = {
+        "split",
+        "problem_id",
+        "function_id",
+        "family",
+        "cv_group_id",
+        "dimension",
+        "prefix_algorithm",
+        "seed",
+        "FE",
+        "FE_total",
+        "FE_prefix",
+        "FE_query",
+        "FE_action_optimization",
+        "query_id",
+        "query_protocol",
+        "selection_reference_protocol",
+        "selector_target_transform",
+        "benchmark_reference_value",
+        "p_skip_raw",
+        "p_query_raw",
+        "p_skip",
+        "p_query",
+        "selected_algorithm",
+        "default_algorithm",
+        "best_observed_algorithm",
+        "best_observed_loss",
+        "selected_matches_best_observed",
+        *PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS,
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "handoff_required",
+        "handoff_type",
+        "epsilon_p",
+        PRIMARY_EFFICACY_VALUE_COLUMN,
+        PRIMARY_EFFICACY_LABEL_COLUMN,
+        "g_fe",
+        "g_fe_gt_zero",
+    }
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"primary efficacy labels are missing columns: {missing}")
+    if frame.empty:
+        raise ValueError("primary efficacy label file contains no rows")
+    key = [
+        "split",
+        "problem_id",
+        "function_id",
+        "family",
+        "cv_group_id",
+        "dimension",
+        "prefix_algorithm",
+        "seed",
+        "FE",
+    ]
+    if frame.duplicated(key).any():
+        raise ValueError("primary efficacy labels contain duplicate state keys")
+    forbidden = sorted(
+        column
+        for column in frame.columns
+        if column.startswith("runtime_") or column.startswith("timing_")
+    )
+    if forbidden:
+        raise ValueError(f"primary efficacy labels contain runtime/timing columns: {forbidden}")
+    for query_id, group in frame.groupby("query_id", sort=False):
+        spec = get_query_spec(str(query_id))
+        if set(group["query_protocol"].astype(str)) != {spec.protocol}:
+            raise ValueError("query_protocol does not match query_id")
+    if set(frame["selection_reference_protocol"].astype(str)) != {
+        SELECTION_REFERENCE_PROTOCOL
+    }:
+        raise ValueError("primary efficacy labels use an unsupported Selector protocol")
+    if set(frame["selector_target_transform"].astype(str)) != {
+        SELECTOR_TARGET_TRANSFORM
+    }:
+        raise ValueError("primary efficacy labels use the wrong Selector target transform")
+    if not np.array_equal(frame["FE"].to_numpy(dtype=int), frame["FE_prefix"].to_numpy(dtype=int)):
+        raise ValueError("primary efficacy FE must equal FE_prefix")
+    expected_action_budget = (
+        frame["FE_total"].to_numpy(dtype=int)
+        - frame["FE_prefix"].to_numpy(dtype=int)
+        - frame["FE_query"].to_numpy(dtype=int)
+    )
+    if not np.array_equal(
+        frame["FE_action_optimization"].to_numpy(dtype=int), expected_action_budget
+    ):
+        raise ValueError("primary efficacy query-adjusted FE ledger is inconsistent")
+    selected_equals_default = (
+        frame["selected_algorithm"].astype(str)
+        == frame["default_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    selected_equals_prefix = (
+        frame["selected_algorithm"].astype(str)
+        == frame["prefix_algorithm"].astype(str)
+    ).to_numpy(dtype=bool)
+    if not np.array_equal(
+        frame["selected_equals_default"].to_numpy(dtype=bool), selected_equals_default
+    ):
+        raise ValueError("selected_equals_default is inconsistent")
+    if not np.array_equal(
+        frame["selected_equals_prefix"].to_numpy(dtype=bool), selected_equals_prefix
+    ):
+        raise ValueError("selected_equals_prefix is inconsistent")
+    if not np.array_equal(
+        frame["handoff_required"].to_numpy(dtype=bool), ~selected_equals_prefix
+    ):
+        raise ValueError("handoff_required is inconsistent")
+    if not np.array_equal(
+        frame["handoff_type"].astype(str).eq("population_transfer_initialization").to_numpy(dtype=bool),
+        ~selected_equals_prefix,
+    ):
+        raise ValueError("handoff_type is inconsistent")
+    reference = frame["benchmark_reference_value"].to_numpy(dtype=float)
+    e_skip = np.maximum(frame["p_skip_raw"].to_numpy(dtype=float) - reference, 0.0)
+    action_matrix = frame[list(PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS)].to_numpy(dtype=float)
+    if not np.isfinite(action_matrix).all() or (action_matrix < 0.0).any():
+        raise ValueError("observed action gaps must be finite and non-negative")
+    expected_best = action_matrix.min(axis=1)
+    if not np.allclose(frame["best_observed_loss"].to_numpy(dtype=float), expected_best, rtol=0.0, atol=EPS):
+        raise ValueError("best_observed_loss is inconsistent with observed action gaps")
+    best_algorithm = frame[list(PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS)].idxmin(axis=1).str.replace(
+        "observed_loss_", "", regex=False
+    )
+    if not np.array_equal(frame["best_observed_algorithm"].astype(str).to_numpy(), best_algorithm.astype(str).to_numpy()):
+        raise ValueError("best_observed_algorithm is inconsistent with observed action gaps")
+    if not np.array_equal(
+        frame["selected_matches_best_observed"].to_numpy(dtype=bool),
+        frame["selected_algorithm"].astype(str).to_numpy() == frame["best_observed_algorithm"].astype(str).to_numpy(),
+    ):
+        raise ValueError("selected_matches_best_observed is inconsistent")
+    e_query = np.maximum(frame["p_query_raw"].to_numpy(dtype=float) - reference, 0.0)
+    epsilon_p = frame["epsilon_p"].to_numpy(dtype=float)
+    expected = efficacy_log(gap_skip=e_skip, gap_query=e_query, epsilon_p=epsilon_p)
+    observed = frame[PRIMARY_EFFICACY_VALUE_COLUMN].to_numpy(dtype=float)
+    if not np.allclose(observed, expected, rtol=0.0, atol=EPS):
+        raise ValueError(f"{PRIMARY_EFFICACY_VALUE_COLUMN} is inconsistent with the selected-path endpoints")
+    if not np.array_equal(frame[PRIMARY_EFFICACY_LABEL_COLUMN].to_numpy(dtype=bool), observed > 0.0):
+        raise ValueError(f"{PRIMARY_EFFICACY_LABEL_COLUMN} is inconsistent")
+    expected_best_g_fe = efficacy_log(
+        gap_skip=e_skip,
+        gap_query=expected_best,
+        epsilon_p=epsilon_p,
+    )
+    if not np.allclose(frame["g_fe"].to_numpy(dtype=float), expected_best_g_fe, rtol=0.0, atol=EPS):
+        raise ValueError("g_fe best-observed-action diagnostic is inconsistent")
+    if not np.array_equal(frame["g_fe_gt_zero"].to_numpy(dtype=bool), frame["g_fe"].to_numpy(dtype=float) > 0.0):
+        raise ValueError("g_fe_gt_zero best-observed-action diagnostic is inconsistent")
+    return {"rows": int(len(frame))}
 
 
 def _validate_row(row: dict) -> None:
@@ -96,13 +254,13 @@ def _validate_row(row: dict) -> None:
     if str(row["query_protocol"]) != spec.protocol:
         raise ValueError("query_protocol does not match query_id")
     if str(row["query_preprocessing_id"]) != QUERY_PREPROCESSING_VERSION:
-        raise ValueError("query_preprocessing_id does not match the frozen preprocessing contract")
+        raise ValueError("query_preprocessing_id does not match the predefined preprocessing contract")
     if str(row["sample_design_id"]) != spec.sample_design_id:
         raise ValueError("sample_design_id does not match query_id")
     if str(row["selection_reference_protocol"]) != SELECTION_REFERENCE_PROTOCOL:
         raise ValueError("query Utility label uses an unsupported Selection Reference protocol")
     if str(row["selector_target_transform"]) != SELECTOR_TARGET_TRANSFORM:
-        raise ValueError("selector_target_transform does not match the frozen target transform")
+        raise ValueError("selector_target_transform does not match the predefined target transform")
     if str(row["utility_formula_protocol"]) != UTILITY_FORMULA_PROTOCOL:
         raise ValueError("Utility formula protocol is inconsistent")
     _validate_fe_and_sampling(row)
@@ -135,7 +293,7 @@ def _validate_fe_and_sampling(row: dict) -> None:
         int(row["dimension"])
     )
     if int(row["FE_query"]) != expected_query_fe:
-        raise ValueError("FE_query does not match the frozen sample design")
+        raise ValueError("FE_query does not match the predefined sample design")
 
 
 def _validate_action_relations(row: dict) -> None:
@@ -591,8 +749,8 @@ def _validate_efficacy(row: dict) -> None:
     for column in EFFICACY_COLUMNS:
         if column not in row:
             raise ValueError(f"efficacy column missing: {column}")
-    g_fe = float(row[PRIMARY_EFFICACY_VALUE_COLUMN])
-    if not isfinite(g_fe):
+    primary_g_fe = float(row[PRIMARY_EFFICACY_VALUE_COLUMN])
+    if not isfinite(primary_g_fe):
         raise ValueError(f"{PRIMARY_EFFICACY_VALUE_COLUMN} must be finite")
     epsilon_p = float(row["epsilon_p"])
     if not isfinite(epsilon_p) or epsilon_p <= 0.0:
@@ -606,14 +764,12 @@ def _validate_efficacy(row: dict) -> None:
         gap_query=max(e_query - benchmark, 0.0),
         epsilon_p=epsilon_p,
     )
-    if "action_loss" in row and not isclose(float(row["action_loss"]), float(row[PRIMARY_EFFICACY_VALUE_COLUMN]), rel_tol=0.0, abs_tol=EPS):
-        raise ValueError("action_loss must match the primary efficacy value")
     repetitions = int(row.get("g_fe_n_repetitions", 1))
-    if repetitions == 1 and not isclose(g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
+    if repetitions == 1 and not isclose(primary_g_fe, float(expected_g_fe), rel_tol=0.0, abs_tol=EPS):
         raise ValueError(
             f"{PRIMARY_EFFICACY_VALUE_COLUMN} is inconsistent: got {g_fe}, expected {expected_g_fe}"
         )
-    if bool(row[PRIMARY_EFFICACY_LABEL_COLUMN]) != (g_fe > 0.0):
+    if bool(row[PRIMARY_EFFICACY_LABEL_COLUMN]) != (primary_g_fe > 0.0):
         raise ValueError(f"{PRIMARY_EFFICACY_LABEL_COLUMN} must equal {PRIMARY_EFFICACY_VALUE_COLUMN} > 0")
 
 
@@ -854,11 +1010,13 @@ def _validate_sampling_metadata(row: dict, *, actual_fe_ratio: float) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate paired offline Utility labels.")
+    parser = argparse.ArgumentParser(
+        description="Validate primary G_FE labels or retained auxiliary Utility labels."
+    )
     parser.add_argument("--input", type=Path, required=True)
     args = parser.parse_args()
     summary = validate_utility_label_file(args.input)
-    print(f"validated {summary['rows']} paired Utility label rows")
+    print(f"validated {summary['rows']} Utility label rows")
 
 
 if __name__ == "__main__":

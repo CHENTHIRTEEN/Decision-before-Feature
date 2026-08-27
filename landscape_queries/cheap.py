@@ -52,7 +52,7 @@ def calculate_descriptor_cheap(
         "descriptor_linear_gradient_norm": gradient_norm,
     }
     if tuple(features) != DESCRIPTOR_CHEAP_COLUMNS:
-        raise ValueError("descriptor_cheap output does not match the frozen feature whitelist")
+        raise ValueError("descriptor_cheap output does not match the predefined feature whitelist")
     return features
 
 

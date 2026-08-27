@@ -31,7 +31,7 @@ def bbob_landscape_family(function: int) -> str:
     raise ValueError(f"BBOB function must lie in [1, 24], got {value}")
 
 
-def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
+def make_bbob_problem(function: int, dimension: int, instance: int, boundary_handling: str = "clip") -> Problem:
     suite_options = f"function_indices:{function} dimensions:{dimension} instance_indices:{instance}"
     suite = Suite("bbob", "", suite_options)
     coco_problem = suite.get_problem_by_function_dimension_instance(function, dimension, instance)
@@ -75,5 +75,5 @@ def make_bbob_problem(function: int, dimension: int, instance: int) -> Problem:
         objective=objective,
         reference_value=reference_value,
         close_callback=close_problem,
-        boundary_handling="clip",
+        boundary_handling=str(boundary_handling),
     )

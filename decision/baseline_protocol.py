@@ -21,7 +21,7 @@ PORTFOLIO = ("de", "pso", "cmaes", "shade")
 BASELINE_PROTOCOL = "dynamic_action_baseline_contract_v1"
 
 
-@dataclass(frozen=True)
+@dataclass
 class BaselinePolicySpec:
     name: str
     policy_kind: str
@@ -67,7 +67,7 @@ def first_action_mask(frame: pd.DataFrame, candidates: np.ndarray) -> np.ndarray
 
 
 def fixed_one_switch_mask(frame: pd.DataFrame, *, switch_fe_ratio: float) -> np.ndarray:
-    """Select the first opportunity at or after a frozen switch ratio."""
+    """Select the first opportunity at or after a predefined switch ratio."""
     ratio = float(switch_fe_ratio)
     if not 0.0 < ratio < 1.0:
         raise ValueError("fixed switch FE ratio must lie in (0, 1)")
@@ -80,7 +80,7 @@ def random_one_switch_mask(
     switch_fe_ratios: Iterable[float],
     seed: int,
 ) -> np.ndarray:
-    """Choose one frozen random switch ratio independently for each run."""
+    """Choose one predefined random switch ratio independently for each run."""
     ratios = np.asarray(tuple(float(value) for value in switch_fe_ratios), dtype=float)
     if ratios.size == 0 or not np.isfinite(ratios).all() or ((ratios <= 0.0) | (ratios >= 1.0)).any():
         raise ValueError("random switch FE ratios must be finite and lie in (0, 1)")

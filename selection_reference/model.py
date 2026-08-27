@@ -10,11 +10,11 @@ import joblib
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 
-from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import BEHAVIOR_FEATURE_COLUMNS, SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from decision.cluster_weighting import (
     CLUSTER_BALANCED_FIT,
     WeightedMedianImputer,
@@ -56,7 +56,13 @@ SELECTOR_INPUT_MODES = (
     PRE_RUN_QUERY_ONLY_INPUT,
 )
 EPS = 1e-12
-FROZEN_PORTFOLIO_ORDER = ("de", "pso", "cmaes", "shade")
+FORMAL_MULTIOUTPUT_RF = "formal_multioutput_rf"
+PAIRWISE_AGGREGATION_RF_CLASSIFIER = "pairwise_aggregation_rf_classifier"
+DIMENSION_AWARE_HYBRID_SELECTOR = "dimension_aware_hybrid_selector"
+PAIRWISE_MARGIN_WEIGHTED_FIT = "pairwise_margin_weighted_fit"
+PAIRWISE_ROUTE_DIMENSIONS = (40,)
+SELECTOR_CROSS_FIT_FOLDS = 5
+PREDEFINED_PORTFOLIO_ORDER = ("de", "pso", "cmaes", "shade")
 PRE_RUN_STATE_KEY_COLUMNS = (
     "split",
     "problem_id",
@@ -78,6 +84,95 @@ def selector_target_transform_for_mode(selector_input_mode: str) -> str:
 
 
 @dataclass
+class SelectorPredictionBatch:
+    predicted_targets: np.ndarray
+    selected_algorithms: np.ndarray
+    selector_components: np.ndarray
+    ranking_scores: np.ndarray
+    fit_weight_modes: np.ndarray
+    selector_type: str
+    pairwise_selected_algorithms: np.ndarray | None = None
+    pairwise_ranking_scores: np.ndarray | None = None
+    pairwise_votes: np.ndarray | None = None
+    pairwise_probability_sums: np.ndarray | None = None
+    pairwise_probabilities: dict[str, np.ndarray] | None = None
+
+    def formal_only(self, portfolio: tuple[str, ...]) -> "SelectorPredictionBatch":
+        selected_indices = np.argmin(self.predicted_targets, axis=1)
+        selected_algorithms = np.asarray(
+            [portfolio[index] for index in selected_indices],
+            dtype=object,
+        )
+        row_count = len(self.predicted_targets)
+        return SelectorPredictionBatch(
+            predicted_targets=self.predicted_targets,
+            selected_algorithms=selected_algorithms,
+            selector_components=np.full(
+                row_count,
+                FORMAL_MULTIOUTPUT_RF,
+                dtype=object,
+            ),
+            ranking_scores=self.predicted_targets.copy(),
+            fit_weight_modes=np.full(
+                row_count,
+                CLUSTER_BALANCED_FIT,
+                dtype=object,
+            ),
+            selector_type=FORMAL_MULTIOUTPUT_RF,
+            pairwise_selected_algorithms=self.pairwise_selected_algorithms,
+            pairwise_ranking_scores=self.pairwise_ranking_scores,
+            pairwise_votes=self.pairwise_votes,
+            pairwise_probability_sums=self.pairwise_probability_sums,
+            pairwise_probabilities=self.pairwise_probabilities,
+        )
+
+    def pairwise_only(self) -> "SelectorPredictionBatch":
+        required = (
+            self.pairwise_selected_algorithms,
+            self.pairwise_ranking_scores,
+            self.pairwise_votes,
+            self.pairwise_probability_sums,
+            self.pairwise_probabilities,
+        )
+        if any(value is None for value in required):
+            raise ValueError("pairwise Selector predictions are unavailable")
+        row_count = len(self.predicted_targets)
+        return SelectorPredictionBatch(
+            predicted_targets=self.predicted_targets,
+            selected_algorithms=np.asarray(self.pairwise_selected_algorithms, dtype=object),
+            selector_components=np.full(
+                row_count,
+                PAIRWISE_AGGREGATION_RF_CLASSIFIER,
+                dtype=object,
+            ),
+            ranking_scores=np.asarray(self.pairwise_ranking_scores, dtype=float),
+            fit_weight_modes=np.full(
+                row_count,
+                PAIRWISE_MARGIN_WEIGHTED_FIT,
+                dtype=object,
+            ),
+            selector_type=PAIRWISE_AGGREGATION_RF_CLASSIFIER,
+            pairwise_selected_algorithms=np.asarray(
+                self.pairwise_selected_algorithms,
+                dtype=object,
+            ),
+            pairwise_ranking_scores=np.asarray(
+                self.pairwise_ranking_scores,
+                dtype=float,
+            ),
+            pairwise_votes=np.asarray(self.pairwise_votes, dtype=float),
+            pairwise_probability_sums=np.asarray(
+                self.pairwise_probability_sums,
+                dtype=float,
+            ),
+            pairwise_probabilities={
+                column: np.asarray(values, dtype=float)
+                for column, values in self.pairwise_probabilities.items()
+            },
+        )
+
+
+@dataclass
 class StatewiseSelectorModel:
     model: Pipeline
     target_algorithms: tuple[str, ...]
@@ -93,6 +188,10 @@ class StatewiseSelectorModel:
     selector_target_transform: str = SELECTOR_TARGET_TRANSFORM
     fit_weight_mode: str = CLUSTER_BALANCED_FIT
     protocol: str = SELECTION_REFERENCE_PROTOCOL
+    selector_type: str = FORMAL_MULTIOUTPUT_RF
+    pairwise_models: dict[tuple[str, str], Pipeline] | None = None
+    pairwise_fit_weight_mode: str = PAIRWISE_MARGIN_WEIGHTED_FIT
+    pairwise_route_dimensions: tuple[int, ...] = PAIRWISE_ROUTE_DIMENSIONS
 
     def predict_scores(self, frame: pd.DataFrame) -> np.ndarray:
         missing = set(self.feature_columns).difference(frame.columns)
@@ -105,23 +204,48 @@ class StatewiseSelectorModel:
             raise ValueError("selector prediction width does not match target algorithms")
         return values
 
-    def select_one(self, features: dict[str, Any]) -> tuple[str, dict[str, float], float]:
+    def predict_decisions(self, frame: pd.DataFrame) -> SelectorPredictionBatch:
+        predicted_targets = self.predict_scores(frame)
+        return _assemble_selector_prediction_batch(
+            predicted_targets=predicted_targets,
+            frame=frame,
+            portfolio=self.target_algorithms,
+            feature_columns=self.feature_columns,
+            selector_type=getattr(self, "selector_type", FORMAL_MULTIOUTPUT_RF),
+            pairwise_models=getattr(self, "pairwise_models", None),
+            route_dimensions=tuple(
+                getattr(self, "pairwise_route_dimensions", PAIRWISE_ROUTE_DIMENSIONS)
+            ),
+        )
+
+    def predict_pairwise_decisions(self, frame: pd.DataFrame) -> SelectorPredictionBatch:
+        return self.predict_decisions(frame).pairwise_only()
+
+    def select_one(
+        self,
+        features: dict[str, Any],
+        *,
+        dimension: int | None = None,
+    ) -> tuple[str, dict[str, float], float]:
         started = perf_counter()
         frame = pd.DataFrame([{column: features[column] for column in self.feature_columns}])
-        scores = self.predict_scores(frame)[0]
+        if dimension is not None:
+            frame["dimension"] = int(dimension)
+        decisions = self.predict_decisions(frame)
+        scores = decisions.ranking_scores[0]
         score_map = dict(zip(self.target_algorithms, scores.astype(float), strict=True))
-        selected = min(self.target_algorithms, key=lambda algorithm: score_map[algorithm])
+        selected = str(decisions.selected_algorithms[0])
         return selected, score_map, float(perf_counter() - started)
 
 
-def _frozen_portfolio_order(values: pd.Series | np.ndarray) -> tuple[str, ...]:
+def _predefined_portfolio_order(values: pd.Series | np.ndarray) -> tuple[str, ...]:
     observed = {str(value) for value in values}
-    if observed != set(FROZEN_PORTFOLIO_ORDER):
+    if observed != set(PREDEFINED_PORTFOLIO_ORDER):
         raise ValueError(
             "portfolio algorithms must be exactly de,pso,cmaes,shade; "
             f"observed={sorted(observed)}"
         )
-    return FROZEN_PORTFOLIO_ORDER
+    return PREDEFINED_PORTFOLIO_ORDER
 
 
 def selector_feature_columns(
@@ -187,7 +311,14 @@ def _behavior_split_from_path(file: Path, input_root: Path | None) -> str:
             candidates.append(relative.parts[0])
         candidates.append(input_root.name)
     candidates.extend(file.parts)
-    supported = {"bbob_train", "bbob_validation", "cec2017_test", "cec2022_test"}
+    supported = {
+        "bbob_train",
+        "bbob_validation",
+        "cec2017_test",
+        "cec2022_test",
+        "mabbob_formal",
+        "mabbob_validation",
+    }
     matches = [value for value in candidates if value in supported]
     if not matches:
         raise ValueError(
@@ -213,6 +344,43 @@ def read_query_feature_data(paths: list[Path]) -> pd.DataFrame:
     return pd.concat([pq.read_table(path).to_pandas() for path in files], ignore_index=True)
 
 
+def _normalize_action_loss_schema(action_losses: pd.DataFrame, key: list[str]) -> pd.DataFrame:
+    """Accept current action-loss files while preserving the internal checks."""
+    frame = action_losses.copy()
+    if "action_loss_raw" not in frame.columns and {
+        "action_loss",
+        "benchmark_reference_value",
+    }.issubset(frame.columns):
+        frame["action_loss_raw"] = (
+            frame["benchmark_reference_value"].to_numpy(dtype=float)
+            + frame["action_loss"].to_numpy(dtype=float)
+        )
+    if "action_loss_norm" not in frame.columns:
+        if "loss_gap_norm" in frame.columns:
+            frame["action_loss_norm"] = frame["loss_gap_norm"].to_numpy(dtype=float)
+        elif "action_loss" in frame.columns:
+            state_min = frame.groupby(key, dropna=False)["action_loss"].transform("min").to_numpy(dtype=float)
+            state_max = frame.groupby(key, dropna=False)["action_loss"].transform("max").to_numpy(dtype=float)
+            frame["action_loss_norm"] = (
+                frame["action_loss"].to_numpy(dtype=float) - state_min
+            ) / np.maximum(state_max - state_min, EPS)
+    if "log10_action_loss" not in frame.columns and {
+        "action_loss",
+        "log10_gap_floor",
+        "log10_gap_cap",
+    }.issubset(frame.columns):
+        frame["log10_action_loss"] = np.log10(
+            np.minimum(
+                np.maximum(
+                    frame["action_loss"].to_numpy(dtype=float),
+                    frame["log10_gap_floor"].to_numpy(dtype=float),
+                ),
+                frame["log10_gap_cap"].to_numpy(dtype=float),
+            )
+        )
+    return frame
+
+
 def prepare_state_matrix(
     action_losses: pd.DataFrame,
     *,
@@ -225,6 +393,8 @@ def prepare_state_matrix(
         raise ValueError(f"unsupported action budget mode: {action_budget_mode}")
     if action_budget_mode == QUERY_ADJUSTED_BUDGET and query_features is None:
         raise ValueError("query-adjusted state preparation requires query features")
+    key = list(STATE_KEY_COLUMNS)
+    action_losses = _normalize_action_loss_schema(action_losses, key)
     required = {
         *STATE_KEY_COLUMNS,
         "prefix_scope",
@@ -328,7 +498,6 @@ def prepare_state_matrix(
             raise ValueError("full-remaining action losses must use sample_design_id=not_applicable")
         if (action_losses["FE_query"].astype(int) != 0).any():
             raise ValueError("full-remaining action losses must use FE_query=0")
-    key = list(STATE_KEY_COLUMNS)
     if action_losses.duplicated(key + ["target_algorithm"]).any():
         raise ValueError("state-action loss input contains duplicate state/algorithm rows")
     numeric_losses = action_losses[
@@ -353,7 +522,7 @@ def prepare_state_matrix(
         raise ValueError("state-action runtimes must be finite and non-negative")
     _validate_action_timing_repetitions(action_losses)
     _validate_action_ert_fields(action_losses)
-    portfolio = _frozen_portfolio_order(action_losses["target_algorithm"].astype(str).unique())
+    portfolio = _predefined_portfolio_order(action_losses["target_algorithm"].astype(str).unique())
     if len(portfolio) != 4:
         raise ValueError("state-action loss input must contain exactly four unique portfolio algorithms")
     if not action_losses["prefix_algorithm"].astype(str).isin(portfolio).all():
@@ -362,9 +531,9 @@ def prepare_state_matrix(
     if not bool((counts == len(portfolio)).all()):
         raise ValueError("every shared state must contain one observed loss for every portfolio algorithm")
     observed_sets = action_losses.groupby(key, dropna=False)["target_algorithm"].agg(
-        lambda values: frozenset(str(value) for value in values)
+        lambda values: tuple(sorted(str(value) for value in values))
     )
-    if not bool((observed_sets == frozenset(portfolio)).all()):
+    if not bool((observed_sets == tuple(sorted(portfolio))).all()):
         raise ValueError("portfolio algorithms must be identical across shared states")
     expected_actions = action_losses["target_algorithm"].astype(str).where(
         action_losses["target_algorithm"].astype(str) != action_losses["prefix_algorithm"].astype(str),
@@ -786,10 +955,15 @@ def _compute_problem_level_sbs(
     states: pd.DataFrame,
     action_losses: pd.DataFrame,
 ) -> pd.Series:
-    """Derive the single-best algorithm across all training problems from mean p_skip."""
-    continue_rows = action_losses["action"].astype(str).eq("continue_current")
+    """Derive the train-default algorithm from BBOB-train when present."""
+    sbs_source = action_losses
+    if "split" in action_losses.columns:
+        bbob_train = action_losses[action_losses["split"].astype(str).eq("bbob_train")]
+        if not bbob_train.empty:
+            sbs_source = bbob_train
+    continue_rows = sbs_source["action"].astype(str).eq("continue_current")
     mean_p_skip = (
-        action_losses.loc[continue_rows]
+        sbs_source.loc[continue_rows]
         .groupby("prefix_algorithm")["p_skip"]
         .mean()
         .sort_values()
@@ -946,7 +1120,7 @@ def prepare_pre_run_state_matrix(
         atol=EPS,
     ):
         raise ValueError("pre-run Selector target must equal absolute clipped log10 action loss")
-    portfolio = _frozen_portfolio_order(action_losses["target_algorithm"].astype(str).unique())
+    portfolio = _predefined_portfolio_order(action_losses["target_algorithm"].astype(str).unique())
     if len(portfolio) != 4:
         raise ValueError("pre-run outcomes require exactly four portfolio algorithms")
     counts = action_losses.groupby(key, dropna=False)["target_algorithm"].nunique()
@@ -1097,7 +1271,7 @@ def fit_selector_with_cross_family_predictions(
     query_spec: LandscapeQuerySpec,
     *,
     selector_input_mode: str = QUERY_FULL_INPUT,
-) -> tuple[StatewiseSelectorModel, np.ndarray, str]:
+) -> tuple[StatewiseSelectorModel, np.ndarray, str, SelectorPredictionBatch]:
     defaults = tuple(sorted(states["default_algorithm"].astype(str).unique()))
     if len(defaults) != 1:
         raise ValueError("selector training states must use one train-derived SBS default")
@@ -1112,13 +1286,14 @@ def fit_selector_with_cross_family_predictions(
     group_column = "cv_group_id" if "cv_group_id" in states.columns else "function_id"
     unique_groups = states[group_column].astype(str).nunique()
     if unique_groups >= 2:
-        cross_predictions = predict_with_main_prefix_cross_family_fits(
+        cross_prediction_batch = predict_with_main_prefix_cross_family_fits(
             training_states=states,
             prediction_states=states,
             portfolio=portfolio,
             query_spec=query_spec,
             selector_input_mode=selector_input_mode,
         )
+        cross_predictions = cross_prediction_batch.predicted_targets
         prediction_source = "cross_cv_group"
     else:
         diagnostic_model = _make_model()
@@ -1129,6 +1304,29 @@ def fit_selector_with_cross_family_predictions(
             cluster_balanced_row_weights(states),
         )
         cross_predictions = np.asarray(diagnostic_model.predict(x), dtype=float)
+        diagnostic_pairwise_models = (
+            _fit_pairwise_models(
+                states=states,
+                features=x,
+                targets=y,
+                portfolio=portfolio,
+            )
+            if selector_input_mode == QUERY_FULL_INPUT
+            else None
+        )
+        cross_prediction_batch = _assemble_selector_prediction_batch(
+            predicted_targets=cross_predictions,
+            frame=states,
+            portfolio=portfolio,
+            feature_columns=feature_columns,
+            selector_type=(
+                DIMENSION_AWARE_HYBRID_SELECTOR
+                if selector_input_mode == QUERY_FULL_INPUT
+                else FORMAL_MULTIOUTPUT_RF
+            ),
+            pairwise_models=diagnostic_pairwise_models,
+            route_dimensions=PAIRWISE_ROUTE_DIMENSIONS,
+        )
         prediction_source = "in_sample_insufficient_cv_groups"
     if not np.isfinite(cross_predictions).all():
         raise ValueError("cross-CV-group selector predictions contain missing or non-finite values")
@@ -1138,6 +1336,16 @@ def fit_selector_with_cross_family_predictions(
         x,
         y,
         cluster_balanced_row_weights(states),
+    )
+    final_pairwise_models = (
+        _fit_pairwise_models(
+            states=states,
+            features=x,
+            targets=y,
+            portfolio=portfolio,
+        )
+        if selector_input_mode == QUERY_FULL_INPUT
+        else None
     )
     observed_budget_modes = tuple(sorted(states["action_budget_mode"].astype(str).unique()))
     observed_sample_designs = tuple(sorted(states["sample_design_id"].astype(str).unique()))
@@ -1182,8 +1390,16 @@ def fit_selector_with_cross_family_predictions(
         selector_target_transform=selector_target_transform_for_mode(selector_input_mode),
         fit_weight_mode=CLUSTER_BALANCED_FIT,
         protocol=selector_protocol,
+        selector_type=(
+            DIMENSION_AWARE_HYBRID_SELECTOR
+            if selector_input_mode == QUERY_FULL_INPUT
+            else FORMAL_MULTIOUTPUT_RF
+        ),
+        pairwise_models=final_pairwise_models,
+        pairwise_fit_weight_mode=PAIRWISE_MARGIN_WEIGHTED_FIT,
+        pairwise_route_dimensions=PAIRWISE_ROUTE_DIMENSIONS,
     )
-    return selector_model, cross_predictions, prediction_source
+    return selector_model, cross_predictions, prediction_source, cross_prediction_batch
 
 
 def predict_with_main_prefix_cross_family_fits(
@@ -1193,7 +1409,7 @@ def predict_with_main_prefix_cross_family_fits(
     portfolio: tuple[str, ...],
     query_spec: LandscapeQuerySpec,
     selector_input_mode: str = QUERY_FULL_INPUT,
-) -> np.ndarray:
+) -> SelectorPredictionBatch:
     """Predict each state with a model that excludes its complete CV group.
 
     The CV grouping field is ``cv_group_id`` (set equal to ``function_id`` in the
@@ -1235,7 +1451,26 @@ def predict_with_main_prefix_cross_family_fits(
     y_training = training_states[target_columns].to_numpy(dtype=float)
     x_prediction = prediction_states[list(feature_columns)]
     predictions = np.full((len(prediction_states), len(portfolio)), np.nan, dtype=float)
-    splitter = GroupKFold(n_splits=min(len(unique_training_groups), len(unique_training_groups)))
+    pairwise_selected = np.full(len(prediction_states), None, dtype=object)
+    pairwise_scores = np.full(
+        (len(prediction_states), len(portfolio)),
+        np.nan,
+        dtype=float,
+    )
+    pairwise_votes = np.full_like(pairwise_scores, np.nan)
+    pairwise_probability_sums = np.full_like(pairwise_scores, np.nan)
+    pairwise_probabilities = {
+        f"predicted_probability_{left}_better_than_{right}": np.full(
+            len(prediction_states),
+            np.nan,
+            dtype=float,
+        )
+        for left_index, left in enumerate(portfolio)
+        for right in portfolio[left_index + 1 :]
+    }
+    splitter = GroupKFold(
+        n_splits=min(SELECTOR_CROSS_FIT_FOLDS, len(unique_training_groups))
+    )
     for fit_indices, held_indices in splitter.split(
         x_training,
         y_training,
@@ -1260,9 +1495,79 @@ def predict_with_main_prefix_cross_family_fits(
         predictions[prediction_indices] = fold_model.predict(
             x_prediction.iloc[prediction_indices]
         )
+        if selector_input_mode == QUERY_FULL_INPUT:
+            fold_pairwise_models = _fit_pairwise_models(
+                states=training_states.iloc[fit_indices],
+                features=x_training.iloc[fit_indices],
+                targets=y_training[fit_indices],
+                portfolio=portfolio,
+            )
+            (
+                fold_selected,
+                fold_scores,
+                fold_votes,
+                fold_probability_sums,
+                fold_probabilities,
+            ) = _predict_pairwise_aggregation(
+                pairwise_models=fold_pairwise_models,
+                features=x_prediction.iloc[prediction_indices],
+                portfolio=portfolio,
+            )
+            pairwise_selected[prediction_indices] = fold_selected
+            pairwise_scores[prediction_indices] = fold_scores
+            pairwise_votes[prediction_indices] = fold_votes
+            pairwise_probability_sums[prediction_indices] = fold_probability_sums
+            for column, values in fold_probabilities.items():
+                pairwise_probabilities[column][prediction_indices] = values
     if not np.isfinite(predictions).all():
         raise ValueError("cross-CV-group selector predictions contain missing or non-finite values")
-    return predictions
+    base_indices = np.argmin(predictions, axis=1)
+    selected_algorithms = np.asarray(
+        [portfolio[index] for index in base_indices],
+        dtype=object,
+    )
+    selector_components = np.full(
+        len(prediction_states),
+        FORMAL_MULTIOUTPUT_RF,
+        dtype=object,
+    )
+    ranking_scores = predictions.copy()
+    fit_weight_modes = np.full(
+        len(prediction_states),
+        CLUSTER_BALANCED_FIT,
+        dtype=object,
+    )
+    selector_type = FORMAL_MULTIOUTPUT_RF
+    if selector_input_mode == QUERY_FULL_INPUT:
+        if not np.isfinite(pairwise_scores).all():
+            raise ValueError("cross-CV-group pairwise predictions are incomplete")
+        route_mask = prediction_states["dimension"].astype(int).isin(
+            PAIRWISE_ROUTE_DIMENSIONS
+        ).to_numpy()
+        selected_algorithms[route_mask] = pairwise_selected[route_mask]
+        selector_components[route_mask] = PAIRWISE_AGGREGATION_RF_CLASSIFIER
+        ranking_scores[route_mask] = pairwise_scores[route_mask]
+        fit_weight_modes[route_mask] = PAIRWISE_MARGIN_WEIGHTED_FIT
+        selector_type = DIMENSION_AWARE_HYBRID_SELECTOR
+    else:
+        pairwise_selected = None
+        pairwise_scores = None
+        pairwise_votes = None
+        pairwise_probability_sums = None
+        pairwise_probabilities = None
+    return SelectorPredictionBatch(
+        predicted_targets=predictions,
+        selected_algorithms=selected_algorithms,
+        selector_components=selector_components,
+        ranking_scores=ranking_scores,
+        fit_weight_modes=fit_weight_modes,
+        selector_type=selector_type,
+        pairwise_selected_algorithms=pairwise_selected,
+        pairwise_ranking_scores=pairwise_scores,
+        pairwise_votes=pairwise_votes,
+        pairwise_probability_sums=pairwise_probability_sums,
+        pairwise_probabilities=pairwise_probabilities,
+    )
 
 
 def selection_rows(
@@ -1274,9 +1579,27 @@ def selection_rows(
     runtime_selection: float,
     selector_input_mode: str = QUERY_FULL_INPUT,
     selection_reference_protocol: str = SELECTION_REFERENCE_PROTOCOL,
+    prediction_batch: SelectorPredictionBatch | None = None,
 ) -> pd.DataFrame:
     if predictions.shape != (len(states), len(portfolio)):
         raise ValueError("selector prediction matrix has an unexpected shape")
+    if prediction_batch is None:
+        prediction_batch = _assemble_selector_prediction_batch(
+            predicted_targets=predictions,
+            frame=states,
+            portfolio=portfolio,
+            feature_columns=(),
+            selector_type=FORMAL_MULTIOUTPUT_RF,
+            pairwise_models=None,
+            route_dimensions=(),
+        )
+    if not np.allclose(
+        np.asarray(predictions, dtype=float),
+        prediction_batch.predicted_targets,
+        rtol=0.0,
+        atol=EPS,
+    ):
+        raise ValueError("Selector prediction batch disagrees with target predictions")
     output = states[
         [
             *STATE_KEY_COLUMNS,
@@ -1292,6 +1615,8 @@ def selection_rows(
             "FE_action_optimization",
             "remaining_budget_ratio",
             "benchmark_reference_value",
+            "log10_gap_floor",
+            "log10_gap_cap",
             "p_skip",
             "p_skip_raw",
             "loss_skip",
@@ -1346,7 +1671,31 @@ def selection_rows(
     output["sbs_algorithm"] = output["default_algorithm"].astype(str)
     for index, algorithm in enumerate(portfolio):
         output[f"predicted_selector_target_{algorithm}"] = predictions[:, index]
+        output[f"selector_ranking_score_{algorithm}"] = (
+            prediction_batch.ranking_scores[:, index]
+        )
         output[f"observed_loss_{algorithm}"] = states[f"observed_loss_{algorithm}"].to_numpy(dtype=float)
+        output[f"pairwise_votes_{algorithm}"] = (
+            prediction_batch.pairwise_votes[:, index]
+            if prediction_batch.pairwise_votes is not None
+            else np.nan
+        )
+        output[f"pairwise_probability_sum_{algorithm}"] = (
+            prediction_batch.pairwise_probability_sums[:, index]
+            if prediction_batch.pairwise_probability_sums is not None
+            else np.nan
+        )
+    pairwise_probability_columns = {
+        f"predicted_probability_{left}_better_than_{right}"
+        for left_index, left in enumerate(portfolio)
+        for right in portfolio[left_index + 1 :]
+    }
+    for column in sorted(pairwise_probability_columns):
+        output[column] = (
+            prediction_batch.pairwise_probabilities[column]
+            if prediction_batch.pairwise_probabilities is not None
+            else np.nan
+        )
     selected_algorithms = []
     selected_losses = []
     selected_raw_losses: list[float] = []
@@ -1356,6 +1705,7 @@ def selection_rows(
     selected_runtime_repetitions: list[list[float]] = []
     selected_handoff_repetitions: list[list[float]] = []
     selected_order_repetitions: list[list[int]] = []
+    selected_ranking_scores: list[float] = []
     selected_first_hits: list[int | None] = []
     selected_continuation_first_hits: list[int | None] = []
     selected_success: list[bool] = []
@@ -1366,15 +1716,15 @@ def selection_rows(
     best_losses = output["best_observed_loss"].to_numpy(dtype=float)
     worst_losses = states[[f"observed_loss_{algorithm}" for algorithm in portfolio]].max(axis=1).to_numpy(dtype=float)
     for row_index in range(len(output)):
-        selected = min(
-            portfolio,
-            key=lambda algorithm: float(
-                output.at[row_index, f"predicted_selector_target_{algorithm}"]
-            ),
-        )
+        selected = str(prediction_batch.selected_algorithms[row_index])
+        if selected not in portfolio:
+            raise ValueError("Selector prediction selected an algorithm outside the portfolio")
         selected_algorithms.append(selected)
         selected_scores.append(
             float(output.at[row_index, f"predicted_selector_target_{selected}"])
+        )
+        selected_ranking_scores.append(
+            float(output.at[row_index, f"selector_ranking_score_{selected}"])
         )
         selected_losses.append(float(output.at[row_index, f"observed_loss_{selected}"]))
         selected_raw_losses.append(float(states.at[row_index, f"observed_loss_raw_{selected}"]))
@@ -1460,6 +1810,7 @@ def selection_rows(
     output["selected_action_timed_out"] = selected_timed_out
     output["selected_action_path_completed"] = selected_path_completed
     output["selected_predicted_selector_target"] = selected_scores
+    output["selected_selector_ranking_score"] = selected_ranking_scores
     output["selector_regret_raw"] = output["action_loss"].astype(float) - output[
         "best_observed_loss"
     ].astype(float)
@@ -1470,13 +1821,42 @@ def selection_rows(
     output["selected_matches_best_observed"] = (
         output["selected_algorithm"].astype(str) == output["best_observed_algorithm"].astype(str)
     )
+    log_floor = output["log10_gap_floor"].to_numpy(dtype=float)
+    log_cap = output["log10_gap_cap"].to_numpy(dtype=float)
+    observed_loss_matrix = states[[f"observed_loss_{algorithm}" for algorithm in portfolio]].to_numpy(
+        dtype=float
+    )
+    observed_log_losses = np.log10(np.minimum(np.maximum(observed_loss_matrix, log_floor[:, None]), log_cap[:, None]))
+    best_log_losses = observed_log_losses.min(axis=1)
+    tolerance = 0.05
+    acceptable_sets: list[list[str]] = []
+    selected_log_regrets: list[float] = []
+    selected_is_acceptable: list[bool] = []
+    for row_index, selected in enumerate(output["selected_algorithm"].astype(str)):
+        acceptable = [
+            algorithm
+            for algorithm_index, algorithm in enumerate(portfolio)
+            if observed_log_losses[row_index, algorithm_index] - best_log_losses[row_index] <= tolerance
+        ]
+        acceptable_sets.append(acceptable)
+        selected_index = portfolio.index(selected)
+        log_regret = float(observed_log_losses[row_index, selected_index] - best_log_losses[row_index])
+        selected_log_regrets.append(log_regret)
+        selected_is_acceptable.append(selected in acceptable)
+    output["acceptable_action_tolerance_log10_gap"] = tolerance
+    output["acceptable_action_set"] = acceptable_sets
+    output["selected_is_acceptable_action"] = selected_is_acceptable
+    output["acceptable_action_count"] = [len(values) for values in acceptable_sets]
+    output["selector_regret_log10_gap"] = selected_log_regrets
     output["selector_prediction_source"] = prediction_source
     output["selector_input_mode"] = selector_input_mode
-    output["selector_status"] = "random_forest_action_loss_regression"
+    output["selector_type"] = prediction_batch.selector_type
+    output["selector_component"] = prediction_batch.selector_components
+    output["selector_status"] = prediction_batch.selector_type
     output["selector_target_transform"] = selector_target_transform_for_mode(
         selector_input_mode
     )
-    output["selector_fit_weight_mode"] = CLUSTER_BALANCED_FIT
+    output["selector_fit_weight_mode"] = prediction_batch.fit_weight_modes
     output["selection_reference_protocol"] = selection_reference_protocol
     output["query_preprocessing_id"] = states["query_preprocessing_id"].astype(str).to_numpy()
     output["performance_value_mode"] = "raw_objective"
@@ -1570,7 +1950,7 @@ def sampling_only_continue_current_rows(
     scores = np.ones((len(states), len(portfolio)), dtype=float)
     for row_index, prefix_algorithm in enumerate(states["prefix_algorithm"].astype(str)):
         if prefix_algorithm not in portfolio_index:
-            raise ValueError("sampling-only prefix algorithm is outside the frozen portfolio")
+            raise ValueError("sampling-only prefix algorithm is outside the predefined portfolio")
         scores[row_index, portfolio_index[prefix_algorithm]] = 0.0
     rows = selection_rows(
         states=states,
@@ -2024,7 +2404,10 @@ def measure_online_selection_runtime(
     runtimes = []
     for _, row in sample.iterrows():
         features = {column: row[column] for column in selector_model.feature_columns}
-        _, _, elapsed = selector_model.select_one(features)
+        _, _, elapsed = selector_model.select_one(
+            features,
+            dimension=(int(row["dimension"]) if "dimension" in row.index else None),
+        )
         runtimes.append(float(elapsed))
     runtime = float(np.median(np.asarray(runtimes, dtype=float)))
     if not np.isfinite(runtime) or runtime < 0.0:
@@ -2063,6 +2446,14 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
     selector_model = joblib.load(path)
     if not isinstance(selector_model, StatewiseSelectorModel):
         raise ValueError("selector model artifact has an unexpected type")
+    if not hasattr(selector_model, "selector_type"):
+        selector_model.selector_type = FORMAL_MULTIOUTPUT_RF
+    if not hasattr(selector_model, "pairwise_models"):
+        selector_model.pairwise_models = None
+    if not hasattr(selector_model, "pairwise_fit_weight_mode"):
+        selector_model.pairwise_fit_weight_mode = PAIRWISE_MARGIN_WEIGHTED_FIT
+    if not hasattr(selector_model, "pairwise_route_dimensions"):
+        selector_model.pairwise_route_dimensions = PAIRWISE_ROUTE_DIMENSIONS
     required_attributes = (
         "protocol",
         "query_id",
@@ -2098,6 +2489,28 @@ def load_selector_model(path: Path) -> StatewiseSelectorModel:
         raise ValueError("selector model artifact uses an unsupported action-loss target transform")
     if selector_model.fit_weight_mode != CLUSTER_BALANCED_FIT:
         raise ValueError("selector model artifact uses an unsupported fit-weight mode")
+    supported_selector_types = {
+        FORMAL_MULTIOUTPUT_RF,
+        DIMENSION_AWARE_HYBRID_SELECTOR,
+    }
+    if selector_model.selector_type not in supported_selector_types:
+        raise ValueError("selector model artifact uses an unsupported Selector type")
+    if "dimension" in tuple(selector_model.feature_columns):
+        raise ValueError("dimension must remain a routing variable, not a model feature")
+    if selector_model.selector_type == DIMENSION_AWARE_HYBRID_SELECTOR:
+        if selector_model.selector_input_mode != QUERY_FULL_INPUT:
+            raise ValueError("dimension-aware Selector is only defined for query-full input")
+        if selector_model.pairwise_fit_weight_mode != PAIRWISE_MARGIN_WEIGHTED_FIT:
+            raise ValueError("dimension-aware Selector uses the wrong pairwise fit weights")
+        if tuple(selector_model.pairwise_route_dimensions) != PAIRWISE_ROUTE_DIMENSIONS:
+            raise ValueError("dimension-aware Selector uses the wrong routing dimensions")
+        expected_pairs = {
+            (left, right)
+            for left_index, left in enumerate(selector_model.target_algorithms)
+            for right in selector_model.target_algorithms[left_index + 1 :]
+        }
+        if set(selector_model.pairwise_models or {}) != expected_pairs:
+            raise ValueError("dimension-aware Selector is missing pairwise models")
     if selector_model.selector_input_mode == BEHAVIOR_ONLY_FULL_BUDGET_INPUT:
         if selector_model.protocol != BEHAVIOR_ONLY_SELECTION_REFERENCE_PROTOCOL:
             raise ValueError("behavior-only Selector uses the wrong protocol")
@@ -2194,7 +2607,7 @@ def _join_selector_inputs(
         raise ValueError("query feature input uses the wrong preprocessing contract")
     expected_feature_columns = json.dumps(list(query_spec.feature_columns), ensure_ascii=False)
     if set(query_features["query_feature_columns"].astype(str)) != {expected_feature_columns}:
-        raise ValueError("query feature input does not use the frozen feature-column list")
+        raise ValueError("query feature input does not use the predefined feature-column list")
     if (query_features["additional_function_evaluations"].astype(int) != 0).any():
         raise ValueError("query feature input reports additional objective evaluations")
     query_runtime_columns = (
@@ -2212,7 +2625,7 @@ def _join_selector_inputs(
     for row in query_features.to_dict(orient="records"):
         group_status = json.loads(str(row["feature_group_status"]))
         if set(group_status) != set(query_spec.feature_groups):
-            raise ValueError("query feature group status does not cover the frozen groups")
+            raise ValueError("query feature group status does not cover the predefined groups")
         has_group_failure = any(str(status.get("status")) != "ok" for status in group_status.values())
         expected_status = "failed" if has_group_failure else "ok"
         if str(row["feature_status"]) != expected_status:
@@ -2250,7 +2663,7 @@ def _join_behavior_inputs(*, states: pd.DataFrame, behavior: pd.DataFrame) -> pd
     behavior_required = {
         *behavior_key,
         *SAMPLING_METADATA_COLUMNS,
-        *SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+        *BEHAVIOR_FEATURE_COLUMNS,
     }
     missing_behavior = behavior_required.difference(behavior.columns)
     if missing_behavior:
@@ -2258,7 +2671,7 @@ def _join_behavior_inputs(*, states: pd.DataFrame, behavior: pd.DataFrame) -> pd
     if behavior.duplicated(behavior_key).any():
         raise ValueError("behavior input contains duplicate state keys")
     behavior_columns = behavior[
-        behavior_key + list(SAMPLING_METADATA_COLUMNS) + list(SELECTOR_BEHAVIOR_FEATURE_COLUMNS)
+        behavior_key + list(SAMPLING_METADATA_COLUMNS) + list(BEHAVIOR_FEATURE_COLUMNS)
     ].rename(columns={column: f"{column}_behavior" for column in SAMPLING_METADATA_COLUMNS})
     joined = states.merge(
         behavior_columns,
@@ -2595,6 +3008,216 @@ def _metadata_value_is_null(value: Any) -> bool:
     return bool(pd.isna(value))
 
 
+def _make_pairwise_model() -> Pipeline:
+    return Pipeline(
+        [
+            ("imputer", WeightedMedianImputer()),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=200,
+                    random_state=1701,
+                    min_samples_leaf=2,
+                    n_jobs=-1,
+                    class_weight=None,
+                ),
+            ),
+        ]
+    )
+
+
+def _pairwise_margin_weights(
+    states: pd.DataFrame,
+    advantage: np.ndarray,
+) -> np.ndarray:
+    weights = cluster_balanced_row_weights(states)
+    absolute_advantage = np.abs(np.asarray(advantage, dtype=float))
+    cap = max(float(np.quantile(absolute_advantage, 0.95)), EPS)
+    multiplier = 1.0 + np.minimum(absolute_advantage, cap) / cap
+    weights = weights * multiplier
+    weights /= float(np.mean(weights))
+    if not np.isfinite(weights).all() or bool((weights <= 0.0).any()):
+        raise ValueError("pairwise margin weights must be finite and positive")
+    return weights
+
+
+def _fit_pairwise_models(
+    *,
+    states: pd.DataFrame,
+    features: pd.DataFrame,
+    targets: np.ndarray,
+    portfolio: tuple[str, ...],
+) -> dict[tuple[str, str], Pipeline]:
+    if targets.shape != (len(states), len(portfolio)):
+        raise ValueError("pairwise Selector target matrix has an unexpected shape")
+    models: dict[tuple[str, str], Pipeline] = {}
+    for left_index, left in enumerate(portfolio):
+        for right_index, right in enumerate(
+            portfolio[left_index + 1 :],
+            start=left_index + 1,
+        ):
+            advantage = targets[:, right_index] - targets[:, left_index]
+            labels = (advantage > 0.0).astype(int)
+            model = _make_pairwise_model()
+            fit_pipeline_with_weights(
+                model,
+                features,
+                labels,
+                _pairwise_margin_weights(states, advantage),
+            )
+            models[(left, right)] = model
+    return models
+
+
+def _probability_left_better(model: Pipeline, features: pd.DataFrame) -> np.ndarray:
+    probabilities = np.asarray(model.predict_proba(features), dtype=float)
+    classes = np.asarray(model.named_steps["classifier"].classes_)
+    matches = np.flatnonzero(classes == 1)
+    if len(matches) == 1:
+        return probabilities[:, int(matches[0])]
+    if len(classes) == 1 and int(classes[0]) == 0:
+        return np.zeros(len(features), dtype=float)
+    raise ValueError("pairwise classifier has an invalid class contract")
+
+
+def _predict_pairwise_aggregation(
+    *,
+    pairwise_models: dict[tuple[str, str], Pipeline],
+    features: pd.DataFrame,
+    portfolio: tuple[str, ...],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    expected_pairs = {
+        (left, right)
+        for left_index, left in enumerate(portfolio)
+        for right in portfolio[left_index + 1 :]
+    }
+    if set(pairwise_models) != expected_pairs:
+        raise ValueError("pairwise Selector must contain all six portfolio pairs")
+    votes = np.zeros((len(features), len(portfolio)), dtype=float)
+    probability_sums = np.zeros_like(votes)
+    probability_columns: dict[str, np.ndarray] = {}
+    for left_index, left in enumerate(portfolio):
+        for right_index, right in enumerate(
+            portfolio[left_index + 1 :],
+            start=left_index + 1,
+        ):
+            probability_left_better = _probability_left_better(
+                pairwise_models[(left, right)],
+                features,
+            )
+            probability_columns[
+                f"predicted_probability_{left}_better_than_{right}"
+            ] = probability_left_better
+            left_wins = probability_left_better >= 0.5
+            votes[:, left_index] += left_wins.astype(float)
+            votes[:, right_index] += (~left_wins).astype(float)
+            probability_sums[:, left_index] += probability_left_better
+            probability_sums[:, right_index] += 1.0 - probability_left_better
+    selected_indices = np.empty(len(features), dtype=int)
+    for row_index in range(len(features)):
+        tied = np.flatnonzero(votes[row_index] == np.max(votes[row_index]))
+        selected_indices[row_index] = int(
+            tied[np.argmax(probability_sums[row_index, tied])]
+        )
+    selected_algorithms = np.asarray(
+        [portfolio[index] for index in selected_indices],
+        dtype=object,
+    )
+    ranking_scores = -(
+        votes * float(len(portfolio))
+        + probability_sums
+    )
+    return (
+        selected_algorithms,
+        ranking_scores,
+        votes,
+        probability_sums,
+        probability_columns,
+    )
+
+
+def _assemble_selector_prediction_batch(
+    *,
+    predicted_targets: np.ndarray,
+    frame: pd.DataFrame,
+    portfolio: tuple[str, ...],
+    feature_columns: tuple[str, ...],
+    selector_type: str,
+    pairwise_models: dict[tuple[str, str], Pipeline] | None,
+    route_dimensions: tuple[int, ...],
+) -> SelectorPredictionBatch:
+    predicted_targets = np.asarray(predicted_targets, dtype=float)
+    if predicted_targets.shape != (len(frame), len(portfolio)):
+        raise ValueError("Selector prediction matrix has an unexpected shape")
+    if not np.isfinite(predicted_targets).all():
+        raise ValueError("Selector target predictions must be finite")
+    base_indices = np.argmin(predicted_targets, axis=1)
+    selected_algorithms = np.asarray(
+        [portfolio[index] for index in base_indices],
+        dtype=object,
+    )
+    selector_components = np.full(
+        len(frame),
+        FORMAL_MULTIOUTPUT_RF,
+        dtype=object,
+    )
+    ranking_scores = predicted_targets.copy()
+    fit_weight_modes = np.full(
+        len(frame),
+        CLUSTER_BALANCED_FIT,
+        dtype=object,
+    )
+    pairwise_selected: np.ndarray | None = None
+    pairwise_scores: np.ndarray | None = None
+    pairwise_votes: np.ndarray | None = None
+    pairwise_probability_sums: np.ndarray | None = None
+    pairwise_probabilities: dict[str, np.ndarray] | None = None
+    if pairwise_models is not None:
+        (
+            pairwise_selected,
+            pairwise_scores,
+            pairwise_votes,
+            pairwise_probability_sums,
+            pairwise_probabilities,
+        ) = _predict_pairwise_aggregation(
+            pairwise_models=pairwise_models,
+            features=frame[list(feature_columns)],
+            portfolio=portfolio,
+        )
+    if selector_type == DIMENSION_AWARE_HYBRID_SELECTOR:
+        if "dimension" not in frame.columns:
+            raise ValueError("dimension-aware Selector routing requires dimension metadata")
+        if pairwise_selected is None or pairwise_scores is None:
+            raise ValueError("dimension-aware Selector is missing pairwise models")
+        route_mask = frame["dimension"].astype(int).isin(route_dimensions).to_numpy()
+        selected_algorithms[route_mask] = pairwise_selected[route_mask]
+        selector_components[route_mask] = PAIRWISE_AGGREGATION_RF_CLASSIFIER
+        ranking_scores[route_mask] = pairwise_scores[route_mask]
+        fit_weight_modes[route_mask] = PAIRWISE_MARGIN_WEIGHTED_FIT
+    elif selector_type != FORMAL_MULTIOUTPUT_RF:
+        if selector_type != PAIRWISE_AGGREGATION_RF_CLASSIFIER:
+            raise ValueError(f"unsupported Selector type: {selector_type}")
+        if pairwise_selected is None or pairwise_scores is None:
+            raise ValueError("pairwise Selector is missing pairwise models")
+        selected_algorithms = pairwise_selected.copy()
+        selector_components[:] = PAIRWISE_AGGREGATION_RF_CLASSIFIER
+        ranking_scores = pairwise_scores.copy()
+        fit_weight_modes[:] = PAIRWISE_MARGIN_WEIGHTED_FIT
+    return SelectorPredictionBatch(
+        predicted_targets=predicted_targets,
+        selected_algorithms=selected_algorithms,
+        selector_components=selector_components,
+        ranking_scores=ranking_scores,
+        fit_weight_modes=fit_weight_modes,
+        selector_type=selector_type,
+        pairwise_selected_algorithms=pairwise_selected,
+        pairwise_ranking_scores=pairwise_scores,
+        pairwise_votes=pairwise_votes,
+        pairwise_probability_sums=pairwise_probability_sums,
+        pairwise_probabilities=pairwise_probabilities,
+    )
+
+
 def _make_model() -> Pipeline:
     return Pipeline(
         [
@@ -2605,7 +3228,7 @@ def _make_model() -> Pipeline:
                     n_estimators=200,
                     random_state=1701,
                     min_samples_leaf=2,
-                    n_jobs=1,
+                    n_jobs=-1,
                 ),
             ),
         ]

@@ -16,7 +16,7 @@ from landscape_queries.specs import (
     SAMPLE_DESIGN_SPECS,
     get_query_spec,
     get_sample_design_spec,
-    validate_frozen_query_specs,
+    validate_predefined_query_specs,
 )
 
 
@@ -35,7 +35,7 @@ def check_landscape_query_consistency(
     feature_paths: list[Path],
     action_loss_paths: list[Path],
 ) -> dict[str, int]:
-    validate_frozen_query_specs()
+    validate_predefined_query_specs()
     samples = _read_tables(sample_paths)
     _check_feature_path_schemas(feature_paths)
     features = _read_tables(feature_paths)
@@ -264,9 +264,9 @@ def _check_features(features: pd.DataFrame, samples: pd.DataFrame) -> None:
         if missing_features:
             raise ValueError(f"{query_id} feature whitelist is missing columns: {sorted(missing_features)}")
         if set(frame["query_protocol"].astype(str)) != {spec.protocol}:
-            raise ValueError(f"{query_id} query_protocol does not match the frozen spec")
+            raise ValueError(f"{query_id} query_protocol does not match the predefined spec")
         if set(frame["query_preprocessing_id"].astype(str)) != {spec.preprocessing_id}:
-            raise ValueError(f"{query_id} query_preprocessing_id does not match the frozen spec")
+            raise ValueError(f"{query_id} query_preprocessing_id does not match the predefined spec")
         if set(frame["sample_design_id"].astype(str)) != {spec.sample_design_id}:
             raise ValueError(f"{query_id} uses the wrong sample design")
         expected_columns_json = json.dumps(list(spec.feature_columns), ensure_ascii=False)
@@ -342,10 +342,10 @@ def _check_features(features: pd.DataFrame, samples: pd.DataFrame) -> None:
 def _check_feature_row_status(row: dict, spec) -> None:
     group_status = json.loads(str(row["feature_group_status"]))
     if set(group_status) != set(spec.feature_groups):
-        raise ValueError(f"{spec.query_id} group status does not cover the frozen groups")
+        raise ValueError(f"{spec.query_id} group status does not cover the predefined groups")
     nonfinite = json.loads(str(row["feature_nonfinite"]))
     if not isinstance(nonfinite, dict) or set(nonfinite).difference(spec.feature_groups):
-        raise ValueError(f"{spec.query_id} feature_nonfinite must be grouped by frozen feature group")
+        raise ValueError(f"{spec.query_id} feature_nonfinite must be grouped by predefined feature group")
     failures = json.loads(str(row["feature_failure"]))
     if not isinstance(failures, list):
         raise ValueError(f"{spec.query_id} feature_failure must be a JSON list")
@@ -398,10 +398,6 @@ def _check_action_losses(action_losses: pd.DataFrame) -> None:
         "p_skip_raw",
         "loss_skip",
         "action_loss",
-        "action_loss_raw",
-        "p_query_raw",
-        "loss_query",
-        "p_query",
         "transition_mode",
         "runtime_no_query_handoff",
         "runtime_no_query_optimization",
@@ -412,6 +408,10 @@ def _check_action_losses(action_losses: pd.DataFrame) -> None:
     missing = required.difference(action_losses.columns)
     if missing:
         raise ValueError(f"action-loss data are missing query-budget columns: {sorted(missing)}")
+    if "action_loss_raw" not in action_losses.columns and "loss_gap_raw" not in action_losses.columns:
+        raise ValueError("action-loss data must store either action_loss_raw or loss_gap_raw")
+    if "action_loss_norm" not in action_losses.columns and "loss_gap_norm" not in action_losses.columns:
+        raise ValueError("action-loss data must store either action_loss_norm or loss_gap_norm")
     for design_id, frame in action_losses.groupby("sample_design_id", sort=True):
         design = get_sample_design_spec(str(design_id))
         expected = frame["dimension"].astype(int) * design.sample_size_per_dimension
@@ -434,26 +434,88 @@ def _check_action_losses(action_losses: pd.DataFrame) -> None:
     if set(action_losses["performance_loss_mode"].astype(str)) != {"known_optimum_gap"}:
         raise ValueError("action losses must use known-optimum-gap losses")
     reference = action_losses["benchmark_reference_value"].to_numpy(dtype=float)
-    action_raw = action_losses["action_loss_raw"].to_numpy(dtype=float)
     action_gap = action_losses["action_loss"].to_numpy(dtype=float)
     skip_raw = action_losses["p_skip_raw"].to_numpy(dtype=float)
     skip_gap = action_losses["p_skip"].to_numpy(dtype=float)
-    if not np.allclose(action_gap, np.maximum(action_raw - reference, 0.0), rtol=0.0, atol=1e-12):
-        raise ValueError("action_loss is not the known-optimum gap of action_loss_raw")
+    if "action_loss_raw" in action_losses.columns:
+        action_raw = action_losses["action_loss_raw"].to_numpy(dtype=float)
+        clipped_gap = np.minimum(
+            np.maximum(action_raw - reference, 0.0),
+            action_losses["failure_loss_cap"].to_numpy(dtype=float)
+            if "failure_loss_cap" in action_losses.columns
+            else np.inf,
+        )
+        if not np.allclose(action_gap, clipped_gap, rtol=0.0, atol=1e-12):
+            raise ValueError("action_loss is not the known-optimum gap of action_loss_raw")
+    if "loss_gap_raw" in action_losses.columns and not np.allclose(
+        action_losses["loss_gap_raw"].to_numpy(dtype=float),
+        action_gap,
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise ValueError("loss_gap_raw must equal action_loss")
     if not np.allclose(skip_gap, np.maximum(skip_raw - reference, 0.0), rtol=0.0, atol=1e-12):
         raise ValueError("p_skip is not the known-optimum gap of p_skip_raw")
-    if not np.allclose(action_losses["p_query_raw"], action_raw, rtol=0.0, atol=1e-12):
-        raise ValueError("p_query_raw must equal action_loss_raw")
-    if not np.allclose(action_losses["loss_query"], action_gap, rtol=0.0, atol=1e-12):
+    if "p_query_raw" in action_losses.columns and "action_loss_raw" in action_losses.columns:
+        if not np.allclose(action_losses["p_query_raw"], action_raw, rtol=0.0, atol=1e-12):
+            raise ValueError("p_query_raw must equal action_loss_raw")
+    if "loss_query" in action_losses.columns and not np.allclose(
+        action_losses["loss_query"],
+        action_gap,
+        rtol=0.0,
+        atol=1e-12,
+    ):
         raise ValueError("loss_query must equal action_loss")
-    if not np.allclose(action_losses["p_query"], action_gap, rtol=0.0, atol=1e-12):
+    if "p_query" in action_losses.columns and not np.allclose(
+        action_losses["p_query"],
+        action_gap,
+        rtol=0.0,
+        atol=1e-12,
+    ):
         raise ValueError("p_query must equal action_loss")
     if not np.allclose(action_losses["loss_skip"], skip_gap, rtol=0.0, atol=1e-12):
         raise ValueError("loss_skip must equal p_skip")
+    if {"target_algorithm", "prefix_algorithm", "action"}.issubset(action_losses.columns):
+        expected_action = action_losses["target_algorithm"].astype(str).where(
+            action_losses["target_algorithm"].astype(str)
+            != action_losses["prefix_algorithm"].astype(str),
+            "continue_current",
+        )
+        if not bool((action_losses["action"].astype(str) == expected_action).all()):
+            raise ValueError("action must be continue_current iff target_algorithm equals prefix_algorithm")
+    if {"target_algorithm", "prefix_algorithm"}.issubset(action_losses.columns):
+        native_mode = action_losses["transition_mode"].astype(str).eq("native_optimizer_state")
+        native_action = action_losses["target_algorithm"].astype(str).eq(
+            action_losses["prefix_algorithm"].astype(str)
+        )
+        if not np.array_equal(native_mode.to_numpy(), native_action.to_numpy()):
+            raise ValueError("transition_mode does not match target_algorithm and prefix_algorithm")
+    if {
+        "FE_prefix",
+        "FE_action_optimization",
+        "remaining_budget_ratio",
+    }.issubset(action_losses.columns):
+        expected_action_budget = (
+            action_losses["FE_total"].to_numpy(dtype=int)
+            - action_losses["FE_prefix"].to_numpy(dtype=int)
+            - action_losses["FE_query"].to_numpy(dtype=int)
+        )
+        if not np.array_equal(
+            action_losses["FE_action_optimization"].to_numpy(dtype=int),
+            expected_action_budget,
+        ):
+            raise ValueError("FE_action_optimization must equal FE_total - FE_prefix - FE_query")
+        if not np.allclose(
+            action_losses["remaining_budget_ratio"].to_numpy(dtype=float),
+            expected_action_budget / action_losses["FE_total"].to_numpy(dtype=float),
+            rtol=0.0,
+            atol=1e-12,
+        ):
+            raise ValueError("remaining_budget_ratio must equal FE_action_optimization / FE_total")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check frozen landscape-query protocols without pytest.")
+    parser = argparse.ArgumentParser(description="Check predefined landscape-query protocols without pytest.")
     parser.add_argument("--samples", type=Path, action="append", default=None)
     parser.add_argument("--features", type=Path, action="append", default=None)
     parser.add_argument("--action-losses", type=Path, action="append", default=None)
@@ -464,7 +526,7 @@ def main() -> None:
         action_loss_paths=args.action_losses or [],
     )
     print(
-        "validated frozen query specs; "
+        "validated predefined query specs; "
         f"samples={summary['sample_rows']}, features={summary['feature_rows']}, "
         f"action_losses={summary['action_loss_rows']}"
     )

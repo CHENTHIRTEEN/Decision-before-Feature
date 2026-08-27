@@ -10,14 +10,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from experiments.phase1_batch_common import load_config, make_shards, split_name
+from experiments.phase1_batch_common import load_suite_configs, make_shards, split_name
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS
-from utility_labels.fields import PRIMARY_EFFICACY_VALUE_COLUMN, UTILITY_VALUE_COLUMNS
-from utility_labels.generation import generate_utility_labels
+from utility_labels.fields import PRIMARY_EFFICACY_VALUE_COLUMN
+from utility_labels.generation import primary_efficacy_label_view
 from utility_labels.validation import validate_utility_label_file
 
 
-TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe
+TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe_selected_path
 
 
 def utility_label_shard_path(
@@ -34,10 +34,6 @@ def generate_utility_label_shards(
     query_id: str,
     config_paths: list[Path],
     query_selection_reference_path: Path,
-    behavior_selection_reference_path: Path,
-    query_adjusted_behavior_reference_path: Path,
-    sampling_only_reference_path: Path,
-    complete_path_timings_path: Path,
     output_root: Path,
     only_functions: list[int] | None,
     only_dimensions: list[int] | None,
@@ -47,30 +43,27 @@ def generate_utility_label_shards(
     tasks = []
     skipped = 0
     for config_path in config_paths:
-        config = load_config(config_path)
-        split = split_name(config)
-        for shard in make_shards(config, only_functions, only_dimensions):
-            output = utility_label_shard_path(
-                output_root, split, shard.function_id, shard.dimension
-            )
-            if output.exists() and not overwrite:
-                print(f"skip existing query utility shard {output}")
-                skipped += 1
-                continue
-            tasks.append(
-                {
-                    "query_id": query_id,
-                    "config_path": str(config_path),
-                    "query_selection_reference_path": str(query_selection_reference_path),
-                    "behavior_selection_reference_path": str(behavior_selection_reference_path),
-                    "query_adjusted_behavior_reference_path": str(query_adjusted_behavior_reference_path),
-                    "sampling_only_reference_path": str(sampling_only_reference_path),
-                    "complete_path_timings_path": str(complete_path_timings_path),
-                    "output_path": str(output),
-                    "function": shard.function,
-                    "dimension": shard.dimension,
-                }
-            )
+        for config in load_suite_configs(config_path):
+            split = split_name(config)
+            for shard in make_shards(config, only_functions, only_dimensions):
+                output = utility_label_shard_path(
+                    output_root, split, shard.function_id, shard.dimension
+                )
+                if output.exists() and not overwrite:
+                    print(f"skip existing query utility shard {output}")
+                    skipped += 1
+                    continue
+                tasks.append(
+                    {
+                        "query_id": query_id,
+                        "config_path": str(config_path),
+                        "suite_split": split,
+                        "query_selection_reference_path": str(query_selection_reference_path),
+                        "output_path": str(output),
+                        "function": shard.function,
+                        "dimension": shard.dimension,
+                    }
+                )
     written = 0
     rows = 0
     if workers <= 1:
@@ -103,35 +96,35 @@ def summarize_utility_label_shards(
     shard_rows = []
     frames = []
     for config_path in config_paths:
-        config = load_config(config_path)
-        split = split_name(config)
-        for shard in make_shards(config, only_functions, only_dimensions):
-            path = utility_label_shard_path(
-                output_root, split, shard.function_id, shard.dimension
-            )
-            row = {
-                "query_id": query_id,
-                "split": split,
-                "function_id": shard.function_id,
-                "family": shard.family,
-                "dimension": shard.dimension,
-                "path": str(path),
-                "exists": path.exists(),
-                "rows": 0,
-                "validation_status": "missing",
-                "validation_error": "",
-            }
-            if path.exists():
-                try:
-                    validated = validate_utility_label_file(path)
-                    frame = pq.read_table(path).to_pandas()
-                    frames.append(frame)
-                    row["rows"] = int(validated["rows"])
-                    row["validation_status"] = "ok"
-                except Exception as exc:
-                    row["validation_status"] = "failed"
-                    row["validation_error"] = f"{type(exc).__name__}: {exc}"
-            shard_rows.append(row)
+        for config in load_suite_configs(config_path):
+            split = split_name(config)
+            for shard in make_shards(config, only_functions, only_dimensions):
+                path = utility_label_shard_path(
+                    output_root, split, shard.function_id, shard.dimension
+                )
+                row = {
+                    "query_id": query_id,
+                    "split": split,
+                    "function_id": shard.function_id,
+                    "family": shard.family,
+                    "dimension": shard.dimension,
+                    "path": str(path),
+                    "exists": path.exists(),
+                    "rows": 0,
+                    "validation_status": "missing",
+                    "validation_error": "",
+                }
+                if path.exists():
+                    try:
+                        validated = validate_utility_label_file(path)
+                        frame = pq.read_table(path).to_pandas()
+                        frames.append(frame)
+                        row["rows"] = int(validated["rows"])
+                        row["validation_status"] = "ok"
+                    except Exception as exc:
+                        row["validation_status"] = "failed"
+                        row["validation_error"] = f"{type(exc).__name__}: {exc}"
+                shard_rows.append(row)
     shards = pd.DataFrame(shard_rows)
     labels = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     summary = _utility_summary(labels, query_id=query_id)
@@ -153,24 +146,32 @@ def summarize_utility_label_shards(
 
 def _generate_one_shard(task: dict[str, Any]) -> dict[str, Any]:
     started = perf_counter()
-    summary = generate_utility_labels(
-        query_id=str(task["query_id"]),
-        config_path=Path(task["config_path"]),
-        query_selection_reference_path=Path(task["query_selection_reference_path"]),
-        behavior_selection_reference_path=Path(task["behavior_selection_reference_path"]),
-        query_adjusted_behavior_reference_path=Path(
-            task["query_adjusted_behavior_reference_path"]
-        ),
-        sampling_only_reference_path=Path(task["sampling_only_reference_path"]),
-        complete_path_timings_path=Path(task["complete_path_timings_path"]),
-        output_path=Path(task["output_path"]),
-        only_functions=[int(task["function"])],
-        only_dimensions=[int(task["dimension"])],
-        max_labels=None,
-        overwrite=True,
+    selection = pq.read_table(Path(task["query_selection_reference_path"])).to_pandas()
+    selection = selection[
+        selection["split"].astype(str).eq(str(task["suite_split"]))
+        & selection["dimension"].astype(int).eq(int(task["dimension"]))
+    ].copy()
+    function_ids = selection["function_id"].astype(str)
+    suite = str(task["suite_split"]).split("_", 1)[0]
+    expected_function_id = (
+        f"mabbob_c{int(task['function']):03d}"
+        if suite == "mabbob"
+        else f"{suite}_f{int(task['function']):03d}"
     )
-    validate_utility_label_file(summary["output"])
-    return {**summary, "elapsed_seconds": perf_counter() - started}
+    selection = selection[function_ids.eq(expected_function_id)].copy()
+    labels = primary_efficacy_label_view(
+        query_selection=selection,
+        query_id=str(task["query_id"]),
+    )
+    output = Path(task["output_path"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pandas(labels, preserve_index=False), output)
+    validate_utility_label_file(output)
+    return {
+        "rows": int(len(labels)),
+        "output": str(output),
+        "elapsed_seconds": perf_counter() - started,
+    }
 
 
 def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
@@ -189,7 +190,6 @@ def _utility_summary(labels: pd.DataFrame, *, query_id: str) -> pd.DataFrame:
                 "mean_performance_gain_norm": float(frame["performance_gain_norm"].mean()),
                 "mean_action_loss": float(frame["action_loss"].mean()),
                 "mean_selector_regret_raw": float(frame["selector_regret_raw"].mean()),
-                **{f"mean_{column}": float(frame[column].mean()) for column in UTILITY_VALUE_COLUMNS},
             }
         )
     return pd.DataFrame(rows)
@@ -237,14 +237,12 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate query-specific utility labels by split/family/dimension.")
+    parser = argparse.ArgumentParser(
+        description="Generate primary query-specific G_FE labels by split/function/dimension."
+    )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, action="append", default=None)
-    parser.add_argument("--query-selection-reference", type=Path, default=None)
-    parser.add_argument("--behavior-selection-reference", type=Path, default=None)
-    parser.add_argument("--query-adjusted-behavior-reference", type=Path, default=None)
-    parser.add_argument("--sampling-only-reference", type=Path, default=None)
-    parser.add_argument("--complete-path-timings", type=Path, required=True)
+    parser.add_argument("--query-selection-reference", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, default=None)
     parser.add_argument("--report-dir", type=Path, default=None)
     parser.add_argument("--only-function", type=int, action="append", default=None)
@@ -256,13 +254,10 @@ def main() -> None:
     if args.workers < 1:
         raise ValueError("--workers must be at least 1")
     config_paths = args.config or [
-        Path("configs/phase1_bbob_train.yaml"),
-        Path("configs/phase1_bbob_validation.yaml"),
+        Path("configs/phase1_train.yaml"),
+        Path("configs/phase1_validation.yaml"),
     ]
-    query_selection = args.query_selection_reference or Path("results/selection_reference") / args.query_id / "selection_reference.parquet"
-    behavior_selection = args.behavior_selection_reference or Path("results/selection_reference/behavior_only_full_budget/selection_reference.parquet")
-    state_only_selection = args.query_adjusted_behavior_reference or Path("results/selection_reference") / args.query_id / "state_only_selection_reference.parquet"
-    sampling_only_selection = args.sampling_only_reference or Path("results/selection_reference") / args.query_id / "sampling_only_continue_current.parquet"
+    query_selection = args.query_selection_reference
     output_root = args.output_root or Path("results/utility_labels") / args.query_id
     report_dir = args.report_dir or Path("results/utility_labels") / args.query_id / "quality"
     if not args.summarize_only:
@@ -270,10 +265,6 @@ def main() -> None:
             query_id=args.query_id,
             config_paths=config_paths,
             query_selection_reference_path=query_selection,
-            behavior_selection_reference_path=behavior_selection,
-            query_adjusted_behavior_reference_path=state_only_selection,
-            sampling_only_reference_path=sampling_only_selection,
-            complete_path_timings_path=args.complete_path_timings,
             output_root=output_root,
             only_functions=args.only_function,
             only_dimensions=args.only_dimension,

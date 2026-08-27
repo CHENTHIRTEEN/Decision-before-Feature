@@ -8,7 +8,7 @@ from trajectory.sampling import get_sampling_spec
 DEFAULT_CHECKPOINT_RATIOS = (0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00)
 
 
-@dataclass(frozen=True)
+@dataclass
 class OptimizerSettings:
     population_size: int = 40
     checkpoint_ratios: tuple[float, ...] = DEFAULT_CHECKPOINT_RATIOS

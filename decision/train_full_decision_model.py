@@ -20,7 +20,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from behavior.features import (
+    BEHAVIOR_FEATURE_COLUMNS,
     BEHAVIOR_FEATURE_GROUPS,
+    DECISION_BEHAVIOR_FEATURE_COLUMNS,
     SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
 )
 from decision.cluster_weighting import (
@@ -30,8 +32,7 @@ from decision.cluster_weighting import (
 )
 from decision.model_protocol import (
     ACTIVE_MODEL_NAMES,
-    BEHAVIOR_FROZEN_THRESHOLD_MODE,
-    FROZEN_THRESHOLD_MODE,
+    PREDEFINED_THRESHOLD_MODE,
     FULL_TRAIN_OOF_FOLDS,
     INNER_OOF_FOLDS,
     MODEL_SELECTION_METRIC,
@@ -45,13 +46,13 @@ from decision.nested_learning import (
     TRAIN_SPLIT as NESTED_TRAIN_SPLIT,
     VALIDATION_SPLIT as NESTED_VALIDATION_SPLIT,
     PreparedNestedLearningInputs,
-    build_required_replay_plan,
+    build_full_train_selector_views,
     build_fold_learning_views,
     cv_group_fold_partitions,
     family_fold_partitions,
     prepare_nested_learning_inputs,
 )
-from experiments.phase1_batch_common import load_config
+from experiments.phase1_batch_common import load_config, load_suite_configs, split_name
 from landscape_queries.specs import LANDSCAPE_QUERY_SPECS, get_query_spec
 from selection_reference.common import read_performance
 from selection_reference.model import (
@@ -61,24 +62,17 @@ from selection_reference.model import (
 )
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 from utility_labels.fields import (
-    BEHAVIOR_UTILITY_VALUE_COLUMNS,
-    NEED_BEHAVIOR_ONLY_COLUMNS,
-    NEED_QUERY_COLUMNS,
     PRIMARY_EFFICACY_LABEL_COLUMN,
     PRIMARY_EFFICACY_VALUE_COLUMN,
-    RUNTIME_COST_COLUMNS,
-    UTILITY_VALUE_COLUMNS,
 )
 
 
-TRAIN_SPLIT = "bbob_train"
-VALIDATION_SPLIT = "bbob_validation"
-# 方案 A 主标签：g_fe（等总 FE 性能功效，runtime 不进入主标签）
+TRAIN_SPLIT = "train"
+VALIDATION_SPLIT = "validation"
+# 方案 A 主标签：g_fe_selected_path（等总 FE 的实际 Query Selector 路径功效，runtime 不进入主标签）
 # 旧 u_query_joint_lamT_1 / need_query_joint_lamT_1 仅作兼容诊断。
-DEFAULT_TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN          # "g_fe"
-DEFAULT_AUXILIARY_LABEL_COLUMN = PRIMARY_EFFICACY_LABEL_COLUMN  # "g_fe_gt_zero"
-DEFAULT_BEHAVIOR_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
-DEFAULT_BEHAVIOR_AUXILIARY_LABEL_COLUMN = "need_behavior_only_full_budget_lamT_1"
+DEFAULT_TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN          # "g_fe_selected_path"
+DEFAULT_AUXILIARY_LABEL_COLUMN = PRIMARY_EFFICACY_LABEL_COLUMN  # "g_fe_selected_path_gt_zero"
 TARGET_COLUMN = DEFAULT_TARGET_COLUMN
 AUXILIARY_LABEL_COLUMN = DEFAULT_AUXILIARY_LABEL_COLUMN
 METADATA_COLUMNS = (
@@ -115,7 +109,6 @@ METADATA_COLUMNS = (
     "no_query_transition_mode",
     "query_transition_mode",
     "handoff_type",
-    *RUNTIME_COST_COLUMNS,
 )
 ACTION_RELATION_COLUMNS = (
     "selected_equals_default",
@@ -129,8 +122,6 @@ FORBIDDEN_X_COLUMNS = {
     "algorithm",
     "function_id",
     "function",
-    "FE_total",
-    "FE_prefix",
     "FE_query",
     "FE_no_query_optimization",
     "FE_action_optimization",
@@ -189,12 +180,9 @@ ALL_ACCEPTED_OPPORTUNITIES = "all_accepted"
 MILESTONE_ONLY_OPPORTUNITIES = "milestone_only"
 OPPORTUNITY_SCOPES = (ALL_ACCEPTED_OPPORTUNITIES, MILESTONE_ONLY_OPPORTUNITIES)
 FORMAL_FEATURE_GROUPS = (
-    "T0",
-    "B1",
-    "B2",
-    "B2+Motion",
-    "B2+Maturity",
-    "B3",
+    "B2+Motion+SearchMaturity",
+    "B2+Motion+SearchMaturityLinear",
+    "B2+Motion+ExploreExploitRatio",
 )
 
 
@@ -249,8 +237,8 @@ def train_full_decision_models(
     expected_dimensions: Sequence[int],
     target_column: str = DEFAULT_TARGET_COLUMN,
     auxiliary_label_column: str = DEFAULT_AUXILIARY_LABEL_COLUMN,
-    behavior_target_column: str = DEFAULT_BEHAVIOR_TARGET_COLUMN,
-    behavior_auxiliary_label_column: str = DEFAULT_BEHAVIOR_AUXILIARY_LABEL_COLUMN,
+    storage_split_roles: dict[str, str] | None = None,
+    storage_split_suites: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if FULL_TRAIN_OOF_FOLDS != OUTER_OOF_FOLDS:
         raise RuntimeError(
@@ -261,18 +249,6 @@ def train_full_decision_models(
         target_column=target_column,
         auxiliary_label_column=auxiliary_label_column,
     )
-    if behavior_target_column not in BEHAVIOR_UTILITY_VALUE_COLUMNS:
-        raise ValueError(
-            "behavior_target_column must be one of "
-            f"{list(BEHAVIOR_UTILITY_VALUE_COLUMNS)}"
-        )
-    expected_behavior_label = NEED_BEHAVIOR_ONLY_COLUMNS[
-        BEHAVIOR_UTILITY_VALUE_COLUMNS.index(behavior_target_column)
-    ]
-    if behavior_auxiliary_label_column != expected_behavior_label:
-        raise ValueError(
-            f"{behavior_target_column} must use {expected_behavior_label}"
-        )
     _check_output_paths(output_dir, overwrite)
     if feature_group not in set(FORMAL_FEATURE_GROUPS):
         raise ValueError(
@@ -282,10 +258,10 @@ def train_full_decision_models(
         raise ValueError(f"unsupported opportunity_scope: {opportunity_scope}")
     if prepared_inputs.query_spec.query_id != query_id:
         raise ValueError("prepared nested inputs do not match query_id")
-    frozen_dimensions = _normalize_expected_dimensions(expected_dimensions)
+    predefined_dimensions = _normalize_expected_dimensions(expected_dimensions)
     query_spec = prepared_inputs.query_spec
     feature_columns = _formal_feature_columns(feature_group)
-    selection_feature_columns = _formal_feature_columns("B3")
+    selection_feature_columns = feature_columns
     _pilot_group_column = "cv_group_id" if "cv_group_id" in prepared_inputs.query_adjusted_states.columns else "family"
     train_groups = tuple(
         sorted(
@@ -297,34 +273,34 @@ def train_full_decision_models(
             )
         )
     )
-    train_families = tuple(
+    train_cv_groups = tuple(
         sorted(
             set(
                 prepared_inputs.query_adjusted_states.loc[
                     prepared_inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
-                    "family",
+                    _pilot_group_column,
                 ].astype(str)
             )
         )
     )
-    validation_families = tuple(
+    validation_cv_groups = tuple(
         sorted(
             set(
                 prepared_inputs.query_adjusted_states.loc[
                     prepared_inputs.query_adjusted_states["split"].astype(str).eq(VALIDATION_SPLIT),
-                    "family",
+                    _pilot_group_column,
                 ].astype(str)
             )
         )
     )
     full_views = build_fold_learning_views(
         inputs=prepared_inputs,
-        fit_families=train_families,
-        holdout_families=validation_families,
+        fit_families=train_cv_groups,
+        holdout_families=validation_cv_groups,
         fit_split=NESTED_TRAIN_SPLIT,
         holdout_split=NESTED_VALIDATION_SPLIT,
         fold_role="full_train_final",
-    ) if validation_families else None
+    ) if validation_cv_groups else None
     if full_views is None:
         # Pilot mode: no validation split; use the first outer fold as the full-train view.
         from decision.nested_learning import (
@@ -344,28 +320,42 @@ def train_full_decision_models(
             holdout_split=_TRAIN_SPLIT,
             fold_role="full_train_final",
         )
-    if (
-        full_views.pre_run_query_only_selector is None
-        or full_views.pre_run_fit_rows is None
-        or full_views.pre_run_holdout_rows is None
-    ):
-        raise ValueError(
-            "formal training requires fold-specific FE=0 pre-run Traditional-AAS outcomes"
-        )
     train = _opportunity_view(full_views.fit_labels, opportunity_scope)
     validation = _opportunity_view(full_views.holdout_labels, opportunity_scope)
     _check_dataset(pd.concat([train, validation], ignore_index=True), feature_columns)
     _check_function_split(train, validation)
     _check_complete_dimension_coverage(
         train,
-        expected_dimensions=frozen_dimensions,
-        context="BBOB-train Decision data",
+        expected_dimensions=predefined_dimensions,
+        context="integrated-train Decision data",
     )
     _check_complete_dimension_coverage(
         validation,
-        expected_dimensions=frozen_dimensions,
-        context="BBOB-validation Decision data",
+        expected_dimensions=predefined_dimensions,
+        context="integrated-validation Decision data",
     )
+    decision_dataset = pd.concat([train, validation], ignore_index=True)
+    utility_label_dataset = decision_dataset.drop(
+        columns=[
+            column
+            for column in decision_dataset.columns
+            if column.startswith("bf_") or column.startswith("descriptor_")
+        ]
+    )
+    if storage_split_roles and storage_split_suites:
+        decision_dataset = _restore_storage_splits(
+            decision_dataset,
+            storage_split_roles=storage_split_roles,
+            storage_split_suites=storage_split_suites,
+        )
+        utility_label_dataset = _restore_storage_splits(
+            utility_label_dataset,
+            storage_split_roles=storage_split_roles,
+            storage_split_suites=storage_split_suites,
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_frame(utility_label_dataset, output_dir / "utility_labels")
+    _write_frame(decision_dataset, output_dir / "decision_dataset")
 
     model_specs = active_model_specs(random_seed)
     model_rows: list[dict[str, Any]] = []
@@ -391,7 +381,7 @@ def train_full_decision_models(
             inputs=prepared_inputs,
             feature_columns=selection_feature_columns,
             opportunity_scope=ALL_ACCEPTED_OPPORTUNITIES,
-            expected_dimensions=frozen_dimensions,
+            expected_dimensions=predefined_dimensions,
         )
         nested_oof_prediction_frames.append(nested_predictions)
         oof_fold_frames.append(nested_fold_summary)
@@ -405,18 +395,18 @@ def train_full_decision_models(
             opportunity_scope=opportunity_scope,
             target_column=TARGET_COLUMN,
             auxiliary_label_column=AUXILIARY_LABEL_COLUMN,
-            expected_dimensions=frozen_dimensions,
+            expected_dimensions=predefined_dimensions,
         )
         oof_fold_frames.append(train_oof_fold_summary)
-        frozen_threshold = _decision_threshold_from_scores(
+        predefined_threshold = _decision_threshold_from_scores(
             frame=train_oof_frame,
             scores=train_oof_scores,
             observed=train_oof_frame[TARGET_COLUMN].to_numpy(dtype=float),
-            expected_dimensions=frozen_dimensions,
+            expected_dimensions=predefined_dimensions,
         )
         threshold_neighborhood_width = float(
             np.quantile(
-                np.abs(train_oof_scores - frozen_threshold),
+                np.abs(train_oof_scores - predefined_threshold),
                 THRESHOLD_NEIGHBORHOOD_QUANTILE,
             )
         )
@@ -439,7 +429,7 @@ def train_full_decision_models(
 
         thresholds = {
             "zero": 0.0,
-            FROZEN_THRESHOLD_MODE: frozen_threshold,
+            PREDEFINED_THRESHOLD_MODE: predefined_threshold,
         }
         threshold_rows.extend(
             {
@@ -581,7 +571,7 @@ def train_full_decision_models(
     model_selection_summary = _nested_model_selection_summary(
         nested_oof_predictions,
         model_specs,
-        expected_dimensions=frozen_dimensions,
+        expected_dimensions=predefined_dimensions,
     )
     selected_rows = model_selection_summary[model_selection_summary["selected_model"]]
     if len(selected_rows) != 1:
@@ -589,123 +579,9 @@ def train_full_decision_models(
     selected_model_name = str(selected_rows.iloc[0]["model_name"])
     selected_spec = next(spec for spec in model_specs if spec.model_name == selected_model_name)
 
-    behavior_train = _opportunity_view(
-        full_views.fit_labels,
-        ALL_ACCEPTED_OPPORTUNITIES,
-    )
-    behavior_validation = _opportunity_view(
-        full_views.holdout_labels,
-        ALL_ACCEPTED_OPPORTUNITIES,
-    )
-    behavior_oof_frame, behavior_oof_scores, behavior_oof_folds = _end_to_end_family_oof_scores(
-        spec=selected_spec,
-        inputs=prepared_inputs,
-        feature_columns=selection_feature_columns,
-        requested_folds=FULL_TRAIN_OOF_FOLDS,
-        fold_role="full_train_behavior_oof_threshold",
-        opportunity_scope=ALL_ACCEPTED_OPPORTUNITIES,
-        target_column=behavior_target_column,
-        auxiliary_label_column=behavior_auxiliary_label_column,
-        expected_dimensions=frozen_dimensions,
-    )
-    oof_fold_frames.append(behavior_oof_folds)
-    behavior_frozen_threshold = _decision_threshold_from_scores(
-        frame=behavior_oof_frame,
-        scores=behavior_oof_scores,
-        observed=behavior_oof_frame[behavior_target_column].to_numpy(dtype=float),
-        expected_dimensions=frozen_dimensions,
-    )
-    behavior_model, behavior_constant, behavior_positive, behavior_negative = _fit_model_for_target(
-        clone(selected_spec.estimator),
-        behavior_train,
-        selection_feature_columns,
-        selected_spec.objective,
-        target_column=behavior_target_column,
-        auxiliary_label_column=behavior_auxiliary_label_column,
-    )
-    behavior_validation_scores = _predict_model(
-        behavior_model,
-        behavior_validation,
-        selection_feature_columns,
-    )
-    behavior_model_path = model_dir / f"{selected_model_name}__behavior_only.joblib"
-    joblib.dump(behavior_model, behavior_model_path, compress=3)
-    behavior_thresholds = {
-        "zero": 0.0,
-        BEHAVIOR_FROZEN_THRESHOLD_MODE: float(behavior_frozen_threshold),
-    }
-    threshold_rows.extend(
-        [
-            {
-                "model_name": selected_model_name,
-                "model_family": selected_spec.model_family,
-                "objective": selected_spec.objective,
-                "policy_target": "behavior_only_full_budget",
-                "threshold_mode": "zero",
-                "threshold": 0.0,
-                "threshold_source": "fixed_zero",
-                "fit_split": "fixed",
-                "oof_folds": 0,
-                "in_sample_train_rows_used_for_threshold_fit": 0,
-                "validation_rows_used_for_threshold_fit": 0,
-            },
-            {
-                "model_name": selected_model_name,
-                "model_family": selected_spec.model_family,
-                "objective": selected_spec.objective,
-                "policy_target": "behavior_only_full_budget",
-                "threshold_mode": BEHAVIOR_FROZEN_THRESHOLD_MODE,
-                "threshold": float(behavior_frozen_threshold),
-                "threshold_source": "fold_specific_upstream_full_train_cv_group_oof",
-                "fit_split": TRAIN_SPLIT,
-                "oof_folds": FULL_TRAIN_OOF_FOLDS,
-                "in_sample_train_rows_used_for_threshold_fit": 0,
-                "validation_rows_used_for_threshold_fit": 0,
-            },
-        ]
-    )
-    train_oof_behavior_predictions = _target_prediction_frame(
-        frame=behavior_oof_frame,
-        scores=behavior_oof_scores,
-        thresholds=behavior_thresholds,
-        model_name=selected_model_name,
-        model_family=selected_spec.model_family,
-        objective=selected_spec.objective,
-        data_split="train_oof",
-        target_column=behavior_target_column,
-        auxiliary_label_column=behavior_auxiliary_label_column,
-        policy_target="behavior_only_full_budget",
-    )
-    validation_behavior_predictions = _target_prediction_frame(
-        frame=behavior_validation,
-        scores=behavior_validation_scores,
-        thresholds=behavior_thresholds,
-        model_name=selected_model_name,
-        model_family=selected_spec.model_family,
-        objective=selected_spec.objective,
-        data_split="validation",
-        target_column=behavior_target_column,
-        auxiliary_label_column=behavior_auxiliary_label_column,
-        policy_target="behavior_only_full_budget",
-    )
-    model_artifacts.append(
-        {
-            "model_name": selected_model_name,
-            "policy_target": "behavior_only_full_budget",
-            "model_path": str(behavior_model_path),
-        }
-    )
-
     selector_models: list[tuple[str, Any]] = [
         ("query_full", full_views.query_selector),
-        ("behavior_only_full_budget", full_views.behavior_only_selector),
-        ("query_adjusted_state_only", full_views.state_only_selector),
-        ("query_only", full_views.query_only_selector),
     ]
-    if full_views.pre_run_query_only_selector is not None:
-        selector_models.append(
-            ("pre_run_query_only", full_views.pre_run_query_only_selector)
-        )
     selector_artifacts: dict[str, str] = {}
     for selector_name, selector_model in selector_models:
         selector_path = model_dir / f"selector__{selector_name}.joblib"
@@ -732,11 +608,35 @@ def train_full_decision_models(
         nested_oof_predictions,
         train_oof_predictions,
         validation_predictions,
-        train_oof_behavior_predictions,
-        validation_behavior_predictions,
     ):
         frame["selected_by_nested_oof"] = frame["model_name"].astype(str) == selected_model_name
     input_contract = _model_input_contract(feature_columns, train)
+    online_evaluation_input = validation_predictions[
+        validation_predictions["model_name"].astype(str).eq(selected_model_name)
+    ].copy()
+    selected_threshold = float(
+        threshold_summary.loc[
+            threshold_summary["model_name"].astype(str).eq(selected_model_name)
+            & threshold_summary["threshold_mode"].astype(str).eq(
+                PREDEFINED_THRESHOLD_MODE
+            ),
+            "threshold",
+        ].iloc[0]
+    )
+    online_evaluation_input["threshold_mode"] = PREDEFINED_THRESHOLD_MODE
+    online_evaluation_input["threshold"] = selected_threshold
+    online_evaluation_input["decision_run_query"] = online_evaluation_input[
+        f"decision_run_query_{PREDEFINED_THRESHOLD_MODE}"
+    ].to_numpy(dtype=bool)
+    online_evaluation_input["decision_utility"] = online_evaluation_input[
+        f"decision_utility_{PREDEFINED_THRESHOLD_MODE}"
+    ].to_numpy(dtype=float)
+    if storage_split_roles and storage_split_suites:
+        online_evaluation_input = _restore_storage_splits(
+            online_evaluation_input,
+            storage_split_roles=storage_split_roles,
+            storage_split_suites=storage_split_suites,
+        )
 
     _write_frame(input_contract, output_dir / "model_input_contract")
     _write_frame(preprocessing_fit_summary, output_dir / "preprocessing_fit_summary")
@@ -745,6 +645,7 @@ def train_full_decision_models(
     _write_frame(model_selection_summary, output_dir / "model_selection_summary")
     _write_frame(oof_fold_summary, output_dir / "oof_fold_summary")
     _write_frame(full_views.selector_summary, output_dir / "selector_performance_summary")
+    _write_frame(online_evaluation_input, output_dir / "online_evaluation_input")
     _write_frame(validation_regression_summary, output_dir / "validation_regression_summary")
     _write_frame(validation_score_summary, output_dir / "validation_score_summary")
     _write_frame(validation_decision_summary, output_dir / "validation_decision_summary")
@@ -761,23 +662,6 @@ def train_full_decision_models(
         pa.Table.from_pandas(validation_predictions, preserve_index=False),
         output_dir / "validation_predictions.parquet",
     )
-    pq.write_table(
-        pa.Table.from_pandas(train_oof_behavior_predictions, preserve_index=False),
-        output_dir / "train_oof_behavior_only_predictions.parquet",
-    )
-    pq.write_table(
-        pa.Table.from_pandas(validation_behavior_predictions, preserve_index=False),
-        output_dir / "validation_behavior_only_predictions.parquet",
-    )
-    pq.write_table(
-        pa.Table.from_pandas(full_views.pre_run_fit_rows, preserve_index=False),
-        output_dir / "train_oof_pre_run_aas_selection.parquet",
-    )
-    pq.write_table(
-        pa.Table.from_pandas(full_views.pre_run_holdout_rows, preserve_index=False),
-        output_dir / "validation_pre_run_aas_selection.parquet",
-    )
-
     summary = {
         "experiment": "phase1_refined_sampling_full_decision_model_training",
         "training_input_mode": "raw_fold_specific_upstream_inputs",
@@ -787,15 +671,12 @@ def train_full_decision_models(
         "sample_design_id": query_spec.sample_design_id,
         "target_column": TARGET_COLUMN,
         "auxiliary_label_column": AUXILIARY_LABEL_COLUMN,
-        "behavior_only_target_column": behavior_target_column,
-        "behavior_only_auxiliary_label_column": behavior_auxiliary_label_column,
-        "behavior_only_threshold_mode": BEHAVIOR_FROZEN_THRESHOLD_MODE,
         "feature_group": feature_group,
         "feature_columns": feature_columns,
         "feature_count": len(feature_columns),
         "active_model_names": list(ACTIVE_MODEL_NAMES),
         "opportunity_scope": opportunity_scope,
-        "expected_dimensions": list(frozen_dimensions),
+        "expected_dimensions": list(predefined_dimensions),
         "random_seed": int(random_seed),
         "available_feature_groups": {name: list(columns) for name, columns in BEHAVIOR_FEATURE_GROUPS.items()},
         "train_split": TRAIN_SPLIT,
@@ -807,23 +688,9 @@ def train_full_decision_models(
         "models_trained": list(ACTIVE_MODEL_NAMES),
         "model_selection_metric": MODEL_SELECTION_METRIC,
         "selected_model_name": selected_model_name,
-        "selected_model_source": "nested_cv_group_oof_on_bbob_train",
-        "model_selection_tie_break": "function_balanced_utility_then_candidate_group_order_then_frozen_candidate_order",
-        "threshold_modes": ["zero", FROZEN_THRESHOLD_MODE],
-        "behavior_only_policy": {
-            "target_column": behavior_target_column,
-            "auxiliary_label_column": behavior_auxiliary_label_column,
-            "feature_group": "B3",
-            "feature_columns": selection_feature_columns,
-            "opportunity_scope": ALL_ACCEPTED_OPPORTUNITIES,
-            "model_name": selected_model_name,
-            "uses_constant_classifier": bool(behavior_constant),
-            "train_positive_utility_rows": int(behavior_positive),
-            "train_negative_utility_rows": int(behavior_negative),
-            "threshold_modes": ["zero", BEHAVIOR_FROZEN_THRESHOLD_MODE],
-            "frozen_threshold": float(behavior_frozen_threshold),
-            "model_path": str(behavior_model_path),
-        },
+        "selected_model_source": "nested_cv_group_oof_on_integrated_train",
+        "model_selection_tie_break": "function_balanced_utility_then_candidate_group_order_then_predefined_candidate_order",
+        "threshold_modes": ["zero", PREDEFINED_THRESHOLD_MODE],
         "oof_protocol": {
             "group_column": "cv_group_id",
             "outer_folds": OUTER_OOF_FOLDS,
@@ -831,13 +698,11 @@ def train_full_decision_models(
             "full_train_threshold_folds": FULL_TRAIN_OOF_FOLDS,
             "outer_role": "train_side_candidate_selection_evaluation_only",
             "inner_role": "outer-fold_threshold_fit",
-            "full_train_oof_role": "frozen_threshold_fit_before_validation",
+            "full_train_oof_role": "predefined_threshold_fit_before_validation",
             "upstream_components_refit_per_fold": [
                 "function_balanced_SBS",
                 "query_full_selector",
-                "behavior_only_full_budget_selector",
-                "query_adjusted_state_only_selector",
-                "Utility_labels_from_measured_selected_complete_paths",
+                "primary_G_FE_labels_from_query_adjusted_scientific_endpoints",
                 "Decision_preprocessing_and_model",
             ],
             "threshold_objective": (
@@ -866,14 +731,9 @@ def train_full_decision_models(
         "metadata_usage": "metadata columns are retained in predictions and used only for stratified reporting",
         "model_artifacts": model_artifacts,
         "selector_artifacts": selector_artifacts,
-        "complete_path_timing_contract": {
-            "source": "measured_complete_policy_path",
-            "origin": "decision_state_to_terminal",
-            "shared_prefix_cost_treatment": "sunk_before_decision_state",
-            "repetitions": 3,
-            "component_runtime_sum_accepted": False,
-        },
+        "runtime_label_status": "not_used_by_current_primary_decision_training",
         "outputs": {
+            "utility_labels": str(output_dir / "utility_labels.parquet"),
             "model_input_contract": str(output_dir / "model_input_contract.parquet"),
             "preprocessing_fit_summary": str(output_dir / "preprocessing_fit_summary.parquet"),
             "model_fit_summary": str(output_dir / "model_fit_summary.parquet"),
@@ -883,25 +743,17 @@ def train_full_decision_models(
             "selector_performance_summary": str(
                 output_dir / "selector_performance_summary.parquet"
             ),
+            "decision_dataset": str(output_dir / "decision_dataset.parquet"),
+            "online_evaluation_input": str(
+                output_dir / "online_evaluation_input.parquet"
+            ),
             "nested_oof_predictions": str(output_dir / "nested_oof_predictions.parquet"),
             "train_oof_predictions": str(output_dir / "train_oof_predictions.parquet"),
-            "train_oof_behavior_only_predictions": str(
-                output_dir / "train_oof_behavior_only_predictions.parquet"
-            ),
             "validation_regression_summary": str(output_dir / "validation_regression_summary.parquet"),
             "validation_score_summary": str(output_dir / "validation_score_summary.parquet"),
             "validation_decision_summary": str(output_dir / "validation_decision_summary.parquet"),
             "validation_ranking_summary": str(output_dir / "validation_ranking_summary.parquet"),
             "validation_predictions": str(output_dir / "validation_predictions.parquet"),
-            "validation_behavior_only_predictions": str(
-                output_dir / "validation_behavior_only_predictions.parquet"
-            ),
-            "train_oof_pre_run_aas_selection": str(
-                output_dir / "train_oof_pre_run_aas_selection.parquet"
-            ),
-            "validation_pre_run_aas_selection": str(
-                output_dir / "validation_pre_run_aas_selection.parquet"
-            ),
             "report": str(output_dir / "full_decision_model_training_report.md"),
             "summary": str(output_dir / "full_decision_model_training_summary.json"),
         },
@@ -963,6 +815,12 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "oof_fold_summary.parquet",
         output_dir / "selector_performance_summary.csv",
         output_dir / "selector_performance_summary.parquet",
+        output_dir / "utility_labels.csv",
+        output_dir / "utility_labels.parquet",
+        output_dir / "decision_dataset.csv",
+        output_dir / "decision_dataset.parquet",
+        output_dir / "online_evaluation_input.csv",
+        output_dir / "online_evaluation_input.parquet",
         output_dir / "nested_oof_predictions.parquet",
         output_dir / "train_oof_predictions.parquet",
         output_dir / "validation_regression_summary.csv",
@@ -974,10 +832,6 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
         output_dir / "validation_ranking_summary.csv",
         output_dir / "validation_ranking_summary.parquet",
         output_dir / "validation_predictions.parquet",
-        output_dir / "train_oof_behavior_only_predictions.parquet",
-        output_dir / "validation_behavior_only_predictions.parquet",
-        output_dir / "train_oof_pre_run_aas_selection.parquet",
-        output_dir / "validation_pre_run_aas_selection.parquet",
     )
     model_outputs = tuple((output_dir / "models").glob("*.joblib")) if (output_dir / "models").exists() else ()
     existing = [path for path in outputs if path.exists()] + list(model_outputs)
@@ -986,16 +840,9 @@ def _check_output_paths(output_dir: Path, overwrite: bool) -> None:
 
 
 def _set_utility_target_columns(*, target_column: str, auxiliary_label_column: str) -> None:
-    if target_column == PRIMARY_EFFICACY_VALUE_COLUMN:
-        expected_label = PRIMARY_EFFICACY_LABEL_COLUMN
-    elif target_column in UTILITY_VALUE_COLUMNS:
-        if auxiliary_label_column not in NEED_QUERY_COLUMNS:
-            raise ValueError(f"auxiliary_label_column must be one of {list(NEED_QUERY_COLUMNS)}")
-        expected_label = NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(target_column)]
-    else:
-        raise ValueError(
-            f"target_column must be one of {[PRIMARY_EFFICACY_VALUE_COLUMN, *UTILITY_VALUE_COLUMNS]}"
-        )
+    if target_column != PRIMARY_EFFICACY_VALUE_COLUMN:
+        raise ValueError("current formal Decision training only supports g_fe_selected_path")
+    expected_label = PRIMARY_EFFICACY_LABEL_COLUMN
     if auxiliary_label_column != expected_label:
         raise ValueError(f"{target_column} must use corresponding auxiliary label {expected_label}")
     global TARGET_COLUMN, AUXILIARY_LABEL_COLUMN
@@ -1007,7 +854,7 @@ def _formal_feature_columns(feature_group: str) -> list[str]:
     if feature_group not in BEHAVIOR_FEATURE_GROUPS:
         raise ValueError(f"unknown feature group: {feature_group}")
     columns = list(BEHAVIOR_FEATURE_GROUPS[feature_group])
-    missing_from_contract = sorted(set(columns).difference(SELECTOR_BEHAVIOR_FEATURE_COLUMNS))
+    missing_from_contract = sorted(set(columns).difference(DECISION_BEHAVIOR_FEATURE_COLUMNS))
     if missing_from_contract:
         raise ValueError(
             f"feature group columns are outside the Decision behavior contract: {missing_from_contract}"
@@ -1022,6 +869,8 @@ def _formal_feature_columns(feature_group: str) -> list[str]:
         raise ValueError(f"Decision input contains forbidden columns: {exact_forbidden}")
     if name_forbidden:
         raise ValueError(f"Decision input contains forbidden name fragments: {name_forbidden}")
+    if len([column for column in columns if column.startswith("bf_")]) < 29:
+        raise ValueError("each maturity ablation must include B2+Motion plus one maturity feature")
     return columns
 
 
@@ -1050,16 +899,16 @@ def _validate_formal_feature_groups() -> None:
         "B2+Maturity": 28,
         "B3": 31,
     }
-    groups: list[frozenset[str]] = []
+    groups: list[tuple[str, ...]] = []
     for name, expected_count in expected_counts.items():
         columns = tuple(BEHAVIOR_FEATURE_GROUPS[name])
         if len(columns) != expected_count or len(set(columns)) != expected_count:
             raise RuntimeError(f"formal feature group {name} must have {expected_count} unique inputs")
-        groups.append(frozenset(columns))
+        groups.append(tuple(sorted(columns)))
     if tuple(BEHAVIOR_FEATURE_GROUPS["B1"]) != tuple(BEHAVIOR_FEATURE_GROUPS["B2"][:19]):
-        raise RuntimeError("B2 must extend B1 in frozen column order")
+        raise RuntimeError("B2 must extend B1 in predefined column order")
     if tuple(BEHAVIOR_FEATURE_GROUPS["B2"]) != tuple(BEHAVIOR_FEATURE_GROUPS["B3"][:25]):
-        raise RuntimeError("B3 must extend B2 in frozen column order")
+        raise RuntimeError("B3 must extend B2 in predefined column order")
     if not set(BEHAVIOR_FEATURE_GROUPS["B2"]).issubset(BEHAVIOR_FEATURE_GROUPS["B2+Motion"]):
         raise RuntimeError("B2+Motion must contain all B2 inputs")
     if not set(BEHAVIOR_FEATURE_GROUPS["B2"]).issubset(BEHAVIOR_FEATURE_GROUPS["B2+Maturity"]):
@@ -1178,7 +1027,7 @@ def _check_complete_dimension_coverage(
             for function_id, observed in incomplete.items()
         )
         raise ValueError(
-            f"{context} must cover exactly the frozen dimensions {list(expected)} "
+            f"{context} must cover exactly the predefined dimensions {list(expected)} "
             f"for every function; observed {details}"
         )
     return expected
@@ -1588,7 +1437,7 @@ def _end_to_end_family_oof_scores(
         raise RuntimeError(f"{fold_role} did not produce one finite score per held-out row")
     group_col = "cv_group_id" if "cv_group_id" in frame.columns else "family"
     if set(frame[group_col].astype(str)) != set(_train_family_values(inputs)):
-        raise RuntimeError(f"{fold_role} does not cover every BBOB-train CV group")
+        raise RuntimeError(f"{fold_role} does not cover every integrated-train CV group")
     return frame, scores, pd.DataFrame(fold_rows)
 
 
@@ -1751,7 +1600,7 @@ def _nested_family_oof_predictions(
     predictions = pd.concat(prediction_frames, ignore_index=True)
     pred_group_col = "cv_group_id" if "cv_group_id" in predictions.columns else "family"
     if set(predictions[pred_group_col].astype(str)) != set(_train_family_values(inputs)):
-        raise RuntimeError("nested OOF predictions do not cover every BBOB-train CV group")
+        raise RuntimeError("nested OOF predictions do not cover every integrated-train CV group")
     return predictions, pd.concat(fold_frames, ignore_index=True)
 
 
@@ -1773,7 +1622,7 @@ def _decision_threshold_from_scores(
     utility_delta = np.zeros(len(thresholds) + 1, dtype=float)
     call_delta = np.zeros(len(thresholds) + 1, dtype=float)
 
-    frozen_dimensions = _check_complete_dimension_coverage(
+    predefined_dimensions = _check_complete_dimension_coverage(
         frame,
         expected_dimensions=expected_dimensions,
         context="threshold-fitting Decision data",
@@ -1806,7 +1655,7 @@ def _decision_threshold_from_scores(
     )
     weighted_runs["run_weight"] = 1.0 / (
         float(function_count)
-        * float(len(frozen_dimensions))
+        * float(len(predefined_dimensions))
         * weighted_runs["problems_per_dimension"].to_numpy(dtype=float)
         * weighted_runs["runs_per_problem"].to_numpy(dtype=float)
     )
@@ -1951,12 +1800,7 @@ def _nested_model_selection_summary(
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     candidate_order = {name: index for index, name in enumerate(ACTIVE_MODEL_NAMES)}
-    candidate_group_order = {
-        "lda_classifier": 0,
-        "logistic_regression_classifier": 1,
-        "ridge_regression": 2,
-        "random_forest_classifier": 2,
-    }
+    candidate_group_order = {"random_forest_regressor": 0}
     for spec in model_specs:
         frame = predictions[predictions["model_name"].astype(str) == spec.model_name]
         if len(frame) == 0:
@@ -2031,8 +1875,8 @@ def _model_input_contract(feature_columns: list[str], train: pd.DataFrame) -> pd
     return pd.DataFrame(
         [
             {
-                "check": "x_columns_subset_of_behavior_feature_columns",
-                "passed": set(feature_columns).issubset(SELECTOR_BEHAVIOR_FEATURE_COLUMNS),
+                "check": "x_columns_subset_of_decision_input_contract",
+                "passed": set(feature_columns).issubset(DECISION_BEHAVIOR_FEATURE_COLUMNS),
                 "detail": ",".join(feature_columns),
             },
             {
@@ -2405,7 +2249,7 @@ def _markdown_report(
     ].sort_values("utility_capture_rate", ascending=False)
     all_oof_threshold_decision = decision_summary[
         (decision_summary["layer"] == "all_validation")
-        & (decision_summary["threshold_mode"] == FROZEN_THRESHOLD_MODE)
+        & (decision_summary["threshold_mode"] == PREDEFINED_THRESHOLD_MODE)
     ].sort_values("utility_capture_rate", ascending=False)
     all_top10 = ranking_summary[
         (ranking_summary["layer"] == "all_validation") & (np.isclose(ranking_summary["top_k_fraction"], 0.10))
@@ -2421,10 +2265,10 @@ def _markdown_report(
             "## Scope",
             "",
             "- Dataset: formal phase1 refined sampling materialized Decision dataset.",
-            "- Train split: `bbob_train`; validation split: `bbob_validation`.",
-            "- Active candidates are fixed to LDA, Logistic Regression, and Ridge.",
-            "- Model selection uses nested CV-group (function-ID) OOF decision utility on BBOB-train only.",
-            "- Fixed thresholds use full BBOB-train CV-group OOF scores; validation is evaluation only.",
+            "- Train role: integrated configured train suites; validation role: integrated configured evaluation suites.",
+            "- Active Decision candidate is Random Forest Regressor with the fixed predefined settings.",
+            "- Model selection uses nested CV-group (function-ID) OOF decision utility on the integrated train role only.",
+            "- Predefined thresholds use full integrated-train CV-group OOF scores; validation is evaluation only.",
             "- Metadata is used only for reporting, splitting, and error analysis.",
             f"- Feature group: `{summary['feature_group']}` with {summary['feature_count']} input columns.",
             f"- Selected model: `{summary['selected_model_name']}`.",
@@ -2472,7 +2316,7 @@ def _markdown_report(
             "",
             _markdown_table(threshold_summary),
             "",
-            "## Nested BBOB-train OOF model selection",
+            "## Nested integrated-train OOF model selection",
             "",
             _markdown_table(model_selection_summary),
             "",
@@ -2543,7 +2387,7 @@ def _markdown_report(
                 ]
             ),
             "",
-            "## All-validation decision at frozen OOF utility threshold",
+            "## All-validation decision at predefined OOF utility threshold",
             "",
             _markdown_table(
                 all_oof_threshold_decision[
@@ -2622,35 +2466,102 @@ def _markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def _write_full_train_selector_views(
+    *,
+    selector_views,
+    output_dir: Path,
+    storage_split_roles: dict[str, str],
+    storage_split_suites: dict[str, str],
+    overwrite: bool,
+) -> None:
+    frames = {
+        "query_selection_reference.parquet": pd.concat(
+            [selector_views.query_fit_rows, selector_views.query_holdout_rows],
+            ignore_index=True,
+        ),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in frames.items():
+        path = output_dir / name
+        if path.exists() and not overwrite:
+            raise FileExistsError(
+                f"full-train Selector view exists; pass --overwrite: {path}"
+            )
+        physical = _restore_storage_splits(
+            frame,
+            storage_split_roles=storage_split_roles,
+            storage_split_suites=storage_split_suites,
+        )
+        pq.write_table(pa.Table.from_pandas(physical, preserve_index=False), path)
+        print(f"wrote {len(physical)} full-train Selector rows to {path}")
+
+
+def _restore_storage_splits(
+    frame: pd.DataFrame,
+    *,
+    storage_split_roles: dict[str, str],
+    storage_split_suites: dict[str, str],
+) -> pd.DataFrame:
+    output = frame.copy()
+    resolved: list[str] = []
+    for row in output[["split", "problem_id"]].to_dict(orient="records"):
+        role = str(row["split"])
+        problem_id = str(row["problem_id"])
+        suite = (
+            "mabbob"
+            if problem_id.startswith("mabbob_")
+            else "bbob"
+            if problem_id.startswith("bbob_")
+            else "cec2017"
+            if problem_id.startswith("cec2017_")
+            else "cec2022"
+            if problem_id.startswith("cec2022_")
+            else ""
+        )
+        matches = [
+            storage_split
+            for storage_split, configured_role in storage_split_roles.items()
+            if configured_role == role
+            and storage_split_suites.get(storage_split) == suite
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "cannot restore one storage split for Selector row: "
+                f"role={role}, problem_id={problem_id}, matches={matches}"
+            )
+        resolved.append(matches[0])
+    output["dataset_role"] = output["split"].astype(str)
+    output["split"] = resolved
+    return output
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Fit fold-specific SBS/Selectors/Utility labels and train the frozen "
-            "four-candidate Decision protocol with nested CV-group OOF."
+            "Fit fold-specific SBS/query-full Selectors/selected-path labels and train the "
+            "predefined Random Forest Regressor Decision protocol with nested CV-group OOF."
         )
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument(
         "--train-config",
         type=Path,
-        default=Path("configs/phase1_bbob_train.yaml"),
+        default=Path("configs/phase1_train.yaml"),
+    )
+    parser.add_argument(
+        "--validation-config",
+        type=Path,
+        default=Path("configs/phase1_validation.yaml"),
     )
     parser.add_argument("--query-action-loss", type=Path, action="append", required=True)
-    parser.add_argument("--behavior-action-loss", type=Path, action="append", required=True)
     parser.add_argument("--behavior", type=Path, action="append", required=True)
     parser.add_argument("--query-feature", type=Path, action="append", required=True)
-    parser.add_argument("--complete-path-timing", type=Path, action="append", default=None)
-    parser.add_argument("--pre-run-action-loss", type=Path, action="append", required=True)
     parser.add_argument(
-        "--emit-replay-plan",
+        "--emit-selector-views-dir",
         type=Path,
         default=None,
-        help=(
-            "Write the fold/state/path plan after fitting fold-specific Selectors. "
-            "The plan must be executed by a real decision-state-to-terminal replay runner."
-        ),
+        help="Write the full-train query-full Selector view.",
     )
-    parser.add_argument("--replay-plan-only", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--feature-group",
@@ -2665,85 +2576,61 @@ def main() -> None:
     parser.add_argument("--random-seed", type=int, default=1701)
     parser.add_argument(
         "--target-column",
-        choices=(PRIMARY_EFFICACY_VALUE_COLUMN, *UTILITY_VALUE_COLUMNS),
+        choices=(PRIMARY_EFFICACY_VALUE_COLUMN,),
         default=DEFAULT_TARGET_COLUMN,
     )
-    parser.add_argument("--auxiliary-label-column", choices=(PRIMARY_EFFICACY_LABEL_COLUMN, *NEED_QUERY_COLUMNS), default=None)
     parser.add_argument(
-        "--behavior-target-column",
-        choices=BEHAVIOR_UTILITY_VALUE_COLUMNS,
-        default=DEFAULT_BEHAVIOR_TARGET_COLUMN,
-    )
-    parser.add_argument(
-        "--behavior-auxiliary-label-column",
-        choices=NEED_BEHAVIOR_ONLY_COLUMNS,
+        "--auxiliary-label-column",
+        choices=(PRIMARY_EFFICACY_LABEL_COLUMN,),
         default=None,
     )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    if FULL_TRAIN_OOF_FOLDS != OUTER_OOF_FOLDS:
-        raise RuntimeError(
-            "replay-plan roles require FULL_TRAIN_OOF_FOLDS == OUTER_OOF_FOLDS"
-        )
-    auxiliary_label_column = args.auxiliary_label_column or (
-        PRIMARY_EFFICACY_LABEL_COLUMN
-        if args.target_column == PRIMARY_EFFICACY_VALUE_COLUMN
-        else NEED_QUERY_COLUMNS[UTILITY_VALUE_COLUMNS.index(args.target_column)]
-    )
-    behavior_auxiliary_label_column = (
-        args.behavior_auxiliary_label_column
-        or NEED_BEHAVIOR_ONLY_COLUMNS[
-            BEHAVIOR_UTILITY_VALUE_COLUMNS.index(args.behavior_target_column)
-        ]
+    auxiliary_label_column = (
+        args.auxiliary_label_column or PRIMARY_EFFICACY_LABEL_COLUMN
     )
     config = load_config(args.train_config)
-    performance = read_performance(config, None, None)
+    train_suite_configs = load_suite_configs(args.train_config)
+    validation_suite_configs = load_suite_configs(args.validation_config)
+    storage_split_roles = {
+        **{split_name(section): TRAIN_SPLIT for section in train_suite_configs},
+        **{split_name(section): VALIDATION_SPLIT for section in validation_suite_configs},
+    }
+    storage_split_suites = {
+        split_name(section): str(section["suite"]).lower()
+        for section in (*train_suite_configs, *validation_suite_configs)
+    }
+    if len(storage_split_roles) != len(train_suite_configs) + len(validation_suite_configs):
+        raise ValueError("train and validation configs contain overlapping storage splits")
+    performance_frames = []
+    for section in train_suite_configs:
+        frame = read_performance(section, None, None)
+        frame["storage_split"] = split_name(section)
+        frame["split"] = TRAIN_SPLIT
+        performance_frames.append(frame)
+    performance = pd.concat(performance_frames, ignore_index=True)
     prepared_inputs = prepare_nested_learning_inputs(
         query_id=args.query_id,
         performance=performance,
         query_action_loss_paths=list(args.query_action_loss),
-        behavior_action_loss_paths=list(args.behavior_action_loss),
+        behavior_action_loss_paths=None,
         behavior_paths=list(args.behavior),
         query_feature_paths=list(args.query_feature),
-        complete_path_timing_paths=(
-            None
-            if args.complete_path_timing is None
-            else list(args.complete_path_timing)
-        ),
+        complete_path_timing_paths=None,
         log10_gap_floor=float(config["log10_gap_floor"]),
         log10_gap_cap=float(config["log10_gap_cap"]),
-        pre_run_action_loss_paths=list(args.pre_run_action_loss),
+        pre_run_action_loss_paths=None,
         pilot_mode=bool(config.get("pilot_mode", False)),
+        storage_split_roles=storage_split_roles,
     )
-    replay_plan_path = args.emit_replay_plan
-    if args.replay_plan_only and replay_plan_path is None:
-        replay_plan_path = (
-            Path("results/decision")
-            / args.query_id
-            / "fold_specific_selected_path_replay_plan.parquet"
-        )
-    if replay_plan_path is not None:
-        if replay_plan_path.exists() and not args.overwrite:
-            raise FileExistsError(
-                f"fold-specific replay plan already exists; pass --overwrite: {replay_plan_path}"
-            )
-        replay_plan = build_required_replay_plan(
-            inputs=prepared_inputs,
-            outer_folds=OUTER_OOF_FOLDS,
-            inner_folds=INNER_OOF_FOLDS,
-        )
-        replay_plan_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            pa.Table.from_pandas(replay_plan, preserve_index=False),
-            replay_plan_path,
-        )
-        print(f"wrote {len(replay_plan)} fold/state/path replay rows to {replay_plan_path}")
-    if args.replay_plan_only:
-        return
-    if prepared_inputs.complete_path_timings is None:
-        raise ValueError(
-            "formal training requires --complete-path-timing from the executed "
-            "fold-specific replay plan; action-component runtimes are not accepted"
+    if args.emit_selector_views_dir is not None:
+        selector_views = build_full_train_selector_views(inputs=prepared_inputs)
+        _write_full_train_selector_views(
+            selector_views=selector_views,
+            output_dir=args.emit_selector_views_dir,
+            storage_split_roles=storage_split_roles,
+            storage_split_suites=storage_split_suites,
+            overwrite=args.overwrite,
         )
 
     default_output = (
@@ -2764,8 +2651,8 @@ def main() -> None:
         expected_dimensions=tuple(int(value) for value in config["dimensions"]),
         target_column=args.target_column,
         auxiliary_label_column=auxiliary_label_column,
-        behavior_target_column=args.behavior_target_column,
-        behavior_auxiliary_label_column=behavior_auxiliary_label_column,
+        storage_split_roles=storage_split_roles,
+        storage_split_suites=storage_split_suites,
     )
 
 

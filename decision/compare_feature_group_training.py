@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from behavior.features import BEHAVIOR_FEATURE_GROUPS
-from decision.model_protocol import FROZEN_THRESHOLD_MODE
+from decision.model_protocol import PREDEFINED_THRESHOLD_MODE
 from decision.query_contract import decision_query_root, validate_query_frame, validate_query_payload
 from decision.sampling_opportunities import (
     STATE_KEY_COLUMNS,
@@ -323,7 +323,7 @@ def _check_group_comparability(
     actual_groups = tuple(str(payload["group"]) for payload in group_payloads)
     if actual_groups != FEATURE_GROUP_ORDER:
         raise ValueError(f"formal feature-group order must be {FEATURE_GROUP_ORDER}")
-    column_sets: dict[str, frozenset[str]] = {}
+    column_sets: dict[str, set[str]] = {}
     for payload in group_payloads:
         group = str(payload["group"])
         columns = list(payload["summary"].get("feature_columns", []))
@@ -332,8 +332,8 @@ def _check_group_comparability(
                 f"formal feature group {group} must contain "
                 f"{EXPECTED_FEATURE_COUNTS[group]} unique columns"
             )
-        column_sets[group] = frozenset(columns)
-    if len(set(column_sets.values())) != len(column_sets):
+        column_sets[group] = set(columns)
+    if len({tuple(sorted(values)) for values in column_sets.values()}) != len(column_sets):
         raise ValueError("formal feature groups must have distinct input-column sets")
     if not (
         column_sets["T0"] < column_sets["B1"] < column_sets["B2"]
@@ -394,8 +394,8 @@ def _selected_prediction_rows(
         "model_name",
         *STATE_KEY_COLUMNS,
         "is_budget_milestone",
-        f"decision_run_query_{FROZEN_THRESHOLD_MODE}",
-        f"decision_utility_{FROZEN_THRESHOLD_MODE}",
+        f"decision_run_query_{PREDEFINED_THRESHOLD_MODE}",
+        f"decision_utility_{PREDEFINED_THRESHOLD_MODE}",
     }
     missing = sorted(required.difference(frame.columns))
     if missing:
@@ -473,7 +473,7 @@ def _rq2_primary_contrast_rows(
     rows: list[pd.DataFrame] = []
     split_roles = (
         ("train_oof_predictions", "bbob_train_oof", "development_diagnostic"),
-        ("validation_predictions", "bbob_validation", "frozen_evaluation"),
+        ("validation_predictions", "bbob_validation", "predefined_evaluation"),
     )
     for prediction_key, split_name, evidence_role in split_roles:
         group_run_rows: dict[str, pd.DataFrame] = {}
@@ -522,8 +522,8 @@ def _first_trigger_run_rows(
     *,
     feature_group: str,
 ) -> pd.DataFrame:
-    call_column = f"decision_run_query_{FROZEN_THRESHOLD_MODE}"
-    utility_column = f"decision_utility_{FROZEN_THRESHOLD_MODE}"
+    call_column = f"decision_run_query_{PREDEFINED_THRESHOLD_MODE}"
+    utility_column = f"decision_utility_{PREDEFINED_THRESHOLD_MODE}"
     rows: list[dict[str, Any]] = []
     for run_key, run_frame in frame.groupby(list(RUN_KEY_COLUMNS), sort=True, dropna=False):
         if not isinstance(run_key, tuple):
@@ -606,7 +606,7 @@ def _markdown_report(
     ranking: pd.DataFrame,
     selected_model_name: str,
 ) -> str:
-    oof_threshold = decision[decision["threshold_mode"] == FROZEN_THRESHOLD_MODE].copy()
+    oof_threshold = decision[decision["threshold_mode"] == PREDEFINED_THRESHOLD_MODE].copy()
     return "\n".join(
         [
             "# Feature group ablation report",
@@ -631,7 +631,7 @@ def _markdown_report(
             "",
             "- The sole primary RQ2 contrast is milestone-only B3 minus milestone-only T0.",
             "- Both policies are fitted, thresholded, and evaluated on the same twelve milestone opportunities; exact state-key, sampling-metadata, Utility-label, and action-relation alignment is checked for train OOF and BBOB-validation predictions.",
-            "- The run-level paired rows are written to `rq2_milestone_b3_minus_t0_run_rows.parquet`; BBOB-train OOF rows are development diagnostics and frozen BBOB-validation rows provide the prespecified evaluation.",
+            "- The run-level paired rows are written to `rq2_milestone_b3_minus_t0_run_rows.parquet`; BBOB-train OOF rows are development diagnostics and predefined BBOB-validation rows provide the prespecified evaluation.",
             "- Dynamic all-accepted B3 versus milestone-only T0 is not part of this RQ2 output and cannot identify the incremental contribution of Behavior features.",
             "",
             "## All-validation auxiliary score metrics for the B3-selected model",
@@ -656,7 +656,7 @@ def _markdown_report(
             "",
             _markdown_table(regression[["feature_group", "feature_count", "model_name", "rmse", "r2", "spearman"]].sort_values(["feature_group", "rmse"])),
             "",
-            "## Frozen OOF-threshold decision",
+            "## Predefined OOF-threshold decision",
             "",
             _markdown_table(
                 oof_threshold[
@@ -694,7 +694,7 @@ def _markdown_report(
             "- All groups are loaded only from `{feature_group}/milestone_only`, use the same mandatory-milestone rows and target column, and exclude event-only rows.",
             "- All groups use the same three fixed model candidates, random seed, nested landscape-family OOF selection, and fixed train-OOF threshold modes.",
             "- Formal feature-group conclusions compare the single model family selected by B3/all-accepted; per-candidate rows are retained only as model diagnostics.",
-            "- BBOB-validation metrics are descriptive frozen evaluations only; this report does not rank or select a feature group from validation.",
+            "- BBOB-validation metrics are descriptive predefined evaluations only; this report does not rank or select a feature group from validation.",
             "- Feature groups are selected from `BEHAVIOR_FEATURE_GROUPS` only.",
             "- `T0` implements mathematical input `X={FE_ratio}` through `bf_fe_ratio`, which is checked row by row against trajectory `FE_ratio` during behavior validation and Decision materialization.",
             "- The formal milestone-only ablation is T0/B1/B2/B2+Motion/B2+Maturity/B3 with 1/19/25/28/28/31 inputs; the two 28-field groups are prespecified siblings.",

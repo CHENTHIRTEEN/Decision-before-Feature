@@ -24,7 +24,7 @@ DEFAULT_MABBOB_SCALES = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass
 class MABBOBCandidate:
     candidate_id: int
     components: tuple[int, ...]
@@ -35,7 +35,7 @@ class MABBOBCandidate:
     scale_factors: tuple[float, ...] = DEFAULT_MABBOB_SCALES
 
 
-@dataclass(frozen=True)
+@dataclass
 class MABBOBDefinition:
     candidate_id: int
     dimension: int
@@ -48,7 +48,7 @@ class MABBOBDefinition:
     xopt_mode: str = "uniform"
 
 
-@dataclass(frozen=True)
+@dataclass
 class MABBOBConfig:
     candidate_id: int
     dimension: int
@@ -258,14 +258,16 @@ def _candidate_instances(candidate_id: int, components: tuple[int, ...]) -> tupl
 
 
 def _xopt_from_mode(dimension: int, seed: int, mode: str = "uniform") -> np.ndarray:
+    # Must stay in lockstep with the manifest generator's `_xopt` rule so that
+    # regenerating xopt at a non-reference dimension is the same operator the
+    # manifest recorded at its reference dimension.
     rng = np.random.default_rng(int(seed))
     if mode == "center":
         return np.zeros(dimension, dtype=float)
     if mode == "boundary":
         values = rng.uniform(low=-4.9, high=4.9, size=dimension)
         if dimension > 0:
-            anchor = int(rng.integers(0, dimension))
-            values[anchor] = 4.95 if rng.random() < 0.5 else -4.95
+            values[0] = 4.95 if rng.random() < 0.5 else -4.95
         return values
     if mode != "uniform":
         raise ValueError(f"unsupported xopt mode: {mode}")
@@ -325,8 +327,16 @@ def _make_definition(
     if xopt_raw is None:
         xopt = _xopt_from_mode(config.dimension, xopt_seed, xopt_mode)
     else:
-        xopt = np.asarray(xopt_raw, dtype=float).reshape(-1)
-        if xopt.shape != (config.dimension,):
+        stored = np.asarray(xopt_raw, dtype=float).reshape(-1)
+        reference_dimension = int(manifest_entry.get("dimension", stored.shape[0]))
+        if stored.shape != (config.dimension,) and stored.shape == (reference_dimension,):
+            # The manifest stores one xopt realization at its reference
+            # dimension; other dimensions regenerate deterministically from
+            # xopt_mode + xopt_seed.
+            xopt = _xopt_from_mode(config.dimension, xopt_seed, xopt_mode)
+        elif stored.shape == (config.dimension,):
+            xopt = stored
+        else:
             raise ValueError("manifest entry xopt has incompatible dimension")
     return MABBOBDefinition(
         candidate_id=int(config.candidate_id),

@@ -267,6 +267,9 @@ def parse_problem_id(problem_id: str) -> tuple[int, int | None]:
     bbob = re.match(r"^bbob_f(\d{3})_i(\d+)_d\d+$", value)
     if bbob is not None:
         return int(bbob.group(1)), int(bbob.group(2))
+    cec = re.match(r"^cec(?:2017|2022)_f(\d+)_d\d+$", value)
+    if cec is not None:
+        return int(cec.group(1)), None
     mabbob = re.match(r"^mabbob_c(\d{3})_i(\d+)_d\d+$", value)
     if mabbob is not None:
         return int(mabbob.group(1)), int(mabbob.group(2))

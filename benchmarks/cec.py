@@ -26,7 +26,7 @@ def _load_cec_class(year: int, function: int):
     return function_class
 
 
-def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
+def make_cec_problem(year: int, function: int, dimension: int, boundary_handling: str = "reflect") -> Problem:
     function_class = _load_cec_class(year, function)
     default_function = function_class()
     supported_dimensions = getattr(default_function, "dim_supported", None)
@@ -59,5 +59,5 @@ def make_cec_problem(year: int, function: int, dimension: int) -> Problem:
         objective=objective,
         reference_value=coerce_reference_value(function_object, ("bias", "fopt", "best_value", "optimum")),
         cv_group_id=f"cec{year}_f{function:02d}",
-        boundary_handling="reflect",
+        boundary_handling=str(boundary_handling),
     )

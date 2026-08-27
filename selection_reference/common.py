@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 from experiments.phase1_batch_common import (
     algorithms,
     as_int_list,
+    expand_suite_configs,
     fe_total_for_dimension,
     function_id_name,
     landscape_family_name,
@@ -200,7 +201,7 @@ def _check_final_against_trajectory(
         return
     if set(trajectory["sampling_protocol"].astype(str)) != {SAMPLING_PROTOCOL}:
         raise ValueError(
-            f"trajectory shard does not use the frozen sampling protocol: {trajectory_path}"
+            f"trajectory shard does not use the predefined sampling protocol: {trajectory_path}"
         )
     if set(trajectory["optimizer_state_mode"].astype(str)) != {OPTIMIZER_STATE_MODE}:
         raise ValueError(
@@ -270,6 +271,11 @@ def _expected_problem_ids(*, config: dict, function: int, dimension: int) -> set
     if suite == "bbob":
         return {
             f"bbob_f{int(function):03d}_i{instance:02d}_d{int(dimension)}"
+            for instance in as_int_list(config, "instances")
+        }
+    if suite == "mabbob":
+        return {
+            f"mabbob_c{int(function):03d}_i{instance:02d}_d{int(dimension)}"
             for instance in as_int_list(config, "instances")
         }
     if suite in {"cec2017", "cec2022"}:
@@ -394,9 +400,9 @@ def single_best_solver(
         as_index=False,
     )["log10_gap"].mean()
     algorithms_per_function = function_scores.groupby("function_id")["algorithm"].agg(
-        lambda values: frozenset(str(value) for value in values)
+        lambda values: tuple(sorted(str(value) for value in values))
     )
-    observed_algorithms = frozenset(str(value) for value in performance["algorithm"])
+    observed_algorithms = tuple(sorted(set(str(value) for value in performance["algorithm"])))
     if not bool((algorithms_per_function == observed_algorithms).all()):
         raise ValueError("every SBS function must cover the complete algorithm portfolio")
     scores = function_scores.groupby("algorithm")["log10_gap"].mean()
@@ -490,12 +496,34 @@ def static_virtual_best_solver_rows(
 
 
 def train_derived_sbs(train_config_path: Path) -> str:
-    config = load_config(train_config_path)
+    config = train_bbob_suite_config(train_config_path)
     portfolio = tuple(algorithms(config))
     return single_best_solver(
         read_performance(config, None, None),
         portfolio_order=portfolio,
     )
+
+
+def train_bbob_suite_config(train_config_path: Path) -> dict:
+    """Resolve the bbob_train suite section of a (possibly combined) config.
+
+    The train-default SBS must be estimated from the BBOB-train
+    complete-budget outcomes only; a combined train config must never pool
+    MA-BBOB formal rows into the SBS aggregation.
+    """
+    sections = expand_suite_configs(load_config(train_config_path))
+    matches = [
+        section
+        for section in sections
+        if str(section.get("suite", "")).lower() == "bbob" and split_name(section) == "bbob_train"
+    ]
+    if len(matches) != 1:
+        found = [split_name(section) for section in sections]
+        raise ValueError(
+            "train config must contain exactly one bbob/bbob_train suite section for the "
+            f"train-default SBS; found storage splits {found} in {train_config_path}"
+        )
+    return matches[0]
 
 
 def split_name(config: dict) -> str:

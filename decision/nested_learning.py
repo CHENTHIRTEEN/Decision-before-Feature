@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +9,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from sklearn.model_selection import GroupKFold
 
-from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS
+from behavior.features import BEHAVIOR_FEATURE_COLUMNS, SELECTOR_BEHAVIOR_FEATURE_COLUMNS
 from landscape_queries.specs import LandscapeQuerySpec, get_query_spec
 from selection_reference.action_losses import (
     FULL_REMAINING_BUDGET,
@@ -40,12 +40,12 @@ from selection_reference.model import (
     read_query_feature_data,
     selection_rows,
 )
-from utility_labels.generation import paired_utility_label_view
+from utility_labels.generation import paired_utility_label_view, primary_efficacy_label_view
 from utility_labels.fields import TIMING_REPLAY_STATUSES
 
 
-TRAIN_SPLIT = "bbob_train"
-VALIDATION_SPLIT = "bbob_validation"
+TRAIN_SPLIT = "train"
+VALIDATION_SPLIT = "validation"
 FOLD_SELECTOR_MODES = (QUERY_FULL_INPUT, STATE_ONLY_INPUT, QUERY_ONLY_INPUT)
 EPS = 1e-12
 COMPLETE_PATH_TIMING_SOURCE = "measured_complete_policy_path"
@@ -62,17 +62,22 @@ TIMING_REPETITIONS = 3
 TIMING_ORDER_PROTOCOL = "cyclic_complete_path_v1"
 
 
-@dataclass(frozen=True)
+@dataclass
 class PreparedNestedLearningInputs:
     query_spec: LandscapeQuerySpec
     performance: pd.DataFrame
     query_adjusted_states: pd.DataFrame
-    behavior_only_states: pd.DataFrame
+    behavior_only_states: pd.DataFrame | None
     portfolio: tuple[str, ...]
     complete_path_timings: pd.DataFrame | None
     log10_gap_floor: float
     log10_gap_cap: float
     pre_run_states: pd.DataFrame | None = None
+    storage_split_roles: dict[str, str] | None = None
+    fold_label_cache: dict[tuple[object, ...], tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
 
 @dataclass
@@ -80,13 +85,13 @@ class FoldLearningViews:
     sbs_algorithm: str
     fit_labels: pd.DataFrame
     holdout_labels: pd.DataFrame
-    query_selector: StatewiseSelectorModel
-    behavior_only_selector: StatewiseSelectorModel
-    query_only_selector: StatewiseSelectorModel
-    state_only_selector: StatewiseSelectorModel
+    query_selector: StatewiseSelectorModel | None
     selector_summary: pd.DataFrame
-    query_state_only_fit_rows: pd.DataFrame
-    query_state_only_holdout_rows: pd.DataFrame
+    behavior_only_selector: StatewiseSelectorModel | None = None
+    query_only_selector: StatewiseSelectorModel | None = None
+    state_only_selector: StatewiseSelectorModel | None = None
+    query_state_only_fit_rows: pd.DataFrame | None = None
+    query_state_only_holdout_rows: pd.DataFrame | None = None
     pre_run_query_only_selector: StatewiseSelectorModel | None = None
     pre_run_fit_rows: pd.DataFrame | None = None
     pre_run_holdout_rows: pd.DataFrame | None = None
@@ -102,21 +107,21 @@ class FoldSelectorViews:
     holdout_families: tuple[str, ...]
     sbs_algorithm: str
     query_selector: StatewiseSelectorModel
-    behavior_only_selector: StatewiseSelectorModel
-    query_only_selector: StatewiseSelectorModel
-    state_only_selector: StatewiseSelectorModel
     selector_summary: pd.DataFrame
     query_fit_states: pd.DataFrame
     query_holdout_states: pd.DataFrame
     query_fit_rows: pd.DataFrame
     query_holdout_rows: pd.DataFrame
-    behavior_fit_rows: pd.DataFrame
-    behavior_holdout_rows: pd.DataFrame
-    state_only_fit_rows: pd.DataFrame
-    state_only_holdout_rows: pd.DataFrame
-    sampling_only_fit_rows: pd.DataFrame
-    sampling_only_holdout_rows: pd.DataFrame
-    replay_plan: pd.DataFrame
+    behavior_only_selector: StatewiseSelectorModel | None = None
+    query_only_selector: StatewiseSelectorModel | None = None
+    state_only_selector: StatewiseSelectorModel | None = None
+    behavior_fit_rows: pd.DataFrame | None = None
+    behavior_holdout_rows: pd.DataFrame | None = None
+    state_only_fit_rows: pd.DataFrame | None = None
+    state_only_holdout_rows: pd.DataFrame | None = None
+    sampling_only_fit_rows: pd.DataFrame | None = None
+    sampling_only_holdout_rows: pd.DataFrame | None = None
+    replay_plan: pd.DataFrame | None = None
     pre_run_query_only_selector: StatewiseSelectorModel | None = None
     pre_run_fit_rows: pd.DataFrame | None = None
     pre_run_holdout_rows: pd.DataFrame | None = None
@@ -127,7 +132,7 @@ def prepare_nested_learning_inputs(
     query_id: str,
     performance: pd.DataFrame,
     query_action_loss_paths: list[Path],
-    behavior_action_loss_paths: list[Path],
+    behavior_action_loss_paths: list[Path] | None,
     behavior_paths: list[Path],
     query_feature_paths: list[Path],
     complete_path_timing_paths: list[Path] | None,
@@ -135,40 +140,59 @@ def prepare_nested_learning_inputs(
     log10_gap_cap: float,
     pre_run_action_loss_paths: list[Path] | None = None,
     pilot_mode: bool = False,
+    storage_split_roles: dict[str, str] | None = None,
 ) -> PreparedNestedLearningInputs:
     query_spec = get_query_spec(query_id)
-    behavior = read_behavior_data(behavior_paths)
-    query_features = read_query_feature_data(query_feature_paths)
+    split_roles = dict(storage_split_roles or {})
+    behavior = _assign_dataset_roles(read_behavior_data(behavior_paths), split_roles)
+    query_features = _assign_dataset_roles(
+        read_query_feature_data(query_feature_paths), split_roles
+    )
     query_states, query_portfolio = prepare_state_matrix(
-        read_action_loss_data(query_action_loss_paths),
+        _assign_dataset_roles(read_action_loss_data(query_action_loss_paths), split_roles),
         behavior=behavior,
         query_features=query_features,
         query_spec=query_spec,
         action_budget_mode=QUERY_ADJUSTED_BUDGET,
     )
-    behavior_states, behavior_portfolio = prepare_state_matrix(
-        read_action_loss_data(behavior_action_loss_paths),
-        behavior=behavior,
-        query_features=None,
-        query_spec=query_spec,
-        action_budget_mode=FULL_REMAINING_BUDGET,
+    selector_feature_columns = [
+        *SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
+        *query_spec.feature_columns,
+    ]
+    assert len(selector_feature_columns) == 42, (
+        f"Expected 42 Selector features (28 behavior + 14 descriptors), got {len(selector_feature_columns)}"
     )
-    if query_portfolio != behavior_portfolio:
-        raise ValueError("query-adjusted and behavior-only outcomes use different portfolios")
-    if not pilot_mode:
-        _check_all_prefix_coverage(query_states, query_portfolio, "query-adjusted")
-        _check_all_prefix_coverage(behavior_states, behavior_portfolio, "behavior-only")
-    _check_outcome_state_alignment(query_states, behavior_states)
+    behavior_states: pd.DataFrame | None = None
+    if behavior_action_loss_paths:
+        behavior_states, behavior_portfolio = prepare_state_matrix(
+            _assign_dataset_roles(
+                read_action_loss_data(behavior_action_loss_paths), split_roles
+            ),
+            behavior=behavior,
+            query_features=None,
+            query_spec=query_spec,
+            action_budget_mode=FULL_REMAINING_BUDGET,
+        )
+        if query_portfolio != behavior_portfolio:
+            raise ValueError(
+                "query-adjusted and behavior-only outcomes use different portfolios"
+            )
+    if behavior_states is not None:
+        _check_outcome_state_alignment(query_states, behavior_states)
     _check_performance_coverage(performance, query_states, query_portfolio)
     complete_path_timings = (
-        _read_complete_path_timings(complete_path_timing_paths)
+        _assign_dataset_roles(
+            _read_complete_path_timings(complete_path_timing_paths), split_roles
+        )
         if complete_path_timing_paths
         else None
     )
     pre_run_states: pd.DataFrame | None = None
     if pre_run_action_loss_paths:
         pre_run_states, pre_run_portfolio = prepare_pre_run_state_matrix(
-            read_action_loss_data(pre_run_action_loss_paths),
+            _assign_dataset_roles(
+                read_action_loss_data(pre_run_action_loss_paths), split_roles
+            ),
             query_features=query_features,
             query_spec=query_spec,
         )
@@ -184,7 +208,25 @@ def prepare_nested_learning_inputs(
         log10_gap_floor=float(log10_gap_floor),
         log10_gap_cap=float(log10_gap_cap),
         pre_run_states=pre_run_states,
+        storage_split_roles=split_roles,
     )
+
+
+def _assign_dataset_roles(frame: pd.DataFrame, split_roles: dict[str, str]) -> pd.DataFrame:
+    if not split_roles:
+        return frame
+    if "split" not in frame.columns:
+        raise ValueError("multi-suite Decision input is missing split")
+    output = frame.copy()
+    storage_splits = output["split"].astype(str)
+    unknown = sorted(set(storage_splits).difference(split_roles))
+    if unknown:
+        raise ValueError(f"Decision input contains storage splits absent from configs: {unknown}")
+    output["storage_split"] = storage_splits
+    output["split"] = storage_splits.map(split_roles)
+    if output["split"].isna().any():
+        raise RuntimeError("failed to map every storage split to a dataset role")
+    return output
 
 
 def build_fold_learning_views(
@@ -196,6 +238,28 @@ def build_fold_learning_views(
     holdout_split: str = TRAIN_SPLIT,
     fold_role: str,
 ) -> FoldLearningViews:
+    cache_key = (
+        str(fit_split),
+        str(holdout_split),
+        tuple(sorted(str(value) for value in fit_families)),
+        tuple(sorted(str(value) for value in holdout_families)),
+    )
+    cached = inputs.fold_label_cache.get(cache_key)
+    if cached is not None:
+        sbs_algorithm, fit_labels, holdout_labels, selector_summary = cached
+        fit_labels = fit_labels.copy()
+        holdout_labels = holdout_labels.copy()
+        selector_summary = selector_summary.copy()
+        fit_labels["selector_prediction_source"] = f"{fold_role}_fit_cross_cv_group"
+        holdout_labels["selector_prediction_source"] = f"{fold_role}_fit"
+        selector_summary["fold_role"] = str(fold_role)
+        return FoldLearningViews(
+            sbs_algorithm=sbs_algorithm,
+            fit_labels=fit_labels,
+            holdout_labels=holdout_labels,
+            query_selector=None,
+            selector_summary=selector_summary,
+        )
     selector_views = fit_fold_selectors(
         inputs=inputs,
         fit_families=fit_families,
@@ -204,7 +268,14 @@ def build_fold_learning_views(
         holdout_split=holdout_split,
         fold_role=fold_role,
     )
-    return build_fold_utility_labels(inputs=inputs, selector_views=selector_views)
+    result = build_fold_utility_labels(inputs=inputs, selector_views=selector_views)
+    inputs.fold_label_cache[cache_key] = (
+        result.sbs_algorithm,
+        result.fit_labels,
+        result.holdout_labels,
+        result.selector_summary,
+    )
+    return result
 
 
 def fit_fold_selectors(
@@ -244,6 +315,18 @@ def fit_fold_selectors(
         families=holdout_family_set,
         sbs_algorithm=sbs_algorithm,
     )
+    if inputs.behavior_only_states is None:
+        return _fit_primary_selector_views(
+            inputs=inputs,
+            query_fit=query_fit,
+            query_holdout=query_holdout,
+            fit_family_set=fit_family_set,
+            holdout_family_set=holdout_family_set,
+            fit_split=fit_split,
+            holdout_split=holdout_split,
+            fold_role=fold_role,
+            sbs_algorithm=sbs_algorithm,
+        )
     behavior_fit = _fold_state_view(
         inputs.behavior_only_states,
         split=fit_split,
@@ -262,7 +345,7 @@ def fit_fold_selectors(
     query_outputs: dict[str, tuple[StatewiseSelectorModel, pd.DataFrame, pd.DataFrame]] = {}
     selector_summaries: list[pd.DataFrame] = []
     for selector_input_mode in FOLD_SELECTOR_MODES:
-        selector_model, cross_predictions, prediction_source = (
+        selector_model, cross_predictions, prediction_source, cross_prediction_batch = (
             fit_selector_with_cross_family_predictions(
                 query_fit,
                 inputs.portfolio,
@@ -284,15 +367,18 @@ def fit_fold_selectors(
             runtime_selection=runtime_selection,
             selector_input_mode=selector_input_mode,
             selection_reference_protocol=selector_protocol,
+            prediction_batch=cross_prediction_batch,
         )
+        holdout_prediction_batch = selector_model.predict_decisions(query_holdout)
         holdout_rows = selection_rows(
             states=query_holdout,
             portfolio=inputs.portfolio,
-            predictions=selector_model.predict_scores(query_holdout),
+            predictions=holdout_prediction_batch.predicted_targets,
             prediction_source=f"{fold_role}_fit",
             runtime_selection=runtime_selection,
             selector_input_mode=selector_input_mode,
             selection_reference_protocol=selector_protocol,
+            prediction_batch=holdout_prediction_batch,
         )
         query_outputs[selector_input_mode] = (selector_model, fit_rows, holdout_rows)
         selector_summaries.append(
@@ -314,7 +400,7 @@ def fit_fold_selectors(
             )
         )
 
-    behavior_model, behavior_cross_predictions, _ = fit_selector_with_cross_family_predictions(
+    behavior_model, behavior_cross_predictions, _, _ = fit_selector_with_cross_family_predictions(
         behavior_fit,
         inputs.portfolio,
         inputs.query_spec,
@@ -381,7 +467,7 @@ def fit_fold_selectors(
             families=holdout_family_set,
             sbs_algorithm=sbs_algorithm,
         )
-        pre_run_model, pre_run_cross_predictions, _ = fit_selector_with_cross_family_predictions(
+        pre_run_model, pre_run_cross_predictions, _, _ = fit_selector_with_cross_family_predictions(
             pre_run_fit,
             inputs.portfolio,
             inputs.query_spec,
@@ -470,48 +556,133 @@ def fit_fold_selectors(
     )
 
 
+def _fit_primary_selector_views(
+    *,
+    inputs: PreparedNestedLearningInputs,
+    query_fit: pd.DataFrame,
+    query_holdout: pd.DataFrame,
+    fit_family_set: set[str],
+    holdout_family_set: set[str],
+    fit_split: str,
+    holdout_split: str,
+    fold_role: str,
+    sbs_algorithm: str,
+) -> FoldSelectorViews:
+    """Fit only the fold-specific query-full Selector used by the main Decision label."""
+    selector_model, cross_predictions, _, cross_prediction_batch = (
+        fit_selector_with_cross_family_predictions(
+            query_fit,
+            inputs.portfolio,
+            inputs.query_spec,
+            selector_input_mode=QUERY_FULL_INPUT,
+        )
+    )
+    runtime_selection = measure_online_selection_runtime(selector_model, query_fit)
+    fit_rows = selection_rows(
+        states=query_fit,
+        portfolio=inputs.portfolio,
+        predictions=cross_predictions,
+        prediction_source=f"{fold_role}_fit_cross_cv_group",
+        runtime_selection=runtime_selection,
+        selector_input_mode=QUERY_FULL_INPUT,
+        selection_reference_protocol=SELECTION_REFERENCE_PROTOCOL,
+        prediction_batch=cross_prediction_batch,
+    )
+    holdout_batch = selector_model.predict_decisions(query_holdout)
+    holdout_rows = selection_rows(
+        states=query_holdout,
+        portfolio=inputs.portfolio,
+        predictions=holdout_batch.predicted_targets,
+        prediction_source=f"{fold_role}_fit",
+        runtime_selection=runtime_selection,
+        selector_input_mode=QUERY_FULL_INPUT,
+        selection_reference_protocol=SELECTION_REFERENCE_PROTOCOL,
+        prediction_batch=holdout_batch,
+    )
+    selector_summary = pd.concat(
+        [
+            _selector_performance_summary(
+                fit_rows,
+                selector_input_mode=QUERY_FULL_INPUT,
+                evaluation_role="fit_cross_cv_group",
+                fold_role=fold_role,
+                sbs_algorithm=sbs_algorithm,
+            ),
+            _selector_performance_summary(
+                holdout_rows,
+                selector_input_mode=QUERY_FULL_INPUT,
+                evaluation_role="holdout",
+                fold_role=fold_role,
+                sbs_algorithm=sbs_algorithm,
+            ),
+        ],
+        ignore_index=True,
+    )
+    return FoldSelectorViews(
+        fold_role=str(fold_role),
+        fit_split=str(fit_split),
+        holdout_split=str(holdout_split),
+        fit_families=tuple(sorted(fit_family_set)),
+        holdout_families=tuple(sorted(holdout_family_set)),
+        sbs_algorithm=sbs_algorithm,
+        query_selector=selector_model,
+        selector_summary=selector_summary,
+        query_fit_states=query_fit,
+        query_holdout_states=query_holdout,
+        query_fit_rows=fit_rows,
+        query_holdout_rows=holdout_rows,
+    )
+
+
 def build_fold_utility_labels(
     *,
     inputs: PreparedNestedLearningInputs,
     selector_views: FoldSelectorViews,
 ) -> FoldLearningViews:
-    if inputs.complete_path_timings is None:
-        raise ValueError(
-            "fold Utility labels require measured decision-state-to-terminal complete-path "
-            "timings; first emit and execute selector_views.replay_plan"
-        )
     fit_family_set = set(selector_views.fit_families)
     holdout_family_set = set(selector_views.holdout_families)
-    fit_labels = paired_utility_label_view(
-        query_selection=selector_views.query_fit_rows,
-        behavior_selection=selector_views.behavior_fit_rows,
-        query_adjusted_behavior_selection=selector_views.state_only_fit_rows,
-        sampling_only_selection=selector_views.sampling_only_fit_rows,
-        complete_path_timings=_fold_timing_view(
-            inputs.complete_path_timings,
-            learning_fold_role=f"{selector_views.fold_role}_fit_cross_cv_group",
-            split=selector_views.fit_split,
-            families=fit_family_set,
-        ),
-        query_id=inputs.query_spec.query_id,
-        log10_gap_floor=inputs.log10_gap_floor,
-        log10_gap_cap=inputs.log10_gap_cap,
-    )
-    holdout_labels = paired_utility_label_view(
-        query_selection=selector_views.query_holdout_rows,
-        behavior_selection=selector_views.behavior_holdout_rows,
-        query_adjusted_behavior_selection=selector_views.state_only_holdout_rows,
-        sampling_only_selection=selector_views.sampling_only_holdout_rows,
-        complete_path_timings=_fold_timing_view(
-            inputs.complete_path_timings,
-            learning_fold_role=f"{selector_views.fold_role}_holdout",
-            split=selector_views.holdout_split,
-            families=holdout_family_set,
-        ),
-        query_id=inputs.query_spec.query_id,
-        log10_gap_floor=inputs.log10_gap_floor,
-        log10_gap_cap=inputs.log10_gap_cap,
-    )
+    if selector_views.behavior_fit_rows is None:
+        fit_labels = primary_efficacy_label_view(
+            query_selection=selector_views.query_fit_rows,
+            query_id=inputs.query_spec.query_id,
+        )
+        holdout_labels = primary_efficacy_label_view(
+            query_selection=selector_views.query_holdout_rows,
+            query_id=inputs.query_spec.query_id,
+        )
+    else:
+        if inputs.complete_path_timings is None:
+            raise ValueError("auxiliary multi-path Utility labels require complete-path timings")
+        fit_labels = paired_utility_label_view(
+            query_selection=selector_views.query_fit_rows,
+            behavior_selection=selector_views.behavior_fit_rows,
+            query_adjusted_behavior_selection=selector_views.state_only_fit_rows,
+            sampling_only_selection=selector_views.sampling_only_fit_rows,
+            complete_path_timings=_fold_timing_view(
+                inputs.complete_path_timings,
+                learning_fold_role=f"{selector_views.fold_role}_fit_cross_cv_group",
+                split=selector_views.fit_split,
+                families=fit_family_set,
+            ),
+            query_id=inputs.query_spec.query_id,
+            log10_gap_floor=inputs.log10_gap_floor,
+            log10_gap_cap=inputs.log10_gap_cap,
+        )
+        holdout_labels = paired_utility_label_view(
+            query_selection=selector_views.query_holdout_rows,
+            behavior_selection=selector_views.behavior_holdout_rows,
+            query_adjusted_behavior_selection=selector_views.state_only_holdout_rows,
+            sampling_only_selection=selector_views.sampling_only_holdout_rows,
+            complete_path_timings=_fold_timing_view(
+                inputs.complete_path_timings,
+                learning_fold_role=f"{selector_views.fold_role}_holdout",
+                split=selector_views.holdout_split,
+                families=holdout_family_set,
+            ),
+            query_id=inputs.query_spec.query_id,
+            log10_gap_floor=inputs.log10_gap_floor,
+            log10_gap_cap=inputs.log10_gap_cap,
+        )
     fit_labels = _attach_decision_features(fit_labels, selector_views.query_fit_states)
     holdout_labels = _attach_decision_features(
         holdout_labels,
@@ -687,6 +858,46 @@ def build_required_replay_plan(
         ["learning_fold_role", *STATE_KEY_COLUMNS, "_path_order"],
         kind="mergesort",
     ).drop(columns="_path_order").reset_index(drop=True)
+
+
+def build_full_train_selector_views(
+    *, inputs: PreparedNestedLearningInputs
+) -> FoldSelectorViews:
+    group_column = (
+        "cv_group_id"
+        if "cv_group_id" in inputs.query_adjusted_states.columns
+        else "family"
+    )
+    train_groups = tuple(
+        sorted(
+            set(
+                inputs.query_adjusted_states.loc[
+                    inputs.query_adjusted_states["split"].astype(str).eq(TRAIN_SPLIT),
+                    group_column,
+                ].astype(str)
+            )
+        )
+    )
+    validation_groups = tuple(
+        sorted(
+            set(
+                inputs.query_adjusted_states.loc[
+                    inputs.query_adjusted_states["split"].astype(str).eq(VALIDATION_SPLIT),
+                    group_column,
+                ].astype(str)
+            )
+        )
+    )
+    if not train_groups or not validation_groups:
+        raise ValueError("full-train Selector views require train and validation CV groups")
+    return fit_fold_selectors(
+        inputs=inputs,
+        fit_families=train_groups,
+        holdout_families=validation_groups,
+        fit_split=TRAIN_SPLIT,
+        holdout_split=VALIDATION_SPLIT,
+        fold_role="full_train_final",
+    )
 
 
 def _selected_complete_path_replay_plan(
@@ -984,9 +1195,9 @@ def _check_replay_plan(replay_plan: pd.DataFrame) -> None:
         raise ValueError("replay plan paths do not match the canonical path order")
     group_key = ["learning_fold_role", *STATE_KEY_COLUMNS]
     paths = replay_plan.groupby(group_key, dropna=False)["path"].agg(
-        lambda values: frozenset(str(value) for value in values)
+        lambda values: tuple(sorted(str(value) for value in values))
     )
-    if not bool((paths == frozenset(COMPLETE_PATHS)).all()):
+    if not bool((paths == tuple(sorted(COMPLETE_PATHS))).all()):
         raise ValueError("every replay-plan state must contain exactly the five policy paths")
     selected_equals_prefix = (
         replay_plan["selected_algorithm"].astype(str)
@@ -1072,9 +1283,9 @@ def _check_all_prefix_coverage(
 ) -> None:
     state_without_prefix = [column for column in STATE_KEY_COLUMNS if column != "prefix_algorithm"]
     observed = states.groupby(state_without_prefix, dropna=False)["prefix_algorithm"].agg(
-        lambda values: frozenset(str(value) for value in values)
+        lambda values: tuple(sorted(str(value) for value in values))
     )
-    if observed.empty or not bool((observed == frozenset(portfolio)).all()):
+    if observed.empty or not bool((observed == tuple(sorted(portfolio))).all()):
         raise ValueError(f"{label} outcomes must cover every portfolio prefix at every state")
 
 
@@ -1108,7 +1319,7 @@ def _check_performance_coverage(
     states_group_column = "cv_group_id" if "cv_group_id" in states.columns else "family"
     train_families = set(states.loc[states["split"].astype(str) == TRAIN_SPLIT, states_group_column].astype(str))
     if set(performance[perf_group_column].astype(str)) != train_families:
-        raise ValueError("SBS performance CV groups must equal BBOB-train outcome CV groups")
+        raise ValueError("SBS performance CV groups must equal integrated-train outcome CV groups")
     train_functions = set(
         states.loc[
             states["split"].astype(str) == TRAIN_SPLIT,
@@ -1116,7 +1327,7 @@ def _check_performance_coverage(
         ].astype(str)
     )
     if set(performance["function_id"].astype(str)) != train_functions:
-        raise ValueError("SBS performance function IDs must equal BBOB-train outcome functions")
+        raise ValueError("SBS performance function IDs must equal integrated-train outcome functions")
     if set(performance["algorithm"].astype(str)) != set(portfolio):
         raise ValueError("SBS performance table uses a different algorithm portfolio")
 
@@ -1297,7 +1508,14 @@ def _fold_timing_view(
 
 def _attach_decision_features(labels: pd.DataFrame, states: pd.DataFrame) -> pd.DataFrame:
     key = list(STATE_KEY_COLUMNS)
-    columns = [*key, *SELECTOR_BEHAVIOR_FEATURE_COLUMNS]
+    extra_columns = [
+        column
+        for column in states.columns
+        if column.startswith("descriptor_")
+        or column in {"FE_prefix", "FE_total", "remaining_budget_ratio"}
+    ]
+    extra_columns = [column for column in extra_columns if column not in labels.columns]
+    columns = [*key, *BEHAVIOR_FEATURE_COLUMNS, *extra_columns]
     missing = sorted(set(columns).difference(states.columns))
     if missing:
         raise ValueError(f"fold states are missing Decision behavior features: {missing}")

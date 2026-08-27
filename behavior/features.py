@@ -114,8 +114,9 @@ SELECTOR_BEHAVIOR_FEATURE_COLUMNS = (
     + PRIMARY_BEHAVIOR_FEATURE_COLUMNS
     + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS
     + MOTION_BEHAVIOR_FEATURE_COLUMNS
-    + MATURITY_BEHAVIOR_FEATURE_COLUMNS
 )
+
+DECISION_BEHAVIOR_FEATURE_COLUMNS = SELECTOR_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS
 
 BEHAVIOR_FEATURE_GROUPS = {
     "time_only": TIME_ONLY_BEHAVIOR_FEATURE_COLUMNS,
@@ -129,6 +130,9 @@ BEHAVIOR_FEATURE_GROUPS = {
     "primary_with_movement": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS,
     "B2+Maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "B3": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MOTION_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
+    "B2+Motion+SearchMaturity": SELECTOR_BEHAVIOR_FEATURE_COLUMNS + ("bf_search_maturity",),
+    "B2+Motion+SearchMaturityLinear": SELECTOR_BEHAVIOR_FEATURE_COLUMNS + ("bf_search_maturity_linear",),
+    "B2+Motion+ExploreExploitRatio": SELECTOR_BEHAVIOR_FEATURE_COLUMNS + ("bf_explore_exploit_ratio",),
     "primary_with_maturity": BASE_BEHAVIOR_FEATURE_COLUMNS + PRIMARY_BEHAVIOR_FEATURE_COLUMNS + DYNAMOREP_LITE_BEHAVIOR_FEATURE_COLUMNS + MATURITY_BEHAVIOR_FEATURE_COLUMNS,
     "diagnostic_only": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
     "all_candidates": SELECTOR_BEHAVIOR_FEATURE_COLUMNS,
@@ -136,7 +140,8 @@ BEHAVIOR_FEATURE_GROUPS = {
 
 _EXPECTED_FEATURE_COUNTS = {
     "all": 34,
-    "selector": 31,
+    "selector": 28,
+    "decision": 31,
     "diagnostic": 3,
     "T0": 1,
     "B1": 19,
@@ -144,6 +149,9 @@ _EXPECTED_FEATURE_COUNTS = {
     "B2+Motion": 28,
     "B2+Maturity": 28,
     "B3": 31,
+    "B2+Motion+SearchMaturity": 29,
+    "B2+Motion+SearchMaturityLinear": 29,
+    "B2+Motion+ExploreExploitRatio": 29,
 }
 
 
@@ -154,7 +162,11 @@ def _validate_behavior_feature_contract() -> None:
         "diagnostic": DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS,
         **{
             name: BEHAVIOR_FEATURE_GROUPS[name]
-            for name in ("T0", "B1", "B2", "B2+Motion", "B2+Maturity", "B3")
+            for name in (
+                "T0", "B1", "B2", "B2+Motion", "B2+Maturity", "B3",
+                "B2+Motion+SearchMaturity", "B2+Motion+SearchMaturityLinear",
+                "B2+Motion+ExploreExploitRatio",
+            )
         },
     }
     for name, columns in collections.items():
@@ -164,12 +176,14 @@ def _validate_behavior_feature_contract() -> None:
                 f"behavior feature contract {name} must contain {expected_count} unique columns"
             )
 
-    if SELECTOR_BEHAVIOR_FEATURE_COLUMNS != BEHAVIOR_FEATURE_GROUPS["B3"]:
-        raise RuntimeError("selector behavior columns must exactly equal B3")
+    if SELECTOR_BEHAVIOR_FEATURE_COLUMNS != BEHAVIOR_FEATURE_GROUPS["B2+Motion"]:
+        raise RuntimeError("selector behavior columns must exactly equal B2+Motion")
+    if DECISION_BEHAVIOR_FEATURE_COLUMNS != BEHAVIOR_FEATURE_GROUPS["B3"]:
+        raise RuntimeError("Decision behavior columns must exactly equal B3")
     if BEHAVIOR_FEATURE_COLUMNS != (
-        SELECTOR_BEHAVIOR_FEATURE_COLUMNS + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
+        DECISION_BEHAVIOR_FEATURE_COLUMNS + DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS
     ):
-        raise RuntimeError("behavior output columns must equal selector plus diagnostic columns")
+        raise RuntimeError("behavior output columns must equal Decision columns plus diagnostics")
     if set(SELECTOR_BEHAVIOR_FEATURE_COLUMNS).intersection(DIAGNOSTIC_BEHAVIOR_FEATURE_COLUMNS):
         raise RuntimeError("selector and diagnostic behavior columns must be disjoint")
 
@@ -179,7 +193,7 @@ def _validate_behavior_feature_contract() -> None:
         "primary_with_dynamorep_lite": "B2",
         "primary_with_movement": "B2+Motion",
         "primary_with_maturity": "B2+Maturity",
-        "all_candidates": "B3",
+        "all_candidates": "B2+Motion",
     }
     for alias, canonical in aliases.items():
         if BEHAVIOR_FEATURE_GROUPS[alias] != BEHAVIOR_FEATURE_GROUPS[canonical]:

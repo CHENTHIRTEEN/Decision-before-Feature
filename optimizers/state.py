@@ -164,7 +164,7 @@ class SHADEState:
 OptimizerState: TypeAlias = DEState | PSOState | CMAESState | SHADEState
 
 
-@dataclass(frozen=True)
+@dataclass
 class StateAdvanceResult:
     state: OptimizerState
     evaluations: int

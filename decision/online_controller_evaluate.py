@@ -15,11 +15,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy.stats import qmc
 
-from behavior.features import SELECTOR_BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
+from behavior.features import DECISION_BEHAVIOR_FEATURE_COLUMNS, SELECTOR_BEHAVIOR_FEATURE_COLUMNS, extract_behavior_rows
 from behavior.streaming import StreamingBehaviorState
 from benchmarks import Problem, make_problem
 from decision.model_protocol import (
-    FROZEN_THRESHOLD_MODE,
+    PREDEFINED_THRESHOLD_MODE,
     SELECTED_MODEL_ALIAS,
     decision_scores,
     resolve_model_name,
@@ -72,7 +72,7 @@ from trajectory.window_statistics import NativeUpdateWindowRecorder
 DEFAULT_CONFIG_PATH = Path("configs/phase1_cec2017_test.yaml")
 DEFAULT_TRAIN_CONFIG_PATH = Path("configs/phase1_train.yaml")
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
-DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
+DEFAULT_THRESHOLD_MODE = PREDEFINED_THRESHOLD_MODE
 DEFAULT_RANDOM_REPETITIONS = 30
 DEFAULT_SAMPLING_PROTOCOL = SAMPLING_PROTOCOL
 SAMPLING_PROTOCOLS = (DEFAULT_SAMPLING_PROTOCOL,)
@@ -87,7 +87,7 @@ ONLINE_POLICY_PATHS = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass
 class DecisionControllerModel:
     model: Any
     model_name: str
@@ -104,7 +104,7 @@ class DecisionControllerModel:
 
 
 class MilestoneBehaviorState:
-    """Build history-only Behavior rows at the frozen budget milestones."""
+    """Build history-only Behavior rows at the predefined budget milestones."""
 
     def __init__(
         self,
@@ -119,7 +119,7 @@ class MilestoneBehaviorState:
         sampling_protocol: str,
     ) -> None:
         if sampling_protocol != SAMPLING_PROTOCOL:
-            raise ValueError("milestone-only behavior state requires the frozen sampling protocol")
+            raise ValueError("milestone-only behavior state requires the predefined sampling protocol")
         self.problem_id = str(problem_id)
         self.function_id = str(function_id)
         self.family = str(family)
@@ -242,6 +242,8 @@ class PathEvaluationTracker:
     query_evaluations: int = 0
     continuation_evaluations: int = 0
     first_hit_fe: int | None = None
+    first_hit_wall_clock_seconds: float | None = None
+    wall_clock_started_at: float | None = None
     best_all: float = float("inf")
     best_optimizer: float = float("inf")
     best_query: float = float("inf")
@@ -283,9 +285,13 @@ class PathEvaluationTracker:
             self.convergence_curve_log10_gap.append(float(np.log10(clipped_gap)))
             if self.first_hit_fe is None and gap <= float(self.success_gap_target):
                 self.first_hit_fe = int(self.total_evaluations)
+                if self.wall_clock_started_at is not None:
+                    self.first_hit_wall_clock_seconds = float(
+                        perf_counter() - self.wall_clock_started_at
+                    )
 
 
-@dataclass(frozen=True)
+@dataclass
 class QueryExecution:
     features: dict[str, float | None]
     status: str
@@ -298,7 +304,7 @@ class QueryExecution:
     best_gap: float
 
 
-@dataclass(frozen=True)
+@dataclass
 class OnlineSelector:
     model: StatewiseSelectorModel
 
@@ -311,6 +317,7 @@ class OnlineSelector:
         query_features: dict[str, Any],
         behavior_features: dict[str, Any],
         remaining_ratio: float,
+        dimension: int,
     ) -> tuple[str, float, str, float]:
         features = make_selector_features(
             behavior_features=behavior_features,
@@ -318,11 +325,19 @@ class OnlineSelector:
             query_feature_columns=self.model.query_feature_columns,
             remaining_budget_ratio=remaining_ratio,
         )
-        selected, _, runtime_selection = self.model.select_one(features)
-        return selected, float(remaining_ratio), "random_forest_action_loss_regression", runtime_selection
+        selected, _, runtime_selection = self.model.select_one(
+            features,
+            dimension=int(dimension),
+        )
+        return (
+            selected,
+            float(remaining_ratio),
+            str(getattr(self.model, "selector_type", self.model.protocol)),
+            runtime_selection,
+        )
 
 
-@dataclass(frozen=True)
+@dataclass
 class OnlineQueryOnlySelector:
     artifact: Any
 
@@ -363,7 +378,7 @@ class OnlineQueryOnlySelector:
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class OnlineBehaviorOnlySelector:
     model: StatewiseSelectorModel
 
@@ -509,7 +524,7 @@ def evaluate_online_controller(
     if behavior_only_selector is not None and (
         behavior_only_selector.sbs_algorithm != selector.sbs_algorithm
     ):
-        raise ValueError("Query and Behavior-only selectors must use the same frozen SBS")
+        raise ValueError("Query and Behavior-only selectors must use the same predefined SBS")
     calibration = load_matched_random_calibration(
         matched_random_calibration_path,
         query_id=query_id,
@@ -1059,9 +1074,9 @@ def _write_online_summary(
         "scope_notes": [
             "Never Query runs the SBS/default optimizer for the full budget without behavior monitoring, query, or selector computation.",
             "Behavior sampling defines the decision opportunities: every emitted dynamic state is also a possible query trigger point.",
-            "always_query executes the fixed query at the first emitted state in the frozen sampling protocol.",
+            "always_query executes the fixed query at the first emitted state in the predefined sampling protocol.",
             "pre_run_aas_fe0 executes the query at FE=0, uses the separate query-only selector, and natively initializes its selected optimizer with budget B-FE_query.",
-            "milestone_only_T0 evaluates X={FE_ratio} only at the 12 frozen budget milestones and uses its own BBOB-train OOF threshold.",
+            "milestone_only_T0 evaluates X={FE_ratio} only at the 12 predefined budget milestones and uses its own BBOB-train OOF threshold.",
             "A failed called query is charged its FE and measured runtime, then falls back to the SBS/default optimizer without selector inference.",
             "A pre-specified Stage-A run fixes each scientific endpoint; three separate Stage-B replays in cyclic order determine only the wall-clock median.",
             "When the Stage-A scientific path completed, every completed Stage-B replay must reproduce its scientific endpoint; otherwise completed Stage-B replays must agree with one another and never replace the failed Stage-A endpoint.",
@@ -1069,10 +1084,10 @@ def _write_online_summary(
             "Online wall-clock fields measure the full FE=0-to-terminal run; they are not fold-specific decision-state future-path timings.",
             "runtime_component_sum_diagnostic is never substituted for measured full-run or decision-state wall-clock.",
             "Query samples are evaluated but never inserted into an optimizer population; optimizer-only and all-evaluation terminals are stored separately.",
-            "matched_rate_random uses only the frozen BBOB-train OOF run-call rate and trigger-FE distribution.",
+            "matched_rate_random uses only the predefined BBOB-train OOF run-call rate and trigger-FE distribution.",
             "The 30 matched Random repetitions are averaged within each trajectory before policy aggregation.",
             "This runner does not construct the static per-problem full-budget four-algorithm VBS hindsight reference.",
-            "The controller and threshold are frozen from BBOB train artifacts.",
+            "The controller and threshold are predefined from BBOB train artifacts.",
             "In sharded mode, existing function/dimension shard outputs are skipped unless --overwrite is passed.",
             "Parallel workers execute independent function/dimension shards; summary outputs are written after shard completion.",
         ],
@@ -1177,9 +1192,7 @@ def _load_controller(training_summary_path: Path, model_name: str, threshold_mod
     if not summary.get("feature_group"):
         raise ValueError("Decision training summary does not define feature_group")
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
-    if not feature_columns or not set(feature_columns).issubset(
-        SELECTOR_BEHAVIOR_FEATURE_COLUMNS
-    ):
+    if not feature_columns or not set(feature_columns).issubset(DECISION_BEHAVIOR_FEATURE_COLUMNS):
         raise ValueError("controller feature columns must be a non-empty subset of behavior features")
     model_name = resolve_model_name(summary, model_name)
     model_path = _model_path(summary, model_name)
@@ -1211,7 +1224,7 @@ def _read_external_query_features(path: Path, query_id: str) -> dict[tuple[int, 
     observed_columns = set(frame.columns)
     if observed_columns != expected_columns:
         raise ValueError(
-            "external query feature table does not exactly match the frozen whitelist; "
+            "external query feature table does not exactly match the predefined whitelist; "
             f"missing={sorted(expected_columns - observed_columns)}, "
             f"extra={sorted(observed_columns - expected_columns)}"
         )
@@ -1248,13 +1261,13 @@ def _read_external_query_features(path: Path, query_id: str) -> dict[tuple[int, 
         raise ValueError("external query feature table contains the wrong sample design")
     expected_feature_columns = json.dumps(list(spec.feature_columns), ensure_ascii=False)
     if set(frame["query_feature_columns"].astype(str)) != {expected_feature_columns}:
-        raise ValueError("external query feature table contains a non-frozen feature-column list")
+        raise ValueError("external query feature table contains a non-predefined feature-column list")
     if (frame["additional_function_evaluations"].astype(int) != 0).any():
         raise ValueError("external query feature extraction reports additional objective evaluations")
     for row in frame.to_dict(orient="records"):
         group_status = json.loads(str(row["feature_group_status"]))
         if set(group_status) != set(spec.feature_groups):
-            raise ValueError("external query feature group status does not cover the frozen groups")
+            raise ValueError("external query feature group status does not cover the predefined groups")
         has_group_failure = any(str(status.get("status")) != "ok" for status in group_status.values())
         expected_status = "failed" if has_group_failure else "ok"
         if str(row["feature_status"]) != expected_status:
@@ -1583,7 +1596,7 @@ def _load_behavior_only_controller(
     if not model_path.exists():
         raise FileNotFoundError(f"missing Behavior-only Decision model artifact: {model_path}")
     feature_columns = [str(column) for column in summary.get("feature_columns", [])]
-    if not feature_columns or not set(feature_columns).issubset(SELECTOR_BEHAVIOR_FEATURE_COLUMNS):
+    if not feature_columns or not set(feature_columns).issubset(DECISION_BEHAVIOR_FEATURE_COLUMNS):
         raise ValueError("Behavior-only controller inputs must be Behavior features only")
     threshold_mode = str(
         summary.get("behavior_only_threshold_mode", BEHAVIOR_ONLY_THRESHOLD_MODE)
@@ -1654,7 +1667,7 @@ def _load_query_only_selector(
 def _budget_milestone_ratios(config: dict, sampling_protocol: str) -> tuple[float, ...]:
     if sampling_protocol == DEFAULT_SAMPLING_PROTOCOL:
         if str(config.get("sampling_protocol", "")) != SAMPLING_PROTOCOL:
-            raise ValueError("online config does not use the frozen dynamic sampling protocol")
+            raise ValueError("online config does not use the predefined dynamic sampling protocol")
         return get_sampling_spec(sampling_protocol).budget_milestone_ratios
     raise ValueError(f"unsupported sampling protocol: {sampling_protocol}")
 
@@ -1935,6 +1948,7 @@ def _execute_online_policy_path(
         benchmark_reference_value=reference,
         success_gap_target=float(config["success_gap_target"]),
         planned_total_fe=int(fe_total),
+        wall_clock_started_at=path_started,
     )
     default_algorithm = selector.sbs_algorithm
     tracker.remember(
@@ -2014,7 +2028,8 @@ def _execute_online_policy_path(
                 selector=selector,
                 query_feature_row=query_feature_row,
                 query_sample_row=query_sample_row,
-                policy_spec={"policy_name": policy_name},
+                policy_name=policy_name,
+                trigger_mode="first_checkpoint",
                 sampling_protocol=sampling_protocol,
                 decision_check_frequency=decision_check_frequency,
                 repetition=random_repetition,
@@ -2032,7 +2047,8 @@ def _execute_online_policy_path(
                 selector=selector,
                 query_feature_row=query_feature_row,
                 query_sample_row=query_sample_row,
-                policy_spec={"policy_name": policy_name},
+                policy_name=policy_name,
+                trigger_mode="controller",
                 sampling_protocol=sampling_protocol,
                 decision_check_frequency=decision_check_frequency,
                 repetition=random_repetition,
@@ -2347,7 +2363,8 @@ def _finalize_online_policy_row(
             "convergence_curve_last_FE": int(tracker.convergence_curve_fe[-1]) if tracker.convergence_curve_fe else None,
             "convergence_curve_last_gap": float(tracker.convergence_curve_gap[-1]) if tracker.convergence_curve_gap else None,
             "convergence_time_to_target_FE": int(observed_first_hit_fe) if observed_first_hit_fe is not None else None,
-            "observed_first_hit_FE": observed_first_hit_fe,
+        "observed_first_hit_FE": observed_first_hit_fe,
+        "first_hit_wall_clock_seconds": tracker.first_hit_wall_clock_seconds,
             "target_hit_observed": target_hit_observed,
             "target_hit_before_failure": target_hit_before_failure,
             "endpoint_success": endpoint_success,
@@ -2920,7 +2937,7 @@ def _run_behavior_only_policy(
 ) -> dict[str, Any]:
     default_algorithm = query_selector.sbs_algorithm
     if behavior_selector.sbs_algorithm != default_algorithm:
-        raise ValueError("Behavior-only and Query selectors use different frozen SBS defaults")
+        raise ValueError("Behavior-only and Query selectors use different predefined SBS defaults")
     tracker.set_phase("prefix")
     population_size = int(config["population_size"])
     settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
@@ -3329,6 +3346,7 @@ def _run_threshold_policy(
                         query_features,
                         behavior_row,
                         remaining_ratio,
+                        problem.dimension,
                     )
                 finally:
                     tracker.remember(
@@ -4339,7 +4357,7 @@ def _markdown_report(
             f"`{summary['timing_order_protocol']}`；Stage-B 只决定 wall-clock 中位数。",
             "- wall-clock 字段是 full-run 口径；本执行器不生成 nested learning 所需的 decision-state future-path timing。",
             "- Controller 只使用实时 behavior features；CEC rows 不参与训练、预处理拟合或阈值选择。",
-            "- Query 后的 Selection Reference 使用冻结的 BBOB-train statewise action-loss regressor，并连续接收 remaining budget；CEC rows 不参与 selector 拟合。",
+            "- Query 后的 Selection Reference 使用预先指定的 BBOB-train statewise action-loss regressor，并连续接收 remaining budget；CEC rows 不参与 selector 拟合。",
             "- 每个动态采样状态同时是 behavior observation 点和可能触发固定 query 的 decision opportunity。",
             "- `always_query` 表示在当前 sampling protocol 的第一个决策机会必定执行固定 query 的 after-probe baseline。",
             "",
@@ -4401,7 +4419,7 @@ def _split_name(config: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run online CEC controller evaluation with frozen BBOB controller.")
+    parser = argparse.ArgumentParser(description="Run online CEC controller evaluation with predefined BBOB controller.")
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--train-config", type=Path, default=DEFAULT_TRAIN_CONFIG_PATH)

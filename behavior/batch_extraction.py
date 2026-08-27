@@ -5,7 +5,7 @@ from pathlib import Path
 
 from behavior.extraction import extract_behavior_file
 from behavior.validation import validate_behavior_file
-from experiments.phase1_batch_common import load_config, make_shards, require_complete_shard_outputs
+from experiments.phase1_batch_common import load_suite_configs, make_shards, require_complete_shard_outputs
 
 
 def behavior_output_path(trajectory_path: Path) -> Path:
@@ -24,25 +24,25 @@ def extract_behavior_shards(
     row_count = 0
 
     for config_path in config_paths:
-        config = load_config(config_path)
-        if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022", "mabbob"}:
-            raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022, mabbob")
+        for config in load_suite_configs(config_path):
+            if str(config["suite"]).lower() not in {"bbob", "cec2017", "cec2022", "mabbob"}:
+                raise ValueError("behavior-extract-batch supports suites: bbob, cec2017, cec2022, mabbob")
 
-        for shard in make_shards(config, only_functions, only_dimensions):
-            require_complete_shard_outputs(shard)
-            trajectory_path = shard.output_path
-            output_path = behavior_output_path(trajectory_path)
+            for shard in make_shards(config, only_functions, only_dimensions):
+                require_complete_shard_outputs(shard)
+                trajectory_path = shard.output_path
+                output_path = behavior_output_path(trajectory_path)
 
-            if output_path.exists() and not overwrite:
-                validate_behavior_file(trajectory_path, output_path)
-                print(f"skip existing behavior shard {output_path}")
-                skipped_existing_count += 1
-                continue
+                if output_path.exists() and not overwrite:
+                    validate_behavior_file(trajectory_path, output_path)
+                    print(f"skip existing behavior shard {output_path}")
+                    skipped_existing_count += 1
+                    continue
 
-            summary = extract_behavior_file(trajectory_path, output_path)
-            print(f"wrote {summary['rows']} behavior rows to {summary['output']}")
-            written_count += 1
-            row_count += int(summary["rows"])
+                summary = extract_behavior_file(trajectory_path, output_path)
+                print(f"wrote {summary['rows']} behavior rows to {summary['output']}")
+                written_count += 1
+                row_count += int(summary["rows"])
 
     print(
         "finished "
@@ -71,8 +71,8 @@ def main() -> None:
     args = parser.parse_args()
 
     config_paths = args.config or [
-        Path("configs/phase1_bbob_train.yaml"),
-        Path("configs/phase1_bbob_validation.yaml"),
+        Path("configs/phase1_train.yaml"),
+        Path("configs/phase1_validation.yaml"),
     ]
     extract_behavior_shards(
         config_paths=config_paths,

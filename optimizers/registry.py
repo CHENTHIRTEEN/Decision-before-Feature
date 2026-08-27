@@ -13,7 +13,7 @@ from trajectory.records import TrajectoryRecord
 SUPPORTED_ALGORITHMS = ("de", "pso", "cmaes", "shade")
 
 
-@dataclass(frozen=True)
+@dataclass
 class OptimizerRunResult:
     trajectory_records: list[TrajectoryRecord]
     final_performance: FinalPerformanceRecord

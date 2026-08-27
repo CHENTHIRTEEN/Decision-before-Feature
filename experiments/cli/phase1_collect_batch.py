@@ -16,11 +16,13 @@ from experiments.phase1_batch_common import (
     fe_total_for_dimension,
     function_id_name,
     landscape_family_name,
-    load_config,
+    load_suite_configs,
     make_shards,
+    runtime_problem_config,
     selected_dimensions,
     selected_functions,
     shard_output_pair_state,
+    split_name,
     validate_dynamic_collection_config,
 )
 
@@ -33,14 +35,9 @@ def _run_one(
     dimension: int,
     seed: int,
 ) -> OptimizerRunResult:
-    problem_config = {
-        "suite": config["suite"],
-        "function": function,
-        "instance": instance,
-        "dimension": dimension,
-    }
-    if str(config["suite"]).lower() == "mabbob":
-        problem_config["candidate_id"] = function
+    problem_config = runtime_problem_config(
+        config, function=function, instance=instance, dimension=dimension
+    )
     settings = OptimizerSettings(
         population_size=int(config["population_size"]),
         sampling_protocol=str(config["sampling_protocol"]),
@@ -239,7 +236,7 @@ def _collect_and_write_shard(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect Phase 1 BBOB trajectories in batch.")
-    parser.add_argument("--config", default="configs/phase1_bbob_train.yaml")
+    parser.add_argument("--config", default="configs/phase1_train.yaml")
     parser.add_argument("--output", default=None)
     parser.add_argument("--sharded", action="store_true")
     parser.add_argument("--only-function", type=int, action="append", default=None)
@@ -248,33 +245,37 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=1, help="Shard-level worker processes for --sharded collection.")
     args = parser.parse_args()
 
-    config = load_config(Path(args.config))
-    validate_dynamic_collection_config(config)
     if args.workers < 1:
         raise ValueError("--workers must be at least 1")
 
-    if args.sharded:
-        _collect_shards(config, args.only_function, args.only_dimension, args.overwrite, args.workers)
-        return
+    suite_configs = load_suite_configs(Path(args.config))
+    for config in suite_configs:
+        print(f"=== suite config: {config.get('split', split_name(config))} (suite={config['suite']}) ===")
+        validate_dynamic_collection_config(config)
 
-    output_path = Path(args.output or config["output"])
-    if output_path.suffix != ".parquet":
-        raise ValueError("non-sharded collection requires a .parquet output file; use --sharded for shard directory output")
-    functions = selected_functions(config, args.only_function)
-    dimensions = selected_dimensions(config, args.only_dimension)
-    records, final_records = _collect_records(config, functions, dimensions, algorithms(config))
+        if args.sharded:
+            _collect_shards(config, args.only_function, args.only_dimension, args.overwrite, args.workers)
+            continue
+        if args.output is not None and len(suite_configs) > 1:
+            raise ValueError("--output can be used only with single-suite configs")
+        output_path = Path(args.output or config["output"])
+        if output_path.suffix != ".parquet":
+            raise ValueError("non-sharded collection requires a .parquet output file; use --sharded for shard directory output")
+        functions = selected_functions(config, args.only_function)
+        dimensions = selected_dimensions(config, args.only_dimension)
+        records, final_records = _collect_records(config, functions, dimensions, algorithms(config))
 
-    final_path = output_path.with_name(f"{output_path.stem}_final_performance.parquet")
-    written, final_written = _write_output_pair(
-        records,
-        final_records,
-        output_path,
-        final_path,
-    )
-    print(
-        f"wrote {len(records)} trajectory records to {written}; "
-        f"wrote {len(final_records)} complete-budget rows to {final_written}"
-    )
+        final_path = output_path.with_name(f"{output_path.stem}_final_performance.parquet")
+        written, final_written = _write_output_pair(
+            records,
+            final_records,
+            output_path,
+            final_path,
+        )
+        print(
+            f"wrote {len(records)} trajectory records to {written}; "
+            f"wrote {len(final_records)} complete-budget rows to {final_written}"
+        )
 
 
 if __name__ == "__main__":

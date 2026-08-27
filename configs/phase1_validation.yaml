@@ -1,0 +1,41 @@
+# 整合正式验证数据集：BBOB-validation + MA-BBOB validation。
+# `dataset` 是逻辑标签；各 suite 段的 `split` 是存储 split，保持 bbob_validation /
+# mabbob_validation 目录名以维持下游读取契约不变。公共规格对两个 suite 强制一致。
+dataset: validation
+dimensions: [10, 20, 40]
+seeds: [1, 2, 3, 4, 5]
+FE_total_by_dimension:
+  10: 10000
+  20: 20000
+  40: 40000
+population_size: 40
+efficacy_repetitions: 3
+efficacy_aggregation: median
+failure_loss_cap: 1.0e20
+log10_gap_floor: 1.0e-12
+log10_gap_cap: 1.0e20
+success_gap_target: 1.0e-8
+action_timeout_seconds: 3600
+timing_replay_timeout_seconds: 3600
+policy_timeout_seconds: 3600
+first_hit_recording: every_objective_evaluation
+timing_repetitions: 3
+timing_order_protocol: cyclic_complete_path_v1
+algorithms: [de, pso, cmaes, shade]
+sampling_protocol: phase1_dynamic_budget_event_v1
+boundary_handling: reflect
+suites:
+  - suite: bbob
+    split: bbob_validation
+    function_family_protocol: bbob_five_landscape_groups_v1
+    functions: [5, 9, 13, 14, 19, 24]
+    instances: [1, 2, 3]
+    output: results/phase1_refined_sampling/bbob_validation
+  - suite: mabbob
+    split: mabbob_validation
+    function_family_protocol: mabbob_affine_combination_v1
+    functions: [201, 202, 203, 204, 205, 206, 207, 209, 211, 213, 208, 210, 216, 218, 215, 221, 223, 222]
+    instances: [1]
+    manifest_path: results/mabbob_diversity_pilot/mabbob_validation_pool_manifest.json
+    selection_manifest_path: results/mabbob_diversity_pilot/mabbob_validation_selection_manifest.json
+    output: results/phase1_mabbob_validation/trajectories.parquet

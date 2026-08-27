@@ -63,7 +63,7 @@ ACTION_OUTCOME_EXECUTIONS = 1
 TIMING_REPETITIONS = ACTION_OUTCOME_EXECUTIONS
 COMPLETE_PATH_TIMING_REPETITIONS = 3
 COMPLETE_PATH_TIMING_ORDER_PROTOCOL = "cyclic_complete_path_v1"
-FROZEN_PORTFOLIO_ORDER = ("de", "pso", "cmaes", "shade")
+PREDEFINED_PORTFOLIO_ORDER = ("de", "pso", "cmaes", "shade")
 ACTION_BUDGET_STREAM_CODES = {
     QUERY_ADJUSTED_BUDGET: 11,
     BEHAVIOR_ONLY_FULL_BUDGET: 17,
@@ -206,7 +206,7 @@ def generate_state_action_losses(
     split = split_name(config)
     suite = str(config["suite"]).lower()
     portfolio = tuple(str(value) for value in algorithms(config))
-    if portfolio != FROZEN_PORTFOLIO_ORDER:
+    if portfolio != PREDEFINED_PORTFOLIO_ORDER:
         raise ValueError(
             "formal action generation requires portfolio order de,pso,cmaes,shade"
         )
@@ -1418,8 +1418,16 @@ def _eligible_for_action_loss(row: dict, config: dict, *, fe_query: int) -> bool
 
 
 def _validate_replayed_checkpoint(state: OptimizerState, trajectory_row: dict) -> None:
-    row_pop = np.asarray(trajectory_row["population"], dtype=float)
-    row_fit = np.asarray(trajectory_row["fitness"], dtype=float)
+    raw_population = trajectory_row["population"]
+    if isinstance(raw_population, np.ndarray) and raw_population.dtype == object:
+        row_pop = np.stack(raw_population.tolist()).astype(float, copy=False)
+    else:
+        row_pop = np.asarray(raw_population, dtype=float)
+    raw_fitness = trajectory_row["fitness"]
+    if isinstance(raw_fitness, np.ndarray) and raw_fitness.dtype == object:
+        row_fit = np.stack(raw_fitness.tolist()).astype(float, copy=False)
+    else:
+        row_fit = np.asarray(raw_fitness, dtype=float)
     if state.population.shape != row_pop.shape or state.fitness.shape != row_fit.shape:
         raise ValueError("trajectory population/fitness shape does not match replayed optimizer state")
     if not np.allclose(state.population, row_pop, rtol=1e-4, atol=5e-2, equal_nan=True):

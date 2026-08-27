@@ -66,6 +66,8 @@ def row_weighted_weights(frame: pd.DataFrame) -> np.ndarray:
 class WeightedMedianImputer(TransformerMixin, BaseEstimator):
     """Columnwise median imputation under the fit-fold scientific row weights."""
 
+    strategy = "weighted_median"
+
     def fit(
         self,
         x: Any,

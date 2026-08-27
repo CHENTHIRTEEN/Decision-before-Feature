@@ -5,7 +5,7 @@ from trajectory.sampling import SAMPLING_METADATA_COLUMNS
 SCIENTIFIC_ENDPOINT_SOURCE = "stage_a_selection_reference_outcome"
 SCIENTIFIC_PATH_STATUS_PROTOCOL = "stage_a_completed_timed_out_failed_v1"
 TIMING_REPLAY_STATUS_PROTOCOL = "stage_b_completed_timed_out_failed_v1"
-TIMING_REPLAY_STATUSES = frozenset({"completed", "timed_out", "failed"})
+TIMING_REPLAY_STATUSES = {"completed", "timed_out", "failed"}
 
 EFFICACY_FORMULA_PROTOCOL = "equal_total_fe_log_gap_ratio_v1"
 EFFICACY_LABEL_CONTRACT_PROTOCOL = "equal_total_fe_log_gap_ratio_v1_repetition_aware"
@@ -14,9 +14,13 @@ EFFICACY_AGGREGATION_DEFAULT = "median"
 EFFICACY_UNCERTAINTY_PROTOCOL = "t_interval_95_v1"
 EFFICACY_COLUMNS = (
     "g_fe",
+    "g_fe_selected_path",
     "g_fe_bounded",
+    "g_fe_selected_path_bounded",
     "g_fe_gt_zero",
+    "g_fe_selected_path_gt_zero",
     "g_fe_gt_practical",
+    "g_fe_selected_path_gt_practical",
     "epsilon_p",
     "delta_practical",
 )
@@ -43,13 +47,20 @@ PAIR_REPETITION_SUMMARY_COLUMNS = (
 UTILITY_LAMBDAS = (0.0, 0.25, 0.5, 1.0, 2.0)
 
 # ── 方案 A 主功效标签（等总 FE，runtime 不进入主标签）──────────
-# g_fe 是连续主标签，g_fe_gt_zero 是对应布尔标签。
+# g_fe_selected_path 是 Query Selector 实际选中动作的主 ELA 路径端点；
+# g_fe 是 selector-independent best-observed-action 诊断。
 # 旧 u_query_joint_lamT_* / need_query_joint_lamT_* 仅作兼容诊断。
-PRIMARY_EFFICACY_VALUE_COLUMN = "g_fe"
-PRIMARY_EFFICACY_LABEL_COLUMN = "g_fe_gt_zero"
+PRIMARY_EFFICACY_VALUE_COLUMN = "g_fe_selected_path"
+PRIMARY_EFFICACY_LABEL_COLUMN = "g_fe_selected_path_gt_zero"
 PRIMARY_EFFICACY_COLUMNS = (
     PRIMARY_EFFICACY_VALUE_COLUMN,
     PRIMARY_EFFICACY_LABEL_COLUMN,
+)
+PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS = (
+    "observed_loss_de",
+    "observed_loss_pso",
+    "observed_loss_cmaes",
+    "observed_loss_shade",
 )
 
 # Utility 标签（旧口径保留为兼容字段）
@@ -211,6 +222,7 @@ UTILITY_COLUMNS = (
     "loss_skip",
     "loss_query",
     "action_loss",
+    *PRIMARY_OBSERVED_ACTION_LOSS_COLUMNS,
     "best_observed_algorithm",
     "best_observed_loss",
     "selected_matches_best_observed",
@@ -218,6 +230,10 @@ UTILITY_COLUMNS = (
     "selector_regret_raw",
     "performance_gain_raw",
     "performance_gain_norm",
+    "g_fe_selected_path",
+    "g_fe_selected_path_bounded",
+    "g_fe_selected_path_gt_zero",
+    "g_fe_selected_path_gt_practical",
     "performance_gain_gap_raw",
     "performance_gain_norm_gap",
     "utility_formula_protocol",

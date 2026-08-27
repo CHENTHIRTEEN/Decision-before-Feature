@@ -316,7 +316,7 @@ def _validate_sampling_metadata(row: dict) -> None:
         raise ValueError("dynamic trajectory FE_ratio must equal FE / FE_total")
     target = float(row["monitor_target_ratio"])
     if not any(isclose(target, ratio, rel_tol=0.0, abs_tol=1e-12) for ratio in MONITOR_RATIOS):
-        raise ValueError("monitor_target_ratio must belong to the frozen monitor grid")
+        raise ValueError("monitor_target_ratio must belong to the predefined monitor grid")
     target_fe = int(round(target * int(row["FE_total"])))
     alignment_gap = int(row["FE"]) - target_fe
     if alignment_gap < 0:
@@ -382,19 +382,19 @@ def _validate_sampling_metadata(row: dict) -> None:
     if event_flags["stagnation_onset"] and (
         float(row["event_stagnation_onset_metric"]) < STAGNATION_ONSET_THRESHOLD - EPS
     ):
-        raise ValueError("stagnation_onset flag is below its frozen threshold")
+        raise ValueError("stagnation_onset flag is below its predefined threshold")
     if event_flags["rank_change"] and (
         abs(float(row["event_rank_change_metric"])) < RANK_CHANGE_THRESHOLD - EPS
     ):
-        raise ValueError("rank_change flag is below its frozen threshold")
+        raise ValueError("rank_change flag is below its predefined threshold")
     if event_flags["elite_migration"] and (
         float(row["event_elite_migration_metric"]) < ELITE_MIGRATION_THRESHOLD - EPS
     ):
-        raise ValueError("elite_migration flag is below its frozen threshold")
+        raise ValueError("elite_migration flag is below its predefined threshold")
     if event_flags["diversity_recovery"] and (
         float(row["event_diversity_recovery_metric"]) < DIVERSITY_RECOVERY_THRESHOLD - EPS
     ):
-        raise ValueError("diversity_recovery flag is below its frozen threshold")
+        raise ValueError("diversity_recovery flag is below its predefined threshold")
 
 
 def _validate_window_statistics(row: dict) -> None:
@@ -403,7 +403,7 @@ def _validate_window_statistics(row: dict) -> None:
     if not isinstance(windows, list) or not isinstance(history, list):
         raise ValueError("window_statistics and native_update_history must be lists")
     if [str(item["suffix"]) for item in windows] != list(WINDOW_RATIOS):
-        raise ValueError("window statistics must contain w02, w05, and w10 in frozen order")
+        raise ValueError("window statistics must contain w02, w05, and w10 in predefined order")
     if not history:
         raise ValueError("native_update_history must not be empty")
 
@@ -599,17 +599,17 @@ def _validate_run_sampling(ordered: list[dict], key: tuple[str, str, int]) -> No
         not isclose(observed, expected, rel_tol=0.0, abs_tol=EPS)
         for observed, expected in zip(milestone_targets, BUDGET_MILESTONE_RATIOS)
     ):
-        raise ValueError(f"trajectory run does not contain every frozen budget milestone exactly once for {key}")
+        raise ValueError(f"trajectory run does not contain every predefined budget milestone exactly once for {key}")
 
     event_only_rows = [row for row in ordered if not bool(row["is_budget_milestone"])]
     if len(event_only_rows) > len(SAMPLING_PHASES) * MAX_EVENT_ONLY_PER_PHASE:
-        raise ValueError(f"trajectory run exceeds the frozen event-only quota for {key}")
+        raise ValueError(f"trajectory run exceeds the predefined event-only quota for {key}")
     event_only_ratios = [float(row["FE_ratio"]) for row in event_only_rows]
     if any(
         later - earlier < EVENT_ONLY_MIN_GAP_RATIO - EPS
         for earlier, later in zip(event_only_ratios, event_only_ratios[1:])
     ):
-        raise ValueError(f"event-only trajectory rows violate the frozen FE-ratio gap for {key}")
+        raise ValueError(f"event-only trajectory rows violate the predefined FE-ratio gap for {key}")
 
     for phase in SAMPLING_PHASES:
         phase_rows = [row for row in event_only_rows if str(row["sampling_phase"]) == phase]

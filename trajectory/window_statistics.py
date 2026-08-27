@@ -16,7 +16,7 @@ WINDOW_RATIOS = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass
 class NativeUpdateSnapshot:
     fe: int
     native_updates: int

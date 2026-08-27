@@ -14,7 +14,12 @@ import pyarrow.parquet as pq
 
 from behavior.features import extract_behavior_rows
 from benchmarks import make_problem
-from experiments.phase1_batch_common import algorithms, fe_total_for_dimension, load_config
+from experiments.phase1_batch_common import (
+    algorithms,
+    fe_total_for_dimension,
+    load_suite_configs,
+    split_name,
+)
 from landscape_queries.cheap import calculate_descriptor_cheap
 from landscape_queries.consistency import _check_action_losses
 from landscape_queries.sampling import sample_problem
@@ -27,7 +32,11 @@ from optimizers import (
     initialize_optimizer_state,
     initialize_transferred_optimizer_state,
 )
-from selection_reference.action_losses import ACTION_LOSS_PROTOCOL, evaluate_candidate_actions
+from selection_reference.action_losses import (
+    ACTION_LOSS_PROTOCOL,
+    EXECUTION_ORDER_PROTOCOL,
+    evaluate_candidate_actions,
+)
 from selection_reference.build import build_selection_reference
 from selection_reference.model import (
     SELECTION_REFERENCE_PROTOCOL,
@@ -49,9 +58,7 @@ from trajectory.window_statistics import NativeUpdateWindowRecorder
 
 
 def check_state_action_continuations(*, config_path: Path) -> dict[str, int | str]:
-    config = load_config(config_path)
-    if str(config["suite"]).lower() != "bbob":
-        raise ValueError("selection-reference-check requires a real BBOB configuration")
+    config = _bbob_train_config(config_path)
     portfolio = tuple(algorithms(config))
     population_size = int(config["population_size"])
     settings = OptimizerSettings(population_size=population_size, checkpoint_ratios=(1.0,))
@@ -101,12 +108,14 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
             native = [row for row in outcomes if row["action"] == "continue_current"]
             reference_value = float(problem.reference_value)
             expected_native_gap = max(float(expected_native.best_fitness) - reference_value, 0.0)
-            if (
-                len(native) != 1
-                or float(native[0]["action_loss_raw"]) != float(expected_native.best_fitness)
-                or float(native[0]["action_loss"]) != expected_native_gap
-            ):
+            if len(native) != 1 or float(native[0]["action_loss"]) != expected_native_gap:
                 raise ValueError("continue_current does not reproduce native optimizer continuation")
+            if "action_loss_raw" in native[0] and float(native[0]["action_loss_raw"]) != float(
+                expected_native.best_fitness
+            ):
+                raise ValueError("continue_current raw objective does not reproduce native optimizer continuation")
+            if "loss_gap_raw" in native[0] and float(native[0]["loss_gap_raw"]) != expected_native_gap:
+                raise ValueError("continue_current loss_gap_raw does not reproduce native optimizer continuation")
             expected_actions = {"continue_current", *set(portfolio).difference({prefix_algorithm})}
             if {str(row["action"]) for row in outcomes} != expected_actions:
                 raise ValueError("candidate actions are not continue_current plus the other three algorithms")
@@ -117,7 +126,8 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
                 raise ValueError("each real BBOB state must have one native and three transfer actions")
             losses = np.asarray([row["action_loss"] for row in outcomes], dtype=float)
             expected_norm = (losses - np.min(losses)) / max(float(np.max(losses) - np.min(losses)), 1e-12)
-            observed_norm = np.asarray([row["action_loss_norm"] for row in outcomes], dtype=float)
+            norm_field = "action_loss_norm" if "action_loss_norm" in outcomes[0] else "loss_gap_norm"
+            observed_norm = np.asarray([row[norm_field] for row in outcomes], dtype=float)
             if not np.isfinite(observed_norm).all() or not np.allclose(
                 observed_norm,
                 expected_norm,
@@ -142,6 +152,25 @@ def check_state_action_continuations(*, config_path: Path) -> dict[str, int | st
     }
 
 
+def _bbob_train_config(config_path: Path) -> dict:
+    matches = [
+        config
+        for config in load_suite_configs(config_path)
+        if str(config.get("suite", "")).lower() == "bbob"
+        and split_name(config) == "bbob_train"
+    ]
+    if len(matches) != 1:
+        available = [
+            f"{str(config.get('suite', '')).lower()}:{split_name(config)}"
+            for config in load_suite_configs(config_path)
+        ]
+        raise ValueError(
+            "selection-reference-check requires exactly one bbob/bbob_train suite section; "
+            f"available={available}"
+        )
+    return matches[0]
+
+
 def _check_query_specific_regression(
     *,
     config: dict,
@@ -157,7 +186,9 @@ def _check_query_specific_regression(
     action_rows = []
     behavior_rows = []
     query_rows = []
-    for function in [int(value) for value in config["functions"][:2]]:
+    function_values = [int(value) for value in config["functions"]]
+    probe_functions = [function_values[0], function_values[4]]
+    for function in probe_functions:
         instance = int(config["instances"][0])
         fe_total = fe_total_for_dimension(config, dimension)
         problem = make_problem(
@@ -188,6 +219,7 @@ def _check_query_specific_regression(
                 {
                     "split": "bbob_train",
                     "problem_id": problem.problem_id,
+                    "function_id": problem.function_id,
                     "family": problem.family,
                     "dimension": dimension,
                     "query_id": spec.query_id,
@@ -198,6 +230,11 @@ def _check_query_specific_regression(
                     "runtime_query_evaluation": float(sample["runtime_query_evaluation"]),
                     "runtime_query_feature_computation": float(runtime_feature),
                     "runtime_query": float(sample["runtime_sampling_evaluation"] + runtime_feature),
+                    "benchmark_reference_value": float(problem.reference_value),
+                    "success_gap_target": float(config["success_gap_target"]),
+                    "query_success": bool(sample["query_success"]),
+                    "query_first_hit_offset": sample["query_first_hit_offset"],
+                    "query_best_gap": float(sample["query_best_gap"]),
                     "feature_status": "ok",
                     "feature_failure": "[]",
                     "feature_group_status": json.dumps(
@@ -236,23 +273,9 @@ def _check_query_specific_regression(
                 fe_query = sample_design.sample_size(dimension)
                 query_budget = fe_total - int(state.evaluations) - fe_query
                 skip_budget = fe_total - int(state.evaluations)
-                if prefix_algorithm == default_algorithm:
-                    skip_state = clone_optimizer_state(state)
-                    runtime_no_query_handoff = 0.0
-                    no_query_transition_mode = "native_optimizer_state"
-                else:
-                    handoff_started = perf_counter()
-                    skip_state = initialize_transferred_optimizer_state(
-                        algorithm=default_algorithm,
-                        source_state=state,
-                        problem=problem,
-                        seed=seed,
-                        function=function,
-                        instance=instance,
-                        event=NO_QUERY_TRANSFER_EVENT,
-                    )
-                    runtime_no_query_handoff = perf_counter() - handoff_started
-                    no_query_transition_mode = "population_transfer_initialization"
+                skip_state = clone_optimizer_state(state)
+                runtime_no_query_handoff = 0.0
+                no_query_transition_mode = "native_optimizer_state"
                 skip = advance_optimizer_state(
                     state=skip_state,
                     problem=problem,
@@ -276,13 +299,17 @@ def _check_query_specific_regression(
                 common = {
                     "split": "bbob_train",
                     "problem_id": problem.problem_id,
+                    "function_id": problem.function_id,
                     "family": problem.family,
+                    "cv_group_id": problem.cv_group_id,
                     "dimension": dimension,
                     "prefix_algorithm": prefix_algorithm,
+                    "prefix_scope": "all_portfolio",
                     "default_algorithm": default_algorithm,
-                    "no_query_algorithm": default_algorithm,
+                    "no_query_algorithm": prefix_algorithm,
                     "seed": seed,
                     "FE": int(state.evaluations),
+                    "FE_prefix": int(state.evaluations),
                     "FE_ratio": float(state.evaluations / fe_total),
                     "FE_total": fe_total,
                     **sampling_metadata,
@@ -290,20 +317,58 @@ def _check_query_specific_regression(
                     "sample_design_protocol": sample_design.protocol,
                     "FE_query": fe_query,
                     "FE_no_query_optimization": skip_budget,
-                    "FE_query_optimization": query_budget,
+                    "FE_action_optimization": query_budget,
                     "remaining_budget_ratio": float(query_budget / fe_total),
                     "performance_value_mode": "raw_objective",
                     "performance_loss_mode": "known_optimum_gap",
                     "benchmark_reference_value": reference_value,
+                    "success_gap_target": float(config["success_gap_target"]),
+                    "failure_loss_cap": float(config["failure_loss_cap"]),
+                    "log10_gap_floor": float(config["log10_gap_floor"]),
+                    "log10_gap_cap": float(config["log10_gap_cap"]),
                     "p_skip": skip_loss,
                     "p_skip_raw": skip_raw,
                     "loss_skip": skip_loss,
                     "runtime_no_query_handoff": float(runtime_no_query_handoff),
                     "runtime_no_query_optimization": float(skip.runtime_seconds),
+                    "runtime_no_query_handoff_repetitions": [float(runtime_no_query_handoff)],
+                    "runtime_no_query_optimization_repetitions": [float(skip.runtime_seconds)],
                     "no_query_transition_mode": no_query_transition_mode,
+                    "skip_status": "ok",
+                    "skip_failure_type": "",
+                    "skip_failure_message": "",
+                    "skip_prefix_first_hit_FE": None,
+                    "skip_continuation_first_hit_FE": None,
+                    "skip_observed_first_hit_FE": None,
+                    "skip_target_hit_observed": False,
+                    "skip_target_hit_before_failure": False,
+                    "skip_endpoint_success": False,
+                    "skip_first_hit_FE": None,
+                    "skip_success": False,
+                    "skip_planned_FE": skip_budget,
+                    "skip_effective_FE": skip_budget,
+                    "skip_timed_out": False,
+                    "skip_path_completed": True,
+                    "action_outcome_execution_count": 1,
+                    "action_runtime_role": "diagnostic_not_utility",
+                    "timing_repetitions": 1,
+                    "timing_repetition_indices": [0],
+                    "timing_order_protocol": EXECUTION_ORDER_PROTOCOL,
                     "action_loss_protocol": ACTION_LOSS_PROTOCOL,
+                    "execution_order_repetitions": [0],
+                    "skip_execution_order_repetitions": [0],
                 }
-                action_rows.extend({**common, **outcome} for outcome in outcomes)
+                for order_position, outcome in enumerate(outcomes, start=1):
+                    row = {**common, **outcome}
+                    row.setdefault("action_budget_mode", "query_adjusted_budget")
+                    row.setdefault("runtime_handoff_repetitions", [float(row["runtime_handoff"])])
+                    row.setdefault(
+                        "runtime_action_optimization_repetitions",
+                        [float(row["runtime_action_optimization"])],
+                    )
+                    row["execution_order_repetitions"] = [order_position]
+                    row["skip_execution_order_repetitions"] = [0]
+                    action_rows.append(row)
         finally:
             problem.close()
 
@@ -322,7 +387,7 @@ def _check_query_specific_regression(
     cross_probe_states = states[
         states["prefix_algorithm"].astype(str) != states["default_algorithm"].astype(str)
     ].reset_index(drop=True)
-    selector, predictions, source = fit_selector_with_cross_family_predictions(
+    selector, predictions, source, prediction_batch = fit_selector_with_cross_family_predictions(
         main_states,
         observed_portfolio,
         spec,
@@ -333,19 +398,22 @@ def _check_query_specific_regression(
         predictions=predictions,
         prediction_source=source,
         runtime_selection=measure_online_selection_runtime(selector, main_states),
+        prediction_batch=prediction_batch,
     )
-    cross_probe_predictions = predict_with_main_prefix_cross_family_fits(
+    cross_probe_prediction_batch = predict_with_main_prefix_cross_family_fits(
         training_states=main_states,
         prediction_states=cross_probe_states,
         portfolio=observed_portfolio,
         query_spec=spec,
     )
+    cross_probe_predictions = cross_probe_prediction_batch.predicted_targets
     cross_probe_reference = selection_rows(
         states=cross_probe_states,
         portfolio=observed_portfolio,
         predictions=cross_probe_predictions,
         prediction_source="cross_cv_group_main_prefix",
         runtime_selection=measure_online_selection_runtime(selector, cross_probe_states),
+        prediction_batch=cross_probe_prediction_batch,
     )
     reference = pd.concat([main_reference, cross_probe_reference], ignore_index=True)
     if len(reference) != 4 or source != "cross_cv_group":
@@ -373,6 +441,9 @@ def _check_query_specific_regression(
         )
         feature_path = root / "features.parquet"
         reference_path = root / "selection_reference.parquet"
+        sensitivity_path = root / "pairwise_aggregation_sensitivity.parquet"
+        baseline_path = root / "formal_multioutput_rf_baseline.parquet"
+        evaluation_path = root / "selector_evaluation_summary.parquet"
         model_path = root / "statewise_selector.joblib"
         pq.write_table(pa.Table.from_pandas(action_frame, preserve_index=False), action_path)
         behavior_path.parent.mkdir(parents=True, exist_ok=True)
@@ -392,6 +463,9 @@ def _check_query_specific_regression(
             query_feature_paths=[feature_path],
             output_path=reference_path,
             model_output_path=model_path,
+            pairwise_sensitivity_output_path=sensitivity_path,
+            formal_baseline_output_path=baseline_path,
+            evaluation_summary_output_path=evaluation_path,
             overwrite=True,
         )
         if (
@@ -399,6 +473,9 @@ def _check_query_specific_regression(
             or int(summary["training_rows"]) != 2
             or int(summary["cross_probe_training_rows"]) != 2
             or not model_path.exists()
+            or not sensitivity_path.exists()
+            or not baseline_path.exists()
+            or not evaluation_path.exists()
         ):
             raise ValueError("query-specific selection-reference artifacts are inconsistent")
         loaded_selector = load_selector_model(model_path)
@@ -406,6 +483,8 @@ def _check_query_specific_regression(
             raise ValueError("saved selector model lost its query sample design")
         if loaded_selector.selector_target_transform != SELECTOR_TARGET_TRANSFORM:
             raise ValueError("saved selector model lost its action-loss target transform")
+        if loaded_selector.protocol != SELECTION_REFERENCE_PROTOCOL:
+            raise ValueError("saved selector model lost the predefined Selection Reference protocol")
         legacy_model_path = root / "legacy_statewise_selector.joblib"
         loaded_selector.protocol = "query_specific_statewise_action_loss_regression_v2"
         save_selector_model(loaded_selector, legacy_model_path)
@@ -415,8 +494,6 @@ def _check_query_specific_regression(
             pass
         else:
             raise ValueError("legacy selector model protocol was not rejected")
-        if SELECTION_REFERENCE_PROTOCOL != "query_specific_statewise_action_loss_regression_v6":
-            raise ValueError("Selection Reference protocol version is not frozen at v6")
     print("query-specific action-loss regression and utility consistency passed on 2 BBOB families")
 
 
@@ -604,13 +681,17 @@ def _check_action_loss_budget_separation(
             common = {
                 "split": "bbob_train",
                 "problem_id": problem.problem_id,
+                "function_id": problem.function_id,
                 "family": problem.family,
+                "cv_group_id": problem.cv_group_id,
                 "dimension": dimension,
                 "prefix_algorithm": prefix_algorithm,
+                "prefix_scope": "all_portfolio",
                 "default_algorithm": prefix_algorithm,
                 "no_query_algorithm": prefix_algorithm,
                 "seed": seed,
                 "FE": int(state.evaluations),
+                "FE_prefix": int(state.evaluations),
                 "FE_ratio": float(state.evaluations / fe_total),
                 "FE_total": fe_total,
                 **sampling_metadata,
@@ -618,20 +699,60 @@ def _check_action_loss_budget_separation(
                 "sample_design_protocol": design.protocol,
                 "FE_query": fe_query,
                 "FE_no_query_optimization": fe_total - int(state.evaluations),
-                "FE_query_optimization": query_budget,
+                "FE_action_optimization": query_budget,
                 "remaining_budget_ratio": float(query_budget / fe_total),
                 "performance_value_mode": "raw_objective",
                 "performance_loss_mode": "known_optimum_gap",
                 "benchmark_reference_value": reference_value,
+                "success_gap_target": float(config["success_gap_target"]),
+                "failure_loss_cap": float(config["failure_loss_cap"]),
+                "log10_gap_floor": float(config["log10_gap_floor"]),
+                "log10_gap_cap": float(config["log10_gap_cap"]),
                 "p_skip": skip_loss,
                 "p_skip_raw": skip_raw,
                 "loss_skip": skip_loss,
                 "runtime_no_query_handoff": 0.0,
                 "runtime_no_query_optimization": float(skip.runtime_seconds),
+                "runtime_no_query_handoff_repetitions": [0.0],
+                "runtime_no_query_optimization_repetitions": [float(skip.runtime_seconds)],
                 "no_query_transition_mode": "native_optimizer_state",
+                "skip_status": "ok",
+                "skip_failure_type": "",
+                "skip_failure_message": "",
+                "skip_prefix_first_hit_FE": None,
+                "skip_continuation_first_hit_FE": None,
+                "skip_observed_first_hit_FE": None,
+                "skip_target_hit_observed": False,
+                "skip_target_hit_before_failure": False,
+                "skip_endpoint_success": False,
+                "skip_first_hit_FE": None,
+                "skip_success": False,
+                "skip_planned_FE": fe_total - int(state.evaluations),
+                "skip_effective_FE": fe_total - int(state.evaluations),
+                "skip_timed_out": False,
+                "skip_path_completed": True,
+                "action_outcome_execution_count": 1,
+                    "action_runtime_role": "diagnostic_not_utility",
+                    "timing_repetitions": 1,
+                    "timing_repetition_indices": [0],
+                    "timing_order_protocol": EXECUTION_ORDER_PROTOCOL,
                 "action_loss_protocol": ACTION_LOSS_PROTOCOL,
+                "execution_order_repetitions": [0],
+                "skip_execution_order_repetitions": [0],
             }
-            frames.append(pd.DataFrame([{**common, **outcome} for outcome in outcomes]))
+            rows = []
+            for order_position, outcome in enumerate(outcomes, start=1):
+                row = {**common, **outcome}
+                row.setdefault("action_budget_mode", "query_adjusted_budget")
+                row.setdefault("runtime_handoff_repetitions", [float(row["runtime_handoff"])])
+                row.setdefault(
+                    "runtime_action_optimization_repetitions",
+                    [float(row["runtime_action_optimization"])],
+                )
+                row["execution_order_repetitions"] = [order_position]
+                row["skip_execution_order_repetitions"] = [0]
+                rows.append(row)
+            frames.append(pd.DataFrame(rows))
     finally:
         problem.close()
 
@@ -666,7 +787,7 @@ def _milestone_sampling_metadata(
     if int(actual_fe) / int(fe_total) < target:
         raise ValueError("consistency sample FE must not precede its monitor target")
     if tuple(metadata) != SAMPLING_METADATA_COLUMNS:
-        raise ValueError("consistency sampling metadata does not follow the frozen column order")
+        raise ValueError("consistency sampling metadata does not follow the predefined column order")
     return metadata
 
 

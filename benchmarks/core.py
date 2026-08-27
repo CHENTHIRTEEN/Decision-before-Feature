@@ -10,7 +10,7 @@ Objective = Callable[[np.ndarray], np.ndarray]
 CloseCallback = Callable[[], None]
 
 
-@dataclass(frozen=True)
+@dataclass
 class Problem:
     problem_id: str
     function_id: str

@@ -11,7 +11,7 @@ from trajectory.records import OPTIMIZER_STATE_MODE
 FINAL_PERFORMANCE_PROTOCOL = "attempted_native_optimizer_run_with_failure_endpoints"
 
 
-@dataclass(frozen=True)
+@dataclass
 class FinalPerformanceRecord:
     problem_id: str
     function_id: str

@@ -16,23 +16,18 @@ from decision.cluster_weighting import (
 )
 
 
-ACTIVE_MODEL_NAMES = (
-    "lda_classifier",
-    "logistic_regression_classifier",
-    "ridge_regression",
-    "random_forest_classifier",
-)
-MODEL_SELECTION_METRIC = "nested_cv_group_oof_first_trigger_mean_g_fe"
+ACTIVE_MODEL_NAMES = ("random_forest_regressor",)
+MODEL_SELECTION_METRIC = "nested_cv_group_oof_first_trigger_mean_g_fe_selected_path"
 SELECTED_MODEL_ALIAS = "selected"
-FROZEN_THRESHOLD_MODE = "oof_g_fe_first_trigger"
-BEHAVIOR_FROZEN_THRESHOLD_MODE = "oof_behavior_g_fe_first_trigger"
+PREDEFINED_THRESHOLD_MODE = "oof_g_fe_selected_path_first_trigger"
+BEHAVIOR_PREDEFINED_THRESHOLD_MODE = "oof_behavior_g_fe_selected_path_first_trigger"
 OUTER_OOF_FOLDS = 5
 INNER_OOF_FOLDS = 4
 FULL_TRAIN_OOF_FOLDS = 5
 THRESHOLD_NEIGHBORHOOD_QUANTILE = 0.10
 
 
-@dataclass(frozen=True)
+@dataclass
 class DecisionModelSpec:
     model_name: str
     model_family: str
@@ -46,69 +41,18 @@ class DecisionModelSpec:
 
 
 def active_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
-    logistic_seed = int(
-        np.random.SeedSequence([int(random_seed), 20260811, 31]).generate_state(1, dtype=np.uint32)[0]
-    )
     specs = (
         DecisionModelSpec(
-            model_name="lda_classifier",
-            model_family="lda",
-            estimator_name="LinearDiscriminantAnalysis(weighted fit-fold estimates)",
-            estimator=Pipeline(
-                [
-                    ("imputer", WeightedMedianImputer()),
-                    ("scaler", StandardScaler()),
-                    ("classifier", WeightedLinearDiscriminantAnalysis()),
-                ]
-            ),
-            objective="classification",
-        ),
-        DecisionModelSpec(
-            model_name="logistic_regression_classifier",
-            model_family="logistic_regression",
-            estimator_name="LogisticRegression(class_weight=None,C=1.0)",
-            estimator=Pipeline(
-                [
-                    ("imputer", WeightedMedianImputer()),
-                    ("scaler", StandardScaler()),
-                    (
-                        "classifier",
-                        LogisticRegression(
-                            C=1.0,
-                            class_weight=None,
-                            max_iter=1000,
-                            solver="lbfgs",
-                            random_state=logistic_seed,
-                        ),
-                    ),
-                ]
-            ),
-            objective="classification",
-        ),
-        DecisionModelSpec(
-            model_name="ridge_regression",
-            model_family="ridge",
-            estimator_name="Ridge(alpha=1.0)",
-            estimator=Pipeline(
-                [
-                    ("imputer", WeightedMedianImputer()),
-                    ("scaler", StandardScaler()),
-                    ("regressor", Ridge(alpha=1.0)),
-                ]
-            ),
-            objective="regression",
-        ),
-        DecisionModelSpec(
-            model_name="random_forest_classifier",
+            model_name="random_forest_regressor",
             model_family="random_forest",
-            estimator_name="RandomForestClassifier(n_estimators=200,max_depth=8,max_features=sqrt)",
+            estimator_name="RandomForestRegressor(n_estimators=200,max_depth=8,max_features=sqrt)",
             estimator=Pipeline(
                 [
                     ("imputer", WeightedMedianImputer()),
                     ("scaler", StandardScaler()),
                     (
-                        "classifier",
-                        RandomForestClassifier(
+                        "regressor",
+                        RandomForestRegressor(
                             n_estimators=200,
                             max_depth=8,
                             max_features="sqrt",
@@ -118,12 +62,12 @@ def active_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
                     ),
                 ]
             ),
-            objective="classification",
+            objective="regression",
         ),
     )
     observed = tuple(spec.model_name for spec in specs)
     if observed != ACTIVE_MODEL_NAMES:
-        raise RuntimeError(f"active Decision model order does not match the frozen protocol: {observed}")
+        raise RuntimeError(f"active Decision model order does not match the predefined protocol: {observed}")
     return specs
 
 
@@ -141,20 +85,6 @@ def extended_model_specs(random_seed: int) -> tuple[DecisionModelSpec, ...]:
     base_specs = list(active_model_specs(random_seed))
 
     extended = base_specs + [
-        DecisionModelSpec(
-            model_name="random_forest_regressor",
-            model_family="random_forest",
-            estimator_name="RandomForestRegressor(n_estimators=200,max_depth=8)",
-            estimator=Pipeline([
-                ("imputer", WeightedMedianImputer()),
-                ("scaler", StandardScaler()),
-                ("regressor", RandomForestRegressor(
-                    n_estimators=200, max_depth=8, max_features="sqrt",
-                    random_state=xgb_seed, n_jobs=1,
-                )),
-            ]),
-            objective="regression",
-        ),
         DecisionModelSpec(
             model_name="mlp_classifier",
             model_family="mlp",

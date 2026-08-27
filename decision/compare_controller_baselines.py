@@ -19,7 +19,7 @@ from decision.baseline_protocol import (
     validate_action_outcome_columns,
     validate_baseline_state_frame,
 )
-from decision.model_protocol import ACTIVE_MODEL_NAMES, FROZEN_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
+from decision.model_protocol import ACTIVE_MODEL_NAMES, PREDEFINED_THRESHOLD_MODE, SELECTED_MODEL_ALIAS
 from decision.matched_random import (
     MatchedRandomCalibration,
     make_matched_random_calibration,
@@ -40,9 +40,9 @@ from utility_labels.fields import PRIMARY_EFFICACY_VALUE_COLUMN
 
 
 DEFAULT_MODEL_NAME = SELECTED_MODEL_ALIAS
-DEFAULT_THRESHOLD_MODE = FROZEN_THRESHOLD_MODE
+DEFAULT_THRESHOLD_MODE = PREDEFINED_THRESHOLD_MODE
 DEFAULT_EXPECTED_SPLIT = "bbob_validation"
-TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe
+TARGET_COLUMN = PRIMARY_EFFICACY_VALUE_COLUMN  # 方案 A 主标签: g_fe_selected_path
 # behavior-only 仍用旧 Utility 列名；train_full_decision_model 默认输出该列
 BEHAVIOR_TARGET_COLUMN = "u_behavior_only_full_budget_lamT_1"
 BEHAVIOR_THRESHOLD_MODE = "oof_behavior_g_fe_first_trigger"
@@ -174,7 +174,7 @@ def compare_controller_baselines(
         "research_question": (
             "How does the dynamic Decision-before-Feature policy compare as a whole policy with SBS/Never Query, "
             "Always Query, matched-rate Random, milestone-only T0, and self-thresholded Behavior-only "
-            f"under frozen {TARGET_COLUMN} labels?"
+            f"under predefined {TARGET_COLUMN} labels?"
         ),
         "predictions_path": str(predictions_path),
         "time_only_predictions_path": str(time_only_predictions_path),
@@ -229,7 +229,7 @@ def compare_controller_baselines(
             "matched_random_rate_or_timing_uses_validation_rows": False,
         },
         "scope_notes": [
-            f"The whole-policy baseline comparison is expressed in the frozen {TARGET_COLUMN} label space.",
+            f"The whole-policy baseline comparison is expressed in the predefined {TARGET_COLUMN} label space.",
             "The active Decision candidate set now contains four models: LDA, Logistic Regression, Ridge, and Random Forest Classifier.",
             "Every online policy contributes at most one first-trigger call and one Utility value per trajectory.",
             "The current B3 controller, Always Query, matched-rate Random, and Behavior-only policies may trigger "
@@ -463,9 +463,9 @@ def validate_time_only_training_summary(path: Path, query_id: str) -> None:
     if list(summary.get("feature_columns", [])) != ["bf_fe_ratio"]:
         raise ValueError("time-only training summary must use only bf_fe_ratio")
     if tuple(summary.get("models_trained", [])) != ACTIVE_MODEL_NAMES:
-        raise ValueError("time-only training must use the same frozen candidate set")
-    if summary.get("threshold_modes") != ["zero", FROZEN_THRESHOLD_MODE]:
-        raise ValueError("time-only training must use the frozen OOF threshold protocol")
+        raise ValueError("time-only training must use the same predefined candidate set")
+    if summary.get("threshold_modes") != ["zero", PREDEFINED_THRESHOLD_MODE]:
+        raise ValueError("time-only training must use the predefined OOF threshold protocol")
 
 
 def validate_behavior_only_training_summary(
@@ -1189,7 +1189,7 @@ def _relative_summary(policy_summary: pd.DataFrame) -> pd.DataFrame:
             "difference combines opportunity scheduling, feature inputs, fitted scores, "
             "and first-trigger thresholds"
         ),
-        "whole-policy difference under the policy-specific frozen protocol",
+        "whole-policy difference under the policy-specific predefined protocol",
     )
     return result.reset_index(drop=True)
 
@@ -1342,10 +1342,10 @@ def _markdown_report(
         "",
         f"- 当前 controller：`{model_name}`，阈值口径为 `{threshold_mode}`。",
         f"- Time-only controller 使用同一模型 `{model_name}`，输入固定为 `X={{FE_ratio}}`（实现列 `bf_fe_ratio`）。",
-        f"- Matched-rate Random 的 run-level 调用率 `{matched_call_rate:.6f}` 与触发 FE 分布只由 BBOB-train OOF 冻结。",
+        f"- Matched-rate Random 的 run-level 调用率 `{matched_call_rate:.6f}` 与触发 FE 分布只由 BBOB-train OOF 预先指定。",
         f"- Matched-rate Random 使用 `{random_repetitions}` 个显式 `SeedSequence` 随机流，先在同一 trajectory 内平均，再进入政策汇总；逐 repetition 表仅作诊断。",
         f"- 指标在 `{expected_split}` 上按每 trajectory 首次触发计算，主口径是 `{TARGET_COLUMN}`。",
-        "- `sbs_skip_reference` 与 `never_query` 在当前表中数值相同：都保留冻结的 SBS skip path，联合 Utility 为 0。",
+        "- `sbs_skip_reference` 与 `never_query` 在当前表中数值相同：都保留预先指定的 SBS skip path，联合 Utility 为 0。",
         "",
         "## Overall Policies",
         "",
@@ -1400,7 +1400,7 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare the dynamic B3 controller with frozen whole-policy baselines. "
+            "Compare the dynamic B3 controller with predefined whole-policy baselines. "
             "Dynamic B3 versus milestone-only T0 is not the RQ2 Behavior increment."
         )
     )

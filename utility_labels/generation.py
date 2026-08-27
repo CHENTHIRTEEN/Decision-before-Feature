@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 from experiments.phase1_batch_common import (
     TIMING_ORDER_PROTOCOL,
     TIMING_REPETITIONS,
-    load_config,
+    load_suite_configs,
     selected_dimensions,
     selected_functions,
     split_name,
@@ -27,12 +27,14 @@ from selection_reference.action_losses import (
     BEHAVIOR_ONLY_FULL_BUDGET,
     QUERY_ADJUSTED_BUDGET,
     STATE_KEY_COLUMNS,
+    resolve_action_loss_config,
 )
 from trajectory.sampling import SAMPLING_METADATA_COLUMNS, SAMPLING_METADATA_SCHEMA_FIELDS
 from utility_labels.efficacy import (
     EFFICACY_FORMULA_PROTOCOL,
     efficacy_bounded,
     efficacy_from_repetitions,
+    efficacy_log,
     meaningful_efficacy_label,
     positive_efficacy_label,
     problem_scale_epsilon,
@@ -62,6 +64,166 @@ EPS = 1e-12
 PAIRED_UTILITY_PROTOCOL = "joint_query_selector_with_matched_acquisition_controls"
 COMPLETE_PATH_TIMING_SOURCE = "measured_complete_policy_path"
 COMPLETE_PATH_TIMING_ORIGIN = "decision_state_to_terminal"
+
+
+def primary_efficacy_label_view(
+    *,
+    query_selection: pd.DataFrame,
+    query_id: str,
+) -> pd.DataFrame:
+    """Build equal-total-FE Decision labels for the realized Query path.
+
+    The primary estimand compares ``skip`` with the terminal gap of the
+    action selected by the fold-specific Query Selector.  The minimum loss
+    across the four observed actions remains as a separate diagnostic.
+    """
+    spec = get_query_spec(query_id)
+    key = list(STATE_KEY_COLUMNS)
+    required = {
+        *key,
+        "query_id",
+        "query_protocol",
+        "action_budget_mode",
+        "benchmark_reference_value",
+        "p_skip_raw",
+        "p_query_raw",
+        "p_skip",
+        "p_query",
+        "selected_algorithm",
+        "observed_loss_de",
+        "observed_loss_pso",
+        "observed_loss_cmaes",
+        "observed_loss_shade",
+        "best_observed_algorithm",
+        "best_observed_loss",
+        "selected_equals_default",
+        "selected_equals_prefix",
+        "handoff_required",
+        "handoff_type",
+    }
+    missing = sorted(required.difference(query_selection.columns))
+    if missing:
+        raise ValueError(f"primary efficacy input is missing columns: {missing}")
+    if query_selection.empty or query_selection.duplicated(key).any():
+        raise ValueError("primary efficacy input must contain unique, non-empty states")
+    if set(query_selection["query_id"].astype(str)) != {query_id}:
+        raise ValueError("primary efficacy input uses the wrong query_id")
+    if set(query_selection["query_protocol"].astype(str)) != {spec.protocol}:
+        raise ValueError("primary efficacy input uses the wrong query protocol")
+    if set(query_selection["action_budget_mode"].astype(str)) != {
+        QUERY_ADJUSTED_BUDGET
+    }:
+        raise ValueError("primary efficacy labels require query-adjusted outcomes")
+
+    output = query_selection.copy()
+    reference = output["benchmark_reference_value"].to_numpy(dtype=float)
+    skip_raw = output["p_skip_raw"].to_numpy(dtype=float)
+    query_raw = output["p_query_raw"].to_numpy(dtype=float)
+    values = np.column_stack([reference, skip_raw, query_raw])
+    if not np.isfinite(values).all():
+        raise ValueError("primary efficacy endpoints must be finite")
+    e_skip = np.maximum(skip_raw - reference, 0.0)
+    e_selected = np.maximum(query_raw - reference, 0.0)
+    e_best = output["best_observed_loss"].to_numpy(dtype=float)
+    action_columns = sorted(
+        column
+        for column in output.columns
+        if column.startswith("observed_loss_")
+        and not column.startswith("observed_loss_raw_")
+    )
+    if set(action_columns) != {
+        "observed_loss_de",
+        "observed_loss_pso",
+        "observed_loss_cmaes",
+        "observed_loss_shade",
+    }:
+        raise ValueError(
+            "primary efficacy requires exactly the four observed action gaps: "
+            "de, pso, cmaes, shade"
+        )
+    action_matrix = output[action_columns].to_numpy(dtype=float)
+    if not np.isfinite(action_matrix).all() or (action_matrix < 0.0).any():
+        raise ValueError("observed action gaps must be finite and non-negative")
+    expected_best = action_matrix.min(axis=1)
+    if not np.allclose(e_best, expected_best, atol=EPS, rtol=0.0):
+        raise ValueError("best_observed_loss is inconsistent with the four action gaps")
+    if not np.allclose(e_skip, output["p_skip"].to_numpy(dtype=float), atol=EPS, rtol=0.0):
+        raise ValueError("p_skip is inconsistent with the raw scientific endpoint")
+    if not np.allclose(e_selected, output["p_query"].to_numpy(dtype=float), atol=EPS, rtol=0.0):
+        raise ValueError("p_query is inconsistent with the raw scientific endpoint")
+
+    epsilon_p = problem_scale_epsilon(prefix_gap=e_skip, problem_scale=np.ones_like(e_skip))
+    best_observed_g_fe = efficacy_log(
+        gap_skip=e_skip,
+        gap_query=e_best,
+        epsilon_p=epsilon_p,
+    )
+    g_fe_selected_path, repetition_stats = efficacy_from_repetitions(
+        gap_skip_reps=[e_skip],
+        gap_query_reps=[e_selected],
+        epsilon_p=epsilon_p,
+        aggregation="median",
+    )
+    output["utility_protocol"] = "primary_equal_total_fe_efficacy_v1"
+    output["efficacy_formula_protocol"] = EFFICACY_FORMULA_PROTOCOL
+    output["efficacy_label_contract_protocol"] = (
+        "equal_total_fe_log_gap_ratio_v1_repetition_aware"
+    )
+    output["g_fe"] = best_observed_g_fe
+    output["g_fe_bounded"] = efficacy_bounded(
+        gap_skip=e_skip,
+        gap_query=e_best,
+        epsilon_p=epsilon_p,
+    )
+    output["g_fe_selected_path"] = g_fe_selected_path
+    output["g_fe_selected_path_bounded"] = efficacy_bounded(
+        gap_skip=e_skip,
+        gap_query=e_selected,
+        epsilon_p=epsilon_p,
+    )
+    output["g_fe_n_repetitions"] = repetition_stats["n_repetitions"]
+    output["g_fe_sign_flip_rate"] = repetition_stats["sign_flip_rate"]
+    output["g_fe_aggregation"] = "median"
+    output["g_fe_uncertainty_protocol"] = "t_interval_95_v1"
+    for column, values in repetition_stats.items():
+        if column != "n_repetitions":
+            output[column] = values
+    from utility_labels.fields import PAIR_REPETITION_SERIES_COLUMNS
+
+    for column in PAIR_REPETITION_SERIES_COLUMNS:
+        if column not in output:
+            output[column] = np.nan
+    output["g_fe_gt_zero"] = positive_efficacy_label(best_observed_g_fe)
+    output["g_fe_selected_path_gt_zero"] = positive_efficacy_label(g_fe_selected_path)
+    output["delta_practical"] = 0.0
+    output["g_fe_gt_practical"] = meaningful_efficacy_label(best_observed_g_fe, 0.0)
+    output["g_fe_selected_path_gt_practical"] = meaningful_efficacy_label(
+        g_fe_selected_path, 0.0
+    )
+    output["epsilon_p"] = epsilon_p
+    output["performance_gain_raw"] = e_skip - e_selected
+    output["performance_gain_norm"] = g_fe_selected_path
+    output["potential_gain_raw"] = (
+        output["p_skip"].to_numpy(dtype=float)
+        - output["best_observed_loss"].to_numpy(dtype=float)
+    )
+    output["selection_reference_default_algorithm"] = output[
+        "default_algorithm"
+    ].astype(str)
+    output["query_transition_mode"] = output["selected_transition_mode"].astype(str)
+    output["skip_switches_from_prefix"] = (
+        output["default_algorithm"].astype(str)
+        != output["prefix_algorithm"].astype(str)
+    )
+    runtime_columns = [
+        column
+        for column in output.columns
+        if column.startswith("runtime_")
+        or column.startswith("timing_")
+        or "execution_order_repetitions" in column
+    ]
+    output = output.drop(columns=runtime_columns)
+    return output.sort_values(key).reset_index(drop=True)
 
 
 def paired_utility_label_view(
@@ -775,7 +937,30 @@ def paired_utility_label_view(
         output["p_query_raw"].to_numpy(dtype=float) - benchmark_ref,
         0.0,
     )
-    g_fe, repetition_stats = efficacy_from_repetitions(
+    action_matrix = output[
+        [
+            "observed_loss_de",
+            "observed_loss_pso",
+            "observed_loss_cmaes",
+            "observed_loss_shade",
+        ]
+    ].to_numpy(dtype=float)
+    if not np.isfinite(action_matrix).all() or (action_matrix < 0.0).any():
+        raise ValueError("observed action gaps must be finite and non-negative")
+    e_best = action_matrix.min(axis=1)
+    if not np.allclose(
+        e_best,
+        output["best_observed_loss"].to_numpy(dtype=float),
+        rtol=0.0,
+        atol=EPS,
+    ):
+        raise ValueError("best_observed_loss is inconsistent with the four action gaps")
+    best_observed_g_fe = efficacy_log(
+        gap_skip=e_skip,
+        gap_query=e_best,
+        epsilon_p=epsilon_p,
+    )
+    g_fe_selected_path, repetition_stats = efficacy_from_repetitions(
         gap_skip_reps=[e_skip],
         gap_query_reps=[e_query],
         epsilon_p=epsilon_p,
@@ -783,11 +968,18 @@ def paired_utility_label_view(
     )
     g_fe_bounded = efficacy_bounded(
         gap_skip=e_skip,
+        gap_query=e_best,
+        epsilon_p=epsilon_p,
+    )
+    g_fe_selected_path_bounded = efficacy_bounded(
+        gap_skip=e_skip,
         gap_query=e_query,
         epsilon_p=epsilon_p,
     )
-    output["g_fe"] = g_fe
+    output["g_fe"] = best_observed_g_fe
     output["g_fe_bounded"] = g_fe_bounded
+    output["g_fe_selected_path"] = g_fe_selected_path
+    output["g_fe_selected_path_bounded"] = g_fe_selected_path_bounded
     output["g_fe_n_repetitions"] = repetition_stats["n_repetitions"]
     output["g_fe_sign_flip_rate"] = repetition_stats["sign_flip_rate"]
     output["g_fe_aggregation"] = "median"
@@ -803,11 +995,15 @@ def paired_utility_label_view(
     for column in PAIR_REPETITION_SERIES_COLUMNS:
         if column not in output:
             output[column] = np.nan
-    output["g_fe_gt_zero"] = positive_efficacy_label(g_fe)
+    output["g_fe_gt_zero"] = positive_efficacy_label(best_observed_g_fe)
+    output["g_fe_selected_path_gt_zero"] = positive_efficacy_label(g_fe_selected_path)
     # canonical action_loss columns already populated upstream
     # delta_practical is set externally; default to 0.0 before calibration
     output["delta_practical"] = 0.0
-    output["g_fe_gt_practical"] = meaningful_efficacy_label(g_fe, 0.0)
+    output["g_fe_gt_practical"] = meaningful_efficacy_label(best_observed_g_fe, 0.0)
+    output["g_fe_selected_path_gt_practical"] = meaningful_efficacy_label(
+        g_fe_selected_path, 0.0
+    )
     output["epsilon_p"] = epsilon_p
 
     return output.sort_values(key).reset_index(drop=True)
@@ -952,7 +1148,7 @@ def _join_complete_path_timings(
         if set(group["order_position"].astype(int)) != set(range(len(expected_paths))):
             raise ValueError("each timing repetition must use unique cyclic order positions 0,...,4")
     path_positions = timings.groupby([*key, "path"], dropna=False)["order_position"].agg(
-        lambda values: frozenset(int(value) for value in values)
+        lambda values: tuple(sorted(int(value) for value in values))
     )
     if not path_positions.map(lambda values: len(values) == TIMING_REPETITIONS).all():
         raise ValueError(
@@ -1392,9 +1588,10 @@ def generate_utility_labels(
     only_dimensions: list[int] | None,
     max_labels: int | None,
     overwrite: bool = False,
+    suite_split: str | None = None,
 ) -> dict[str, int | str]:
     spec = get_query_spec(query_id)
-    config = load_config(config_path)
+    config = resolve_action_loss_config(config_path, suite_split=suite_split)
     split = split_name(config)
     functions = set(selected_functions(config, only_functions))
     dimensions = set(selected_dimensions(config, only_dimensions))
@@ -1405,6 +1602,15 @@ def generate_utility_labels(
     state_only_reference = pq.read_table(query_adjusted_behavior_reference_path).to_pandas()
     sampling_only_reference = pq.read_table(sampling_only_reference_path).to_pandas()
     complete_path_timings = pq.read_table(complete_path_timings_path).to_pandas()
+    if "learning_fold_role" in complete_path_timings.columns:
+        complete_path_timings = complete_path_timings[
+            complete_path_timings["learning_fold_role"].astype(str).isin(
+                {
+                    "full_train_final_fit_cross_cv_group",
+                    "full_train_final_holdout",
+                }
+            )
+        ].copy()
 
     def filter_rows(frame: pd.DataFrame) -> pd.DataFrame:
         mask = frame["split"].astype(str).eq(split) & frame["dimension"].astype(int).isin(dimensions)
@@ -1722,36 +1928,82 @@ def _function_from_id(function_id: str) -> int:
     return int(match.group(1))
 
 
+def generate_primary_utility_labels(
+    *,
+    query_id: str,
+    config_path: Path,
+    query_selection_reference_path: Path,
+    output_path: Path,
+    suite_split: str | None,
+    only_functions: list[int] | None,
+    only_dimensions: list[int] | None,
+    overwrite: bool,
+) -> dict[str, int | str]:
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(f"primary utility labels already exist: {output_path}")
+    configs = list(load_suite_configs(config_path))
+    if suite_split is not None:
+        configs = [config for config in configs if split_name(config) == suite_split]
+        if not configs:
+            raise ValueError(f"config does not contain storage split {suite_split}")
+    selection = pq.read_table(query_selection_reference_path).to_pandas()
+    frames: list[pd.DataFrame] = []
+    for config in configs:
+        storage_split = split_name(config)
+        allowed_functions = set(selected_functions(config, only_functions))
+        allowed_dimensions = set(selected_dimensions(config, only_dimensions))
+        split_rows = selection[
+            selection["split"].astype(str).eq(storage_split)
+            & selection["dimension"].astype(int).isin(allowed_dimensions)
+        ].copy()
+        split_rows = split_rows[
+            split_rows["function_id"].astype(str).map(_function_from_id).isin(
+                allowed_functions
+            )
+        ].copy()
+        if split_rows.empty:
+            raise ValueError(f"query Selection Reference has no rows for {storage_split}")
+        frames.append(
+            primary_efficacy_label_view(
+                query_selection=split_rows,
+                query_id=query_id,
+            )
+        )
+    labels = pd.concat(frames, ignore_index=True)
+    key = list(STATE_KEY_COLUMNS)
+    if labels.duplicated(key).any():
+        raise ValueError("multi-suite primary efficacy labels contain duplicate states")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pandas(labels, preserve_index=False), output_path)
+    return {"rows": int(len(labels)), "output": str(output_path)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate paired Query-joint, Behavior-only, and query-operational Utility labels."
+        description="Generate primary equal-total-FE G_FE labels from query-full Selector rows."
     )
     parser.add_argument("--query-id", choices=sorted(LANDSCAPE_QUERY_SPECS), required=True)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--suite-split",
+        default=None,
+        help="Storage split to select when --config contains multiple suites.",
+    )
     parser.add_argument("--query-selection-reference", type=Path, required=True)
-    parser.add_argument("--behavior-selection-reference", type=Path, required=True)
-    parser.add_argument("--query-adjusted-behavior-reference", type=Path, required=True)
-    parser.add_argument("--sampling-only-reference", type=Path, required=True)
-    parser.add_argument("--complete-path-timings", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--only-dimension", type=int, action="append", default=None)
-    parser.add_argument("--max-labels", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    generate_utility_labels(
+    generate_primary_utility_labels(
         query_id=args.query_id,
         config_path=args.config,
         query_selection_reference_path=args.query_selection_reference,
-        behavior_selection_reference_path=args.behavior_selection_reference,
-        query_adjusted_behavior_reference_path=args.query_adjusted_behavior_reference,
-        sampling_only_reference_path=args.sampling_only_reference,
-        complete_path_timings_path=args.complete_path_timings,
         output_path=args.output,
         only_functions=args.only_function,
         only_dimensions=args.only_dimension,
-        max_labels=args.max_labels,
         overwrite=args.overwrite,
+        suite_split=args.suite_split,
     )
 
 

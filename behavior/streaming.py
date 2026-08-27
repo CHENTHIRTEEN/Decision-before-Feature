@@ -15,7 +15,7 @@ from trajectory.sampling import (
 from trajectory.window_statistics import NativeUpdateWindowRecorder
 
 
-@dataclass(frozen=True)
+@dataclass
 class DecisionObservation:
     behavior_state: dict[str, Any]
     decision_score: float | None
@@ -82,7 +82,7 @@ class StreamingBehaviorState:
         return self._sampling_policy.next_monitor_ratio
 
     def sample_dynamic(self) -> dict[str, Any] | None:
-        """Emit the current state when a frozen milestone or causal event accepts it."""
+        """Emit the current state when a predefined milestone or causal event accepts it."""
         policy = self._sampling_policy
         if policy is None:
             raise ValueError("dynamic sampling was not configured for this behavior stream")
@@ -168,7 +168,7 @@ class StreamingBehaviorState:
         score: Callable[[dict[str, Any]], float],
         threshold: float,
     ) -> DecisionObservation:
-        """Evaluate a frozen controller threshold on the most recently emitted state."""
+        """Evaluate a predefined controller threshold on the most recently emitted state."""
         if self._latest_behavior_state is None:
             raise ValueError("emit_features must be called before maybe_decide")
         decision_score = float(score(dict(self._latest_behavior_state)))

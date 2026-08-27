@@ -49,13 +49,13 @@ ELITE_MIGRATION_REARM_THRESHOLD = 0.025
 DIVERSITY_RECOVERY_THRESHOLD = 0.10
 DIVERSITY_RECOVERY_REARM_THRESHOLD = 0.05
 
-FROZEN_EVENT_THRESHOLDS = {
+PREDEFINED_EVENT_THRESHOLDS = {
     "stagnation_onset": STAGNATION_ONSET_THRESHOLD,
     "rank_change": RANK_CHANGE_THRESHOLD,
     "elite_migration": ELITE_MIGRATION_THRESHOLD,
     "diversity_recovery": DIVERSITY_RECOVERY_THRESHOLD,
 }
-FROZEN_EVENT_REARM_THRESHOLDS = {
+PREDEFINED_EVENT_REARM_THRESHOLDS = {
     "stagnation_onset": STAGNATION_ONSET_REARM_THRESHOLD,
     "rank_change": RANK_CHANGE_REARM_THRESHOLD,
     "elite_migration": ELITE_MIGRATION_REARM_THRESHOLD,
@@ -93,7 +93,7 @@ SAMPLING_METADATA_SCHEMA_FIELDS = (
 SAMPLING_METADATA_COLUMNS = tuple(field[0] for field in SAMPLING_METADATA_SCHEMA_FIELDS)
 
 
-@dataclass(frozen=True)
+@dataclass
 class SamplingSpec:
     protocol: str = SAMPLING_PROTOCOL
     budget_milestone_ratios: tuple[float, ...] = BUDGET_MILESTONE_RATIOS
@@ -112,7 +112,7 @@ class SamplingSpec:
     diversity_recovery_rearm_threshold: float = DIVERSITY_RECOVERY_REARM_THRESHOLD
 
 
-@dataclass(frozen=True)
+@dataclass
 class SamplingDecision:
     should_emit: bool
     sampling_protocol: str
@@ -147,47 +147,47 @@ def get_sampling_spec(protocol: str) -> SamplingSpec:
     if str(protocol) != SAMPLING_PROTOCOL:
         raise ValueError(f"unsupported trajectory sampling protocol: {protocol}")
     spec = SamplingSpec()
-    _validate_frozen_sampling_spec(spec)
+    _validate_predefined_sampling_spec(spec)
     return spec
 
 
-def _validate_frozen_sampling_spec(spec: SamplingSpec) -> None:
+def _validate_predefined_sampling_spec(spec: SamplingSpec) -> None:
     if spec.protocol != SAMPLING_PROTOCOL:
-        raise RuntimeError("sampling spec protocol must equal the frozen protocol")
+        raise RuntimeError("sampling spec protocol must equal the predefined protocol")
     if spec.budget_milestone_ratios != BUDGET_MILESTONE_RATIOS:
-        raise RuntimeError("sampling spec milestones must equal the frozen milestones")
+        raise RuntimeError("sampling spec milestones must equal the predefined milestones")
     if spec.monitor_ratios != MONITOR_RATIOS:
-        raise RuntimeError("sampling spec monitor grid must equal the frozen grid")
+        raise RuntimeError("sampling spec monitor grid must equal the predefined grid")
     if tuple(sorted(set(spec.monitor_ratios))) != spec.monitor_ratios:
-        raise RuntimeError("frozen monitor ratios must be strictly increasing and unique")
+        raise RuntimeError("predefined monitor ratios must be strictly increasing and unique")
     if len(spec.monitor_ratios) != 41 or not isclose(
         spec.monitor_ratios[0], MONITOR_START_RATIO, rel_tol=0.0, abs_tol=EPS
     ) or not isclose(
         spec.monitor_ratios[-1], MONITOR_END_RATIO, rel_tol=0.0, abs_tol=EPS
     ):
-        raise RuntimeError("frozen monitor grid must contain 41 points from 0.20 through 0.60")
+        raise RuntimeError("predefined monitor grid must contain 41 points from 0.20 through 0.60")
     if any(
         not isclose(later - earlier, MONITOR_STEP_RATIO, rel_tol=0.0, abs_tol=EPS)
         for earlier, later in zip(spec.monitor_ratios, spec.monitor_ratios[1:])
     ):
-        raise RuntimeError("frozen monitor grid must use the 0.01 step")
+        raise RuntimeError("predefined monitor grid must use the 0.01 step")
     if not set(spec.budget_milestone_ratios).issubset(spec.monitor_ratios):
-        raise RuntimeError("all frozen milestones must belong to the monitor grid")
+        raise RuntimeError("all predefined milestones must belong to the monitor grid")
     if spec.min_samples_per_run != len(spec.budget_milestone_ratios):
-        raise RuntimeError("minimum samples must equal the frozen milestone count")
+        raise RuntimeError("minimum samples must equal the predefined milestone count")
     if spec.max_samples_per_run != (
         spec.min_samples_per_run + len(SAMPLING_PHASES) * spec.max_event_only_per_phase
     ):
         raise RuntimeError("maximum samples must equal milestones plus phase event-only quotas")
     if spec.event_only_min_gap_ratio != EVENT_ONLY_MIN_GAP_RATIO:
-        raise RuntimeError("event-only minimum gap must equal the frozen 0.02 ratio")
+        raise RuntimeError("event-only minimum gap must equal the predefined 0.02 ratio")
     if spec.max_event_only_per_phase != MAX_EVENT_ONLY_PER_PHASE:
-        raise RuntimeError("event-only phase quota must equal the frozen value 2")
-    for name in FROZEN_EVENT_THRESHOLDS:
+        raise RuntimeError("event-only phase quota must equal the predefined value 2")
+    for name in PREDEFINED_EVENT_THRESHOLDS:
         threshold = float(getattr(spec, f"{name}_threshold"))
         rearm = float(getattr(spec, f"{name}_rearm_threshold"))
-        if threshold != FROZEN_EVENT_THRESHOLDS[name] or rearm != FROZEN_EVENT_REARM_THRESHOLDS[name]:
-            raise RuntimeError(f"sampling spec {name} thresholds must equal the frozen values")
+        if threshold != PREDEFINED_EVENT_THRESHOLDS[name] or rearm != PREDEFINED_EVENT_REARM_THRESHOLDS[name]:
+            raise RuntimeError(f"sampling spec {name} thresholds must equal the predefined values")
         if not 0.0 <= rearm < threshold:
             raise RuntimeError(f"sampling spec {name} requires 0 <= rearm < trigger threshold")
 
@@ -200,7 +200,7 @@ def sampling_phase(ratio: float) -> str:
         return "mid"
     if MID_PHASE_END_RATIO - EPS <= value <= MONITOR_END_RATIO + EPS:
         return "late"
-    raise ValueError(f"monitor ratio is outside the frozen phase range: {ratio}")
+    raise ValueError(f"monitor ratio is outside the predefined phase range: {ratio}")
 
 
 def is_budget_milestone(ratio: float) -> bool:
@@ -208,10 +208,10 @@ def is_budget_milestone(ratio: float) -> bool:
 
 
 def budget_milestone_metadata(ratio: float) -> dict[str, Any]:
-    """Build explicit metadata for a frozen budget-only observation."""
+    """Build explicit metadata for a predefined budget-only observation."""
     target = float(ratio)
     if not is_budget_milestone(target):
-        raise ValueError(f"ratio is not a frozen budget milestone: {ratio}")
+        raise ValueError(f"ratio is not a predefined budget milestone: {ratio}")
     return SamplingDecision(
         should_emit=True,
         sampling_protocol=SAMPLING_PROTOCOL,
@@ -303,11 +303,11 @@ class DynamicSamplingPolicy:
             not any(isclose(target, value, rel_tol=0.0, abs_tol=EPS) for value in self.spec.monitor_ratios)
             for target in targets
         ):
-            raise ValueError("pending monitor ratios must belong to the frozen monitor grid")
+            raise ValueError("pending monitor ratios must belong to the predefined monitor grid")
         milestones = tuple(target for target in targets if is_budget_milestone(target))
         if len(milestones) > 1:
             raise ValueError(
-                "multiple budget milestones aligned to one native update; the frozen "
+                "multiple budget milestones aligned to one native update; the predefined "
                 "population-size and FE budgets require each update to span at most "
                 "0.01, below the minimum 0.02 milestone gap"
             )
@@ -454,7 +454,7 @@ def sampling_metrics(
     dimension: int,
     stagnation_span_ratio: float,
 ) -> dict[str, float]:
-    """Compute the frozen causal event metrics from native-update windows."""
+    """Compute the predefined causal event metrics from native-update windows."""
     windows = {str(item["suffix"]): item for item in window_statistics}
     short = windows["w02"]
     medium = windows["w05"]

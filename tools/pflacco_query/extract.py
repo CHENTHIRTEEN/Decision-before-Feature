@@ -223,7 +223,7 @@ def _validate_group_output(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract a frozen pflacco 1.2.2 landscape query from saved samples.")
+    parser = argparse.ArgumentParser(description="Extract a predefined pflacco 1.2.2 landscape query from saved samples.")
     parser.add_argument("--query-id", choices=("pflacco_standard_invariant", "pflacco_broad_invariant"), required=True)
     parser.add_argument("--samples", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

@@ -35,7 +35,7 @@ _PROBLEM_PATTERNS = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass
 class MatchedRandomCalibration:
     query_id: str
     query_protocol: str

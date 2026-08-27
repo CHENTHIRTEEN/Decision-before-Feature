@@ -13,7 +13,8 @@ from experiments.phase1_batch_common import (
     function_id_name,
     landscape_family_name,
     fe_total_for_dimension,
-    load_config,
+    load_suite_configs,
+    runtime_problem_config,
     selected_dimensions,
     selected_functions,
     split_name,
@@ -42,7 +43,7 @@ def default_sample_path(sample_design_id: str, split: str) -> Path:
 
 def generate_query_samples(
     *,
-    config_path: Path,
+    config: dict,
     sample_design_id: str,
     output_path: Path | None,
     base_seed: int,
@@ -50,11 +51,10 @@ def generate_query_samples(
     only_dimensions: list[int] | None,
     overwrite: bool,
 ) -> dict[str, int | str]:
-    config = load_config(config_path)
     validate_dynamic_collection_config(config)
     suite = str(config["suite"]).lower()
-    if suite not in {"bbob", "cec2017", "cec2022"}:
-        raise ValueError("query-sample-batch supports bbob, cec2017, and cec2022")
+    if suite not in {"bbob", "cec2017", "cec2022", "mabbob"}:
+        raise ValueError("query-sample-batch supports bbob, cec2017, cec2022, and mabbob")
     split = split_name(config)
     design = get_sample_design_spec(sample_design_id)
     output = output_path or default_sample_path(sample_design_id, split)
@@ -76,12 +76,9 @@ def generate_query_samples(
                 problem = None
                 try:
                     problem = make_problem(
-                        {
-                            "suite": suite,
-                            "function": function,
-                            "instance": instance,
-                            "dimension": dimension,
-                        }
+                        runtime_problem_config(
+                            config, function=function, instance=instance, dimension=dimension
+                        )
                     )
                     sample = sample_problem(
                         problem=problem,
@@ -109,11 +106,12 @@ def generate_query_samples(
                         }
                     )
                 except Exception as exc:
-                    problem_id = (
-                        f"bbob_f{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
-                        if suite == "bbob"
-                        else f"{suite}_f{int(function):02d}_d{int(dimension)}"
-                    )
+                    if suite == "bbob":
+                        problem_id = f"bbob_f{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
+                    elif suite == "mabbob":
+                        problem_id = f"mabbob_c{int(function):03d}_i{int(instance):02d}_d{int(dimension)}"
+                    else:
+                        problem_id = f"{suite}_f{int(function):02d}_d{int(dimension)}"
                     failure_type = type(exc).__name__
                     failure_message = str(exc)[:500]
                     rows.append(
@@ -236,15 +234,16 @@ def main() -> None:
     if args.output is not None and len(args.config) != 1:
         raise ValueError("--output can be used only with one --config")
     for config_path in args.config:
-        generate_query_samples(
-            config_path=config_path,
-            sample_design_id=args.sample_design_id,
-            output_path=args.output,
-            base_seed=args.base_seed,
-            only_functions=args.only_function,
-            only_dimensions=args.only_dimension,
-            overwrite=args.overwrite,
-        )
+        for config in load_suite_configs(config_path):
+            generate_query_samples(
+                config=config,
+                sample_design_id=args.sample_design_id,
+                output_path=args.output,
+                base_seed=args.base_seed,
+                only_functions=args.only_function,
+                only_dimensions=args.only_dimension,
+                overwrite=args.overwrite,
+            )
 
 
 if __name__ == "__main__":

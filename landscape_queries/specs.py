@@ -9,7 +9,7 @@ SAMPLE_PROTOCOL_VERSION = "lhs_problem_sample_v2"
 MAIN_QUERY_ID = "descriptor_cheap_invariant"
 
 
-@dataclass(frozen=True)
+@dataclass
 class SampleDesignSpec:
     sample_design_id: str
     design_code: int
@@ -22,7 +22,7 @@ class SampleDesignSpec:
         return int(self.sample_size_per_dimension * int(dimension))
 
 
-@dataclass(frozen=True)
+@dataclass
 class LandscapeQuerySpec:
     query_id: str
     query_code: int
@@ -219,7 +219,7 @@ def get_sample_design_spec(sample_design_id: str) -> SampleDesignSpec:
         raise ValueError(f"unknown sample design: {sample_design_id!r}") from exc
 
 
-def validate_frozen_query_specs() -> None:
+def validate_predefined_query_specs() -> None:
     cheap = get_query_spec("descriptor_cheap_invariant")
     standard = get_query_spec("pflacco_standard_invariant")
     broad = get_query_spec("pflacco_broad_invariant")

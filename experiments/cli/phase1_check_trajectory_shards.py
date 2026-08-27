@@ -22,8 +22,9 @@ from experiments.phase1_batch_common import (
     function_id_name,
     landscape_family_name,
     fe_total_for_dimension,
-    load_config,
+    load_suite_configs,
     make_shards,
+    split_name,
     validate_dynamic_collection_config,
 )
 
@@ -32,6 +33,8 @@ def _problem_id(suite: str, function: int, instance: int, dimension: int) -> str
     suite_name = str(suite).lower()
     if suite_name == "bbob":
         return f"bbob_f{function:03d}_i{instance:02d}_d{dimension}"
+    if suite_name == "mabbob":
+        return f"mabbob_c{function:03d}_i{instance:02d}_d{dimension}"
     if suite_name in {"cec2017", "cec2022"}:
         return f"{suite_name}_f{function:02d}_d{dimension}"
     raise ValueError(f"unsupported benchmark suite for problem_id check: {suite}")
@@ -305,45 +308,49 @@ def check_config(
     path: Path,
     only_functions: list[int] | None = None,
     only_dimensions: list[int] | None = None,
-) -> dict:
-    config = load_config(path)
-    validate_dynamic_collection_config(config)
+) -> list[dict]:
+    summaries = []
+    for config in load_suite_configs(path):
+        validate_dynamic_collection_config(config)
 
-    shard_summaries = []
-    for shard in make_shards(config, only_functions, only_dimensions):
-        shard_summaries.append(
-            _check_shard(
-                config,
-                shard.output_path,
-                shard.final_performance_path,
-                shard.function,
-                shard.dimension,
+        shard_summaries = []
+        for shard in make_shards(config, only_functions, only_dimensions):
+            shard_summaries.append(
+                _check_shard(
+                    config,
+                    shard.output_path,
+                    shard.final_performance_path,
+                    shard.function,
+                    shard.dimension,
+                )
             )
+
+        total_rows = sum(int(summary["rows"]) for summary in shard_summaries)
+        total_runs = sum(int(summary["runs"]) for summary in shard_summaries)
+        total_final_performance_rows = sum(
+            int(summary["final_performance_rows"]) for summary in shard_summaries
         )
+        families = sorted({str(summary["family"]) for summary in shard_summaries})
+        dimensions = sorted({int(summary["dimension"]) for summary in shard_summaries})
+        rows_per_shard = sorted({int(summary["rows"]) for summary in shard_summaries})
 
-    total_rows = sum(int(summary["rows"]) for summary in shard_summaries)
-    total_runs = sum(int(summary["runs"]) for summary in shard_summaries)
-    total_final_performance_rows = sum(
-        int(summary["final_performance_rows"]) for summary in shard_summaries
-    )
-    families = sorted({str(summary["family"]) for summary in shard_summaries})
-    dimensions = sorted({int(summary["dimension"]) for summary in shard_summaries})
-    rows_per_shard = sorted({int(summary["rows"]) for summary in shard_summaries})
-
-    return {
-        "path": str(path),
-        "shards": len(shard_summaries),
-        "rows": total_rows,
-        "runs": total_runs,
-        "final_performance_rows": total_final_performance_rows,
-        "rows_per_shard": rows_per_shard,
-        "families": families,
-        "dimensions": dimensions,
-        "algorithms": tuple(algorithms(config)),
-        "seeds": tuple(as_int_list(config, "seeds")),
-        "sampling_protocol": str(config["sampling_protocol"]),
-        "samples_per_run": (MIN_SAMPLES_PER_RUN, MAX_SAMPLES_PER_RUN),
-    }
+        summaries.append(
+            {
+                "path": f"{path}::{config.get('split', split_name(config))}",
+                "shards": len(shard_summaries),
+                "rows": total_rows,
+                "runs": total_runs,
+                "final_performance_rows": total_final_performance_rows,
+                "rows_per_shard": rows_per_shard,
+                "families": families,
+                "dimensions": dimensions,
+                "algorithms": tuple(algorithms(config)),
+                "seeds": tuple(as_int_list(config, "seeds")),
+                "sampling_protocol": str(config["sampling_protocol"]),
+                "samples_per_run": (MIN_SAMPLES_PER_RUN, MAX_SAMPLES_PER_RUN),
+            }
+        )
+    return summaries
 
 
 def main() -> None:
@@ -354,19 +361,19 @@ def main() -> None:
     args = parser.parse_args()
 
     for config_path in args.configs:
-        summary = check_config(Path(config_path), args.only_function, args.only_dimension)
-        print(f"{summary['path']}:")
-        print(f"  shards: {summary['shards']}")
-        print(f"  rows: {summary['rows']}")
-        print(f"  runs: {summary['runs']}")
-        print(f"  final_performance_rows: {summary['final_performance_rows']}")
-        print(f"  rows_per_shard: {summary['rows_per_shard']}")
-        print(f"  families: {', '.join(summary['families'])}")
-        print(f"  dimensions: {summary['dimensions']}")
-        print(f"  algorithms: {', '.join(summary['algorithms'])}")
-        print(f"  seed_count: {len(summary['seeds'])}")
-        print(f"  sampling_protocol: {summary['sampling_protocol']}")
-        print(f"  samples_per_run: {summary['samples_per_run'][0]}..{summary['samples_per_run'][1]}")
+        for summary in check_config(Path(config_path), args.only_function, args.only_dimension):
+            print(f"{summary['path']}:")
+            print(f"  shards: {summary['shards']}")
+            print(f"  rows: {summary['rows']}")
+            print(f"  runs: {summary['runs']}")
+            print(f"  final_performance_rows: {summary['final_performance_rows']}")
+            print(f"  rows_per_shard: {summary['rows_per_shard']}")
+            print(f"  families: {', '.join(summary['families'])}")
+            print(f"  dimensions: {summary['dimensions']}")
+            print(f"  algorithms: {', '.join(summary['algorithms'])}")
+            print(f"  seed_count: {len(summary['seeds'])}")
+            print(f"  sampling_protocol: {summary['sampling_protocol']}")
+            print(f"  samples_per_run: {summary['samples_per_run'][0]}..{summary['samples_per_run'][1]}")
 
 
 if __name__ == "__main__":

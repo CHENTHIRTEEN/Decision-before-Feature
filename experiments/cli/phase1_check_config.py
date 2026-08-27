@@ -4,13 +4,16 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
+
+from benchmarks.mabbob import BBOB_VALIDATION_FUNCTIONS
 from experiments.phase1_batch_common import (
     REQUIRED_ENDPOINT_FIELDS,
     algorithms,
     as_int_list,
     count_runs,
     fe_total_for_dimension,
-    load_config,
+    load_suite_configs,
     validate_dynamic_collection_config,
 )
 from trajectory.sampling import get_sampling_spec
@@ -18,13 +21,22 @@ from trajectory.sampling import get_sampling_spec
 
 BBOB_FUNCTIONS = set(range(1, 25))
 MABBOB_FORMAL_SPLIT = "mabbob_formal"
+MABBOB_VALIDATION_SPLIT = "mabbob_validation"
 MABBOB_FORMAL_BOUNDARY_HANDLING = "reflect"
 MABBOB_FORMAL_EFFICACY_REPETITIONS = 3
 MABBOB_FORMAL_EFFICACY_AGGREGATION = "median"
+MABBOB_SEEDS = (1, 2, 3, 4, 5)
+MABBOB_DIMENSIONS = (10, 20, 40)
 
 
-def validate_batch_config(path: Path) -> dict:
-    config = load_config(path)
+def validate_batch_config(path: Path) -> list[dict]:
+    summaries = []
+    for config in load_suite_configs(path):
+        summaries.append(_validate_single_suite_config(path, config))
+    return summaries
+
+
+def _validate_single_suite_config(path: Path, config: dict) -> dict:
     suite = str(config.get("suite", "")).lower()
     if suite not in {"bbob", "mabbob"}:
         raise ValueError(f"{path}: suite must be bbob or mabbob")
@@ -45,12 +57,18 @@ def validate_batch_config(path: Path) -> dict:
         missing_functions = sorted(set(functions).difference(BBOB_FUNCTIONS))
         if missing_functions:
             raise ValueError(f"{path}: BBOB functions must be in 1..24, got {missing_functions}")
+        boundary = str(config.get("boundary_handling", ""))
+        if boundary not in {"clip", "reflect"}:
+            raise ValueError(
+                f"{path}: BBOB configs must declare boundary_handling explicitly (clip or reflect)"
+            )
     else:
         validate_mabbob_formal_config(path, config, functions, dimensions)
 
     return {
         "path": path,
         "suite": suite,
+        "config": config,
         "functions": tuple(functions),
         "instances": tuple(instances),
         "dimensions": tuple(dimensions),
@@ -59,6 +77,7 @@ def validate_batch_config(path: Path) -> dict:
         "population_size": population_size,
         "sampling_protocol": sampling_protocol,
         "function_family_protocol": str(config["function_family_protocol"]),
+        "boundary_handling": str(config.get("boundary_handling", "")),
         "fe_total_by_dimension": tuple((dimension, fe_total_for_dimension(config, dimension)) for dimension in dimensions),
         "endpoint_config": tuple((field, config[field]) for field in REQUIRED_ENDPOINT_FIELDS),
     }
@@ -81,6 +100,16 @@ def _config_path(path_value: object, *, config_path: Path) -> Path:
     return Path.cwd().joinpath(path)
 
 
+def _weight_support_within(entry: dict, allowed: set[int]) -> bool:
+    """The leakage guard must hold on the actual weight support, not only the
+    declared components list."""
+    weights = entry.get("weights")
+    if not isinstance(weights, (list, tuple)) or len(weights) != 24:
+        return False
+    support = {index + 1 for index, value in enumerate(weights) if float(value) > 0.0}
+    return support.issubset(allowed)
+
+
 def validate_mabbob_formal_config(
     path: Path,
     config: dict,
@@ -88,8 +117,18 @@ def validate_mabbob_formal_config(
     dimensions: list[int],
 ) -> None:
     split = str(config.get("split", ""))
-    if split != MABBOB_FORMAL_SPLIT:
-        raise ValueError(f"{path}: MA-BBOB formal config must use split={MABBOB_FORMAL_SPLIT}")
+    if split not in {MABBOB_FORMAL_SPLIT, MABBOB_VALIDATION_SPLIT}:
+        raise ValueError(
+            f"{path}: MA-BBOB config must use split={MABBOB_FORMAL_SPLIT} or "
+            f"split={MABBOB_VALIDATION_SPLIT}"
+        )
+    seeds = as_int_list(config, "seeds")
+    if tuple(seeds) != MABBOB_SEEDS:
+        raise ValueError(f"{path}: MA-BBOB {split} seeds must be {list(MABBOB_SEEDS)}")
+    if tuple(dimensions) != MABBOB_DIMENSIONS:
+        raise ValueError(
+            f"{path}: MA-BBOB {split} dimensions must be {list(MABBOB_DIMENSIONS)}"
+        )
     if str(config.get("boundary_handling", "")) != MABBOB_FORMAL_BOUNDARY_HANDLING:
         raise ValueError(f"{path}: MA-BBOB formal boundary_handling must be reflect")
     if int(config.get("efficacy_repetitions", 0)) != MABBOB_FORMAL_EFFICACY_REPETITIONS:
@@ -142,19 +181,42 @@ def validate_mabbob_formal_config(
         raise ValueError(
             f"{selection_manifest_path}: missing selected entries {missing_selection_entries}"
         )
-    leaked = [
-        candidate_id
-        for candidate_id in selected_ids
-        if bool(manifest_by_id[candidate_id].get("is_val_component"))
-        or bool(selection_by_id[candidate_id].get("is_val_component"))
-    ]
-    if leaked:
-        raise ValueError(f"{path}: selected MA-BBOB candidates contain validation leakage: {leaked}")
 
-    if len(dimensions) != 1:
-        raise ValueError(f"{path}: MA-BBOB formal config must use one frozen dimension")
-    dimension = int(dimensions[0])
-    manifest_dimension = int(manifest.get("dimension", dimension))
+    if split == MABBOB_VALIDATION_SPLIT:
+        allowed = set(BBOB_VALIDATION_FUNCTIONS)
+        violations = [
+            candidate_id
+            for candidate_id in selected_ids
+            if not bool(manifest_by_id[candidate_id].get("is_val_component"))
+            or not bool(selection_by_id[candidate_id].get("is_val_component"))
+            or not _weight_support_within(manifest_by_id[candidate_id], allowed)
+            or not _weight_support_within(selection_by_id[candidate_id], allowed)
+        ]
+        if violations:
+            raise ValueError(
+                f"{path}: MA-BBOB validation candidates must keep every weight on the "
+                f"validation functions {sorted(allowed)}; violations: {violations}"
+            )
+    else:
+        train_scope = set(range(1, 25)).difference(BBOB_VALIDATION_FUNCTIONS)
+        leaked = [
+            candidate_id
+            for candidate_id in selected_ids
+            if bool(manifest_by_id[candidate_id].get("is_val_component"))
+            or bool(selection_by_id[candidate_id].get("is_val_component"))
+            or not _weight_support_within(manifest_by_id[candidate_id], train_scope)
+            or not _weight_support_within(selection_by_id[candidate_id], train_scope)
+        ]
+        if leaked:
+            raise ValueError(f"{path}: selected MA-BBOB candidates contain validation leakage: {leaked}")
+
+    manifest_dimension = int(manifest.get("dimension", 10))
+    if manifest_dimension not in [int(value) for value in dimensions]:
+        raise ValueError(
+            f"{path}: manifest reference dimension {manifest_dimension} must be one of the "
+            f"configured dimensions {dimensions}"
+        )
+    dimension = manifest_dimension
     selection_dimension = int(selection.get("dimension", dimension))
     if dimension != manifest_dimension or dimension != selection_dimension:
         raise ValueError(
@@ -171,20 +233,50 @@ def validate_mabbob_formal_config(
             f"{entry_dimension_mismatch}"
         )
 
+    _check_mabbob_xopt_consistency(manifest_by_id, selected_ids, dimension, path=path)
+
+
+def _check_mabbob_xopt_consistency(
+    manifest_by_id: dict[int, dict],
+    selected_ids: list[int],
+    reference_dimension: int,
+    *,
+    path: Path,
+) -> None:
+    """The manifest xopt vector and the benchmark-side regeneration must be the
+    same operator at the manifest reference dimension."""
+    from benchmarks.mabbob import _xopt_from_mode
+
+    for candidate_id in selected_ids:
+        entry = manifest_by_id[candidate_id]
+        stored = entry.get("xopt")
+        if stored is None:
+            continue
+        mode = str(entry.get("xopt_mode", "uniform"))
+        seed = int(entry.get("xopt_seed", 0))
+        regenerated = _xopt_from_mode(reference_dimension, seed, mode)
+        if not np.allclose(np.asarray(stored, dtype=float), regenerated, rtol=0.0, atol=0.0):
+            raise ValueError(
+                f"{path}: manifest xopt for candidate {candidate_id} does not match the "
+                f"benchmark-side regeneration from xopt_mode/xopt_seed"
+            )
+
 
 def validate_config_pair(left: dict, right: dict) -> None:
-    if left["suite"] != "bbob" or right["suite"] != "bbob":
-        raise ValueError("pair checking is only defined for BBOB train/validation configs")
+    if left["suite"] != right["suite"]:
+        raise ValueError("pair checking requires the same suite on both sides")
     left_functions = set(left["functions"])
     right_functions = set(right["functions"])
     overlap = sorted(left_functions.intersection(right_functions))
     if overlap:
         raise ValueError(f"train/validation functions overlap: {overlap}")
-    combined = left_functions.union(right_functions)
-    if combined != BBOB_FUNCTIONS:
-        missing = sorted(BBOB_FUNCTIONS.difference(combined))
-        extra = sorted(combined.difference(BBOB_FUNCTIONS))
-        raise ValueError(f"train/validation functions must cover 1..24; missing={missing}, extra={extra}")
+
+    if left["suite"] == "bbob":
+        combined = left_functions.union(right_functions)
+        if combined != BBOB_FUNCTIONS:
+            missing = sorted(BBOB_FUNCTIONS.difference(combined))
+            extra = sorted(combined.difference(BBOB_FUNCTIONS))
+            raise ValueError(f"train/validation functions must cover 1..24; missing={missing}, extra={extra}")
 
     for field in (
         "instances",
@@ -194,11 +286,18 @@ def validate_config_pair(left: dict, right: dict) -> None:
         "population_size",
         "sampling_protocol",
         "function_family_protocol",
+        "boundary_handling",
         "fe_total_by_dimension",
         "endpoint_config",
     ):
         if left[field] != right[field]:
             raise ValueError(f"train/validation {field} must match")
+
+    if left["boundary_handling"] != "reflect" or right["boundary_handling"] != "reflect":
+        raise ValueError(
+            "train/validation configs must use boundary_handling=reflect "
+            "(clip is reserved for explicitly declared sensitivity analyses)"
+        )
 
 
 def main() -> None:
@@ -206,26 +305,35 @@ def main() -> None:
     parser.add_argument("configs", nargs="+")
     args = parser.parse_args()
 
-    summaries = [validate_batch_config(Path(path)) for path in args.configs]
-    if len(summaries) == 2:
-        validate_config_pair(summaries[0], summaries[1])
-    elif len(summaries) > 2:
+    summaries_by_path = [validate_batch_config(Path(path)) for path in args.configs]
+    if len(args.configs) == 2:
+        left_by_suite = {summary["suite"]: summary for summary in summaries_by_path[0]}
+        right_by_suite = {summary["suite"]: summary for summary in summaries_by_path[1]}
+        if set(left_by_suite) != set(right_by_suite):
+            raise ValueError(
+                "paired configs must cover the same suites; "
+                f"left={sorted(left_by_suite)}, right={sorted(right_by_suite)}"
+            )
+        for suite in sorted(left_by_suite):
+            validate_config_pair(left_by_suite[suite], right_by_suite[suite])
+    elif len(args.configs) > 2:
         raise ValueError("provide one config, or exactly two configs for train/validation pair checking")
 
-    for summary in summaries:
-        sampling_spec = get_sampling_spec(summary["sampling_protocol"])
-        run_count = count_runs(
-            load_config(summary["path"]),
-            list(summary["functions"]),
-            list(summary["dimensions"]),
-        )
-        minimum_rows = run_count * sampling_spec.min_samples_per_run
-        maximum_rows = run_count * sampling_spec.max_samples_per_run
-        print(
-            f"{summary['path']}: {run_count} runs, "
-            f"{minimum_rows}..{maximum_rows} trajectory rows, "
-            f"sampling_protocol={sampling_spec.protocol}"
-        )
+    for summaries in summaries_by_path:
+        for summary in summaries:
+            sampling_spec = get_sampling_spec(summary["sampling_protocol"])
+            run_count = count_runs(
+                summary["config"],
+                list(summary["functions"]),
+                list(summary["dimensions"]),
+            )
+            minimum_rows = run_count * sampling_spec.min_samples_per_run
+            maximum_rows = run_count * sampling_spec.max_samples_per_run
+            print(
+                f"{summary['path']} [{summary['suite']}]: {run_count} runs, "
+                f"{minimum_rows}..{maximum_rows} trajectory rows, "
+                f"sampling_protocol={sampling_spec.protocol}"
+            )
 
 
 if __name__ == "__main__":
