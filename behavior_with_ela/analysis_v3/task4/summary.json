@@ -1,0 +1,16 @@
+{
+  "threshold": 0.1450865030153754,
+  "delta_50": 0.05642741081870025,
+  "delta_95": 1.4639205643726332,
+  "states": 25469,
+  "contrast_old_vs_new_label": {
+    "decision_switch_rate": 0.6736032038949311,
+    "harmful_H95_selected_label_count": 829,
+    "harmful_H95_old_best_switch_label_count": 744,
+    "old_label_includes_selected_harmless_runs": 0,
+    "selected_label_misses_old_label_runs": 85,
+    "harmful_H0_count": 4247,
+    "harmful_H50_count": 3496,
+    "missed_helpful_count": 140
+  }
+}

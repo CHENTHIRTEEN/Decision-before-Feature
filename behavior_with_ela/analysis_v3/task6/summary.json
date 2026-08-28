@@ -1,0 +1,37 @@
+{
+  "states": 36701,
+  "bf_features": 28,
+  "lf_features": 23,
+  "schemes": {
+    "leave_family_out:bf_to_lf": {
+      "median_target_pooled_r2": 0.1861257054144081,
+      "share_targets_pooled_r2_above_0.5": 0.0,
+      "share_targets_negative_pooled_r2": 0.2608695652173913
+    },
+    "leave_family_out:lf_to_bf": {
+      "median_target_pooled_r2": 0.1183673613507642,
+      "share_targets_pooled_r2_above_0.5": 0.10714285714285714,
+      "share_targets_negative_pooled_r2": 0.25
+    },
+    "grouped_by_problem:bf_to_lf": {
+      "median_target_pooled_r2": 0.23596579376899013,
+      "share_targets_pooled_r2_above_0.5": 0.0,
+      "share_targets_negative_pooled_r2": 0.043478260869565216
+    },
+    "grouped_by_problem:lf_to_bf": {
+      "median_target_pooled_r2": 0.39083095141169594,
+      "share_targets_pooled_r2_above_0.5": 0.32142857142857145,
+      "share_targets_negative_pooled_r2": 0.03571428571428571
+    }
+  },
+  "a1_a3_oof_disagreement": {
+    "states": 25469,
+    "top1_disagreement_rate": 0.016019474655463505,
+    "a3_better_count": 68,
+    "a1_better_count": 338,
+    "mean_true_gain_delta_if_forcing_a3": -2.580732505346856,
+    "median_true_gain_delta_if_forcing_a3": -2.2990526874603723,
+    "naming_note": "A1/A3 disagreement is restated as actionable-overlap evidence; the prefix-conditioned one-switch upper bound naming applies to the best-observed quantities elsewhere in analysis_v3"
+  },
+  "permutation_importance_note": "block permutation importance from analysis_v2 task5 was computed on training rows of the full model and is not re-reported here; the grouped OOF cross-predictability above is the mechanism evidence"
+}

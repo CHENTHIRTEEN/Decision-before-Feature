@@ -1,0 +1,13 @@
+{
+  "v2_regression_threshold": 0.1450865030153754,
+  "prefix_only_threshold": -0.06776605449121259,
+  "prefix_plus_fe_threshold": 0.7102117919255502,
+  "behavior_at_020_threshold": -0.008211203954912816,
+  "prefix_plus_fe_oof_fallback_rate": {
+    "1": 0.0,
+    "2": 0.0,
+    "3": 0.0,
+    "4": 0.0,
+    "5": 0.0
+  }
+}

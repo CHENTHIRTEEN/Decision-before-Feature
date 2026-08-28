@@ -66,6 +66,7 @@ ONLINE_COMPARISON_POLICIES = (
     "behavior_action_loss_rf",
     "to_switch_style_rf",
     "phase1_action_gain",
+    "behavior_action_loss_regression_v2",
     "phase2_m4_one_switch",
     "query_never",
     "query_always",
@@ -75,6 +76,10 @@ ONLINE_COMPARISON_POLICIES = (
     "g_fe_query_gate",
     "g_fe_query_gate_matched_rate",
     "repeated_das",
+)
+V2_REGRESSION_POLICY_NAME = "behavior_action_loss_regression_v2"
+DEFAULT_V2_REGRESSION_MODEL = (
+    "behavior_with_ela/results/analysis_v2/task9_quick_cec/v2_online_bundle.joblib"
 )
 
 
@@ -87,6 +92,7 @@ def evaluate_online_comparison(
     phase3_model_path: str | Path,
     gfe_model_path: str | Path,
     traditional_aas_model_path: str | Path,
+    v2_regression_model_path: str | Path = DEFAULT_V2_REGRESSION_MODEL,
     output_dir: str | Path,
     policies: tuple[str, ...] = ONLINE_COMPARISON_POLICIES,
     only_splits: tuple[str, ...] | None = None,
@@ -101,6 +107,24 @@ def evaluate_online_comparison(
     validate_phase1_bundle(phase1_bundle, config)
     default_algorithm = str(phase1_bundle["default_algorithm"])
     prefixes = _initial_algorithms(initial_algorithm, default_algorithm, config)
+
+    v2_regression_bundle = _load_required_bundle(
+        v2_regression_model_path,
+        required=V2_REGRESSION_POLICY_NAME in selected_policies,
+    )
+    if v2_regression_bundle is not None:
+        validate_phase1_bundle(v2_regression_bundle, config)
+        if str(v2_regression_bundle.get("model_protocol")) != (
+            "behavior_action_loss_regression_v2"
+        ):
+            raise ValueError(
+                "v2 regression bundle carries a different model protocol: "
+                f"{v2_regression_bundle.get('model_protocol')}"
+            )
+        if str(v2_regression_bundle["default_algorithm"]) != default_algorithm:
+            raise ValueError(
+                "v2 regression and Phase 1 bundles use different default algorithms"
+            )
 
     baseline_bundle = _load_required_bundle(
         baseline_model_path,
@@ -186,6 +210,7 @@ def evaluate_online_comparison(
         phase3_bundle,
         gfe_bundle,
         traditional_aas_bundle,
+        v2_regression_bundle,
         prefixes,
         selected_policies,
         default_algorithm,
@@ -308,6 +333,7 @@ def _evaluate_function(
     phase3_bundle: dict[str, Any] | None,
     gfe_bundle: dict[str, Any] | None,
     traditional_aas_bundle: dict[str, Any] | None,
+    v2_regression_bundle: dict[str, Any] | None,
     prefixes: tuple[str, ...],
     policies: tuple[str, ...],
     default_algorithm: str,
@@ -348,6 +374,7 @@ def _evaluate_function(
                             phase3_bundle=phase3_bundle,
                             gfe_bundle=gfe_bundle,
                             traditional_aas_bundle=traditional_aas_bundle,
+                            v2_regression_bundle=v2_regression_bundle,
                         )
                         elapsed = float(perf_counter() - started)
                         normalized = _normalize_outcome(
@@ -411,6 +438,7 @@ def _dispatch_policy(
     phase3_bundle: dict[str, Any] | None,
     gfe_bundle: dict[str, Any] | None,
     traditional_aas_bundle: dict[str, Any] | None,
+    v2_regression_bundle: dict[str, Any] | None = None,
 ) -> tuple[dict, list[dict], list[dict]]:
     common = {
         "config": config,
@@ -453,6 +481,14 @@ def _dispatch_policy(
         outcome, rows, _ = run_one_switch_policy(
             **common,
             bundle=phase1_bundle,
+        )
+        return outcome, rows, []
+    if policy_name == V2_REGRESSION_POLICY_NAME:
+        if v2_regression_bundle is None:
+            raise RuntimeError("v2 regression policy has no model bundle")
+        outcome, rows, _ = run_one_switch_policy(
+            **common,
+            bundle=v2_regression_bundle,
         )
         return outcome, rows, []
     if policy_name == "phase2_m4_one_switch":
@@ -1175,6 +1211,10 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--v2-regression-model",
+        default=DEFAULT_V2_REGRESSION_MODEL,
+    )
+    parser.add_argument(
         "--output",
         default="results/behavior_with_ela/online/complete_comparison",
     )
@@ -1193,6 +1233,7 @@ def main() -> None:
         phase3_model_path=args.phase3_model,
         gfe_model_path=args.gfe_model,
         traditional_aas_model_path=args.traditional_aas_model,
+        v2_regression_model_path=args.v2_regression_model,
         output_dir=args.output,
         policies=(
             ONLINE_COMPARISON_POLICIES

@@ -1,0 +1,12 @@
+{
+  "bbob_train_oof": {
+    "sbs_mean_from_continue_rows": -5.137511057769989,
+    "sbs_static_summary_value": -5.191998988061821,
+    "absolute_difference": 0.054487930291831965
+  },
+  "bbob_validation": {
+    "sbs_mean_from_continue_rows": -5.049700989305057,
+    "sbs_static_summary_value": -5.061251984027773,
+    "absolute_difference": 0.011550994722716368
+  }
+}

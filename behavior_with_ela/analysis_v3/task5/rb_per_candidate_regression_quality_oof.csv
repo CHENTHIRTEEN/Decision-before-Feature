@@ -1,0 +1,4 @@
+model,candidate_action,rows,loss_mae,gain_spearman
+rb_bbob_only_regression,cmaes,17264,4.07991803201334,-0.324342829947986
+rb_bbob_only_regression,pso,16575,3.036171434913427,0.27684525243681884
+rb_bbob_only_regression,shade,17099,3.529059280521739,0.5217219487093567
