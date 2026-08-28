@@ -30,6 +30,7 @@ from trajectory.recorder import TrajectoryRecorder
 
 
 POLICY_PROTOCOL = "behavior_action_gain_one_switch_first_trigger"
+POLICY_PROTOCOL_PER_OPPORTUNITY = "behavior_action_gain_per_opportunity_trigger"
 REGRESSION_ONLINE_PROTOCOL = "behavior_action_loss_regression_v2"
 
 
@@ -42,6 +43,7 @@ def evaluate_one_switch_online(
     only_functions: tuple[int, ...] | None = None,
     initial_algorithm: str = "sbs",
     workers: int = 1,
+    switch_rule: str = "first_trigger",
     overwrite: bool = False,
 ) -> dict[str, int]:
     config = load_experiment_config(config_path)
@@ -77,7 +79,9 @@ def evaluate_one_switch_online(
     if workers == 1:
         for suite, function in tasks:
             function_results.append(
-                _evaluate_function(config, bundle, suite, function, prefixes)
+                _evaluate_function(
+                    config, bundle, suite, function, prefixes, switch_rule
+                )
             )
     else:
         with ProcessPoolExecutor(max_workers=workers) as executor:
@@ -89,6 +93,7 @@ def evaluate_one_switch_online(
                     suite,
                     function,
                     prefixes,
+                    switch_rule,
                 )
                 for suite, function in tasks
             ]
@@ -135,7 +140,16 @@ def run_one_switch_policy(
     seed: int,
     prefix_algorithm: str,
     bundle: dict[str, Any],
+    switch_rule: str = "first_trigger",
 ) -> tuple[dict, list[dict], dict]:
+    if switch_rule not in ("first_trigger", "per_opportunity"):
+        raise ValueError(
+            f"switch rule must be first_trigger or per_opportunity: {switch_rule}"
+        )
+    multi_switch = switch_rule == "per_opportunity"
+    policy_protocol = (
+        POLICY_PROTOCOL if not multi_switch else POLICY_PROTOCOL_PER_OPPORTUNITY
+    )
     problem = make_experiment_problem(
         suite,
         function=function,
@@ -147,6 +161,8 @@ def run_one_switch_policy(
     evaluation_count = 0
     first_hit_fe: int | None = None
     opportunity_rows: list[dict] = []
+    switches: list[dict] = []
+    current_algorithm = prefix_algorithm
     recorder = TrajectoryRecorder(sampling_protocol=config.sampling_protocol)
 
     def observe_evaluation(point: np.ndarray, value: float) -> None:
@@ -183,43 +199,50 @@ def run_one_switch_policy(
             settings=settings,
             on_evaluation=observe_evaluation,
         )
+        global_native_updates = 1
         recorder.observe(
             problem=problem,
             algorithm=prefix_algorithm,
             seed=seed,
             fe=state.evaluations,
             fe_total=config.fe_total,
-            native_updates=state.generation,
+            native_updates=global_native_updates,
             population=state.population,
             fitness=state.fitness,
             best_fitness=state.best_fitness,
         )
         last_record_count = 0
-        while state.evaluations < config.fe_total and not switch_triggered:
-            step = min(
-                config.population_size,
-                config.fe_total - int(state.evaluations),
-            )
-            advance_optimizer_state(
-                state=state,
-                problem=problem,
-                fe_budget=step,
-                on_native_update=lambda updated: recorder.observe(
+        while evaluation_count < config.fe_total:
+            previous_records = len(recorder.records)
+
+            def observe_update(updated) -> None:
+                nonlocal global_native_updates
+                global_native_updates += 1
+                recorder.observe(
                     problem=problem,
-                    algorithm=prefix_algorithm,
+                    algorithm=current_algorithm,
                     seed=seed,
-                    fe=updated.evaluations,
+                    fe=evaluation_count,
                     fe_total=config.fe_total,
-                    native_updates=updated.generation,
+                    native_updates=global_native_updates,
                     population=updated.population,
                     fitness=updated.fitness,
                     best_fitness=updated.best_fitness,
+                )
+
+            advance_optimizer_state(
+                state=state,
+                problem=problem,
+                fe_budget=min(
+                    config.population_size,
+                    config.fe_total - evaluation_count,
                 ),
+                on_native_update=observe_update,
                 on_evaluation=observe_evaluation,
             )
-            if len(recorder.records) == last_record_count:
+            if len(recorder.records) == previous_records:
                 continue
-            if len(recorder.records) != last_record_count + 1:
+            if len(recorder.records) != previous_records + 1:
                 raise RuntimeError("one native update emitted multiple decision states")
             record = recorder.records[-1]
             opportunity_index = last_record_count
@@ -228,12 +251,12 @@ def run_one_switch_policy(
             scores, classes = predict_switch_scores(
                 bundle=bundle,
                 behavior=behavior,
-                prefix_algorithm=prefix_algorithm,
+                prefix_algorithm=current_algorithm,
             )
             candidates = [
                 algorithm
                 for algorithm in config.algorithms
-                if algorithm != prefix_algorithm
+                if algorithm != current_algorithm
             ]
             selected_candidate = max(
                 candidates,
@@ -245,7 +268,8 @@ def run_one_switch_policy(
             for candidate in candidates:
                 opportunity_rows.append(
                     {
-                        "policy_protocol": POLICY_PROTOCOL,
+                        "policy_protocol": policy_protocol,
+                        "switch_rule": switch_rule,
                         "split": suite.split,
                         "suite": suite.suite,
                         "problem_id": problem.problem_id,
@@ -253,7 +277,7 @@ def run_one_switch_policy(
                         "family": problem.family,
                         "cv_group_id": problem.cv_group_id,
                         "dimension": problem.dimension,
-                        "prefix_algorithm": prefix_algorithm,
+                        "prefix_algorithm": current_algorithm,
                         "seed": seed,
                         "FE": int(record.FE),
                         "FE_ratio": float(record.FE_ratio),
@@ -273,9 +297,18 @@ def run_one_switch_policy(
             candidate_score = float(scores[selected_candidate])
             if candidate_score <= float(bundle["decision_threshold"]):
                 continue
-            selected_fe = int(record.FE)
-            selected_opportunity = int(opportunity_index)
-            selected_score = candidate_score
+            switches.append(
+                {
+                    "FE": int(record.FE),
+                    "from_algorithm": current_algorithm,
+                    "to_algorithm": selected_candidate,
+                    "score": candidate_score,
+                }
+            )
+            if len(switches) == 1:
+                selected_fe = int(record.FE)
+                selected_opportunity = int(opportunity_index)
+                selected_score = candidate_score
             selected_algorithm = selected_candidate
             switch_triggered = True
             state = initialize_transferred_optimizer_state(
@@ -285,20 +318,15 @@ def run_one_switch_policy(
                 seed=seed,
                 function=function,
                 instance=instance,
-                event=NO_QUERY_TRANSFER_EVENT,
+                event=NO_QUERY_TRANSFER_EVENT + len(switches),
             )
-            remaining = config.fe_total - selected_fe
+            current_algorithm = selected_algorithm
+            if multi_switch:
+                continue
             advance_optimizer_state(
                 state=state,
                 problem=problem,
-                fe_budget=remaining,
-                on_evaluation=observe_evaluation,
-            )
-        if not switch_triggered and state.evaluations < config.fe_total:
-            advance_optimizer_state(
-                state=state,
-                problem=problem,
-                fe_budget=config.fe_total - int(state.evaluations),
+                fe_budget=config.fe_total - evaluation_count,
                 on_evaluation=observe_evaluation,
             )
         if evaluation_count != config.fe_total:
@@ -330,7 +358,9 @@ def run_one_switch_policy(
     elapsed = float(perf_counter() - started)
     selected_equals_prefix = selected_algorithm == prefix_algorithm
     outcome = {
-        "policy_protocol": POLICY_PROTOCOL,
+        "policy_protocol": policy_protocol,
+        "switch_rule": switch_rule,
+        "switch_count": len(switches),
         "split": suite.split,
         "suite": suite.suite,
         "problem_id": problem.problem_id,
@@ -450,6 +480,7 @@ def _evaluate_function(
     suite: SuiteConfig,
     function: int,
     prefixes: tuple[str, ...],
+    switch_rule: str = "first_trigger",
 ) -> tuple[list[dict], list[dict], list[dict]]:
     outcomes: list[dict] = []
     opportunities: list[dict] = []
@@ -465,6 +496,7 @@ def _evaluate_function(
                     seed=seed,
                     prefix_algorithm=prefix,
                     bundle=bundle,
+                    switch_rule=switch_rule,
                 )
                 outcomes.append(outcome)
                 opportunities.extend(rows)
@@ -544,6 +576,11 @@ def main() -> None:
     parser.add_argument("--only-split", action="append", default=None)
     parser.add_argument("--only-function", type=int, action="append", default=None)
     parser.add_argument("--initial-algorithm", default="sbs")
+    parser.add_argument(
+        "--switch-rule",
+        choices=("first_trigger", "per_opportunity"),
+        default="first_trigger",
+    )
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -557,6 +594,7 @@ def main() -> None:
         ),
         initial_algorithm=args.initial_algorithm,
         workers=args.workers,
+        switch_rule=args.switch_rule,
         overwrite=args.overwrite,
     )
     print(
