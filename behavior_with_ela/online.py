@@ -30,6 +30,7 @@ from trajectory.recorder import TrajectoryRecorder
 
 
 POLICY_PROTOCOL = "behavior_action_gain_one_switch_first_trigger"
+REGRESSION_ONLINE_PROTOCOL = "behavior_action_loss_regression_v2"
 
 
 def evaluate_one_switch_online(
@@ -407,6 +408,28 @@ def predict_switch_scores(
     )
     scores: dict[str, float] = {}
     classes: dict[str, str] = {}
+    if str(bundle.get("model_protocol")) == REGRESSION_ONLINE_PROTOCOL:
+        predicted = np.asarray(
+            bundle["models"]["regressor"].predict(frame), dtype=float
+        )[0]
+        losses = {
+            algorithm: float(predicted[index])
+            for index, algorithm in enumerate(bundle["portfolio"])
+        }
+        delta = float(bundle.get("practical_gain_delta", 0.0))
+        for algorithm in bundle["portfolio"]:
+            if algorithm == prefix_algorithm:
+                continue
+            advantage = losses[prefix_algorithm] - losses[algorithm]
+            scores[algorithm] = advantage
+            classes[algorithm] = (
+                "improve"
+                if advantage > delta
+                else "degrade"
+                if advantage < -delta
+                else "equivalent"
+            )
+        return scores, classes
     for algorithm in bundle["portfolio"]:
         if algorithm == prefix_algorithm:
             continue
