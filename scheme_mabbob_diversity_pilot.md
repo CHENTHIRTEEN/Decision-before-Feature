@@ -376,7 +376,7 @@ Z = z-score(结构特征 + 景观14维 + 行为PCA(10维) + 动作区分度(可�
 | S3 | ✅ 采集 trajectory（新 config，沿用 `phase1_collect_batch`）+ descriptor 采样 | `experiments/cli/phase1_collect_batch.py` | parquet 文件 + descriptor 表 |
 | S4 | ⏳ 行为提取 + 可选动作区分度 | `behavior-extract-batch`, `selection_reference/action_losses.py` | 行为特征表 |
 | S5 | ⏳ 多样性报告脚本 | 新脚本 `diversity_report.py` | `diversity_report` |
-| S6 | ✅ 分层 maximin 选择 | `decision/pilot_coverage.py` 扩展 / 新脚本 `select_mabbob_formal_subset.py` | `selection_manifest.json` |
+| S6 | ✅ 分层 maximin 选择 | `experiments/cli/select_mabbob_formal_subset.py` | `selection_manifest.json` |
 | S7 | ✅ 更新 `configs/phase1_mabbob_formal.yaml` + leakage audit + 门禁 | `configs/phase1_mabbob_formal.yaml` | 新 formal config |
 
 ---
@@ -457,7 +457,6 @@ Z = z-score(结构特征 + 景观14维 + 行为PCA(10维) + 动作区分度(可�
 | `configs/phase1_mabbob_formal.yaml` | 正式配置，引用 manifest |
 | `experiments/cli/generate_mabbob_diversity_pool.py` | Pilot 池生成器 |
 | `experiments/cli/select_mabbob_formal_subset.py` | 正式子集选择器 |
-| `decision/pilot_coverage.py` | 可扩展为多样性报告 |
 | `behavior/features.py` / `extraction.py` | 行为特征的 31 维 B3 定义 |
 | `landscape_queries/cheap.py` | 14 维 descriptor_cheap 景观特征 |
 | `selection_reference/action_losses.py` | 动作区分度计算的基础设施 |

@@ -1,6 +1,6 @@
 # Decision-before-Feature Master Research Specification
 
-> 实现同步（2026-08-15）：完整 optimizer-state continuation 已替换 checkpoint 重建机制。正式 estimand 分为 Query/full-Selector 联合策略效用、Behavior-only full-budget 效用与二者差；性能只使用预指定 Stage-A 单次科学运行经配置截断后的 `log10_gap`，时间只使用 Stage-B 三次真实 decision-state-to-terminal future-path wall-clock 中位数的 `log10` ratio，共享 prefix 视为 sunk cost。Stage-B replay 不改写科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 或 planned/effective FE；FE=0→terminal policy wall-clock 是独立政策端点。SBS、两类 Selector、Utility、Decision 与 first-trigger threshold 必须在 outer/inner function 链中逐层拟合。活动 query ID 统一为 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant`。BBOB-validation 与 CEC2017 分别降级为已见内部评价集和已见外部开发集；确认性外部证据等待完整冻结后首次运行的 CEC2022 与工程集合。Utility、labels、逐行 threshold、模型和评价结果已历史，必须从相应依赖位置重生成。
+> 实现同步（2026-08-15）：完整 optimizer-state continuation 已替换 checkpoint 重建机制。正式 estimand 分为 Query/full-Selector 联合策略效用、Behavior-only full-budget 效用与二者差；性能只使用预指定 Stage-A 单次科学运行经配置截断后的 `log10_gap`，时间只使用 Stage-B 三次真实 decision-state-to-terminal future-path wall-clock 中位数的 `log10` ratio，共享 prefix 视为 sunk cost。Stage-B replay 不改写科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 或 planned/effective FE；FE=0→terminal policy wall-clock 是独立政策端点。SBS、两类 Selector、Utility、Decision 与 first-trigger threshold 必须在 outer/inner function 链中逐层拟合。活动 query ID 统一为 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant`。BBOB-validation 与 CEC2017 分别降级为已见内部评价集和已见外部开发集；确认性外部证据等待完整é¢åæå®后首次运行的 CEC2022 与工程集合。Utility、labels、逐行 threshold、模型和评价结果已历史，必须从相应依赖位置重生成。
 
 ## 0. Document Purpose
 
@@ -305,7 +305,7 @@ CMA-ES:
 
 Search Maturity表示一个研究内预定义的 behavior 派生坐标：探索结构稳定化与开发饱和之间的组合位置。它不由 Utility 反向定义，也不预设 query 有价值。
 
-`M_t=ES_t(1-XS_t)` 是已有 Behavior 的确定性变换，不增加新的原始信息，不是独立 latent state、因果中介或已建立的 convergence measure。它只能通过冻结的预测比较检验其对当前线性 Decision 候选是否提供有用的非线性基函数。
+`M_t=ES_t(1-XS_t)` 是已有 Behavior 的确定性变换，不增加新的原始信息，不是独立 latent state、因果中介或已建立的 convergence measure。它只能通过é¢åæå®的预测比较检验其对当前线性 Decision 候选是否提供有用的非线性基函数。
 
 ---
 
@@ -465,7 +465,7 @@ $$
 \widehat U_{query}^{joint}
 $$
 
-同名冻结模型家族还单独拟合 $U_b$，得到 self-thresholded Behavior-only policy。它使用自身的 BBOB-train inner-OOF first-trigger threshold，不复用 Query policy threshold，也不重新选择模型家族。$query_operational_increment$ 的政策级报告则在 Proposed 首次触发的同一 state 上匹配 Query 与 Behavior-only 路径；self-thresholded policy 与 matched-trigger query 操作性增量是两个不同对象。
+同名é¢åæå®模型家族还单独拟合 $U_b$，得到 self-thresholded Behavior-only policy。它使用自身的 BBOB-train inner-OOF first-trigger threshold，不复用 Query policy threshold，也不重新选择模型家族。$query_operational_increment$ 的政策级报告则在 Proposed 首次触发的同一 state 上匹配 Query 与 Behavior-only 路径；self-thresholded policy 与 matched-trigger query 操作性增量是两个不同对象。
 
 $query_operational_increment$ 的活动字段名为 `query_operational_increment`。它必须在全部 eligible states 与 Proposed first-trigger states 两个范围分别报告，并包含 query FE/runtime、sample best、较短 continuation budget 和 Selector 差异；它不是纯信息效应或因果 estimand。若 $G_FE>0$ 而同一范围 $query_operational_increment\le0$，只能支持联合 Query/full-Selector 路径优于 SBS，不能支持 query acquisition 优于 full-budget Behavior-only。正式五路径加入 matched-acquisition 的 `query_matched_state_only` 与 `sampling_only_continue_current`，分别构造 descriptor-use、state-only-vs-sampling 和 sampling-direct 增量，并要求三项逐行加和为 $G_FE$。这些量是固定模型、query realization、预算和 transition rule 下的操作性分解，不作因果解释。
 
@@ -481,9 +481,9 @@ $query_operational_increment$ 的活动字段名为 `query_operational_increment
 
 不继续把 Random Forest、XGBoost、LightGBM、MLP 或其变体加入 Decision Model 活动模型搜索。Selection Reference 中固定的 action-loss Random Forest regression 属于不同组件，不受本条影响。
 
-主模型按 BBOB-train outer-function OOF 的 run-level first-trigger mean `G_FE` 选择。每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`，cross-fit Query 与 Behavior-only Selectors生成 outer-fit Decision labels。每个 inner fold 还必须只用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selectors、生成三类 Utility并拟合 preprocessing/Decision；inner-holdout Utility 与 score 只能由 inner-fit 上游组件产生。拼接端到端 inner OOF outcomes 后分别拟合两个 first-trigger thresholds。outer holdout 只在全部组件冻结后评价一次，不得影响 SBS、Selector、Utility、preprocessing、Decision、threshold 或 Random calibration。不得先在完整 BBOB-train 生成一张 Selector/Utility 表，再把它当作端到端 OOF 证据。随后用完整 BBOB-train 的 grouped-by-function 上游 OOF 分数按 first-trigger 规则冻结 `oof_utility_first_trigger` 与 `oof_behavior_utility_first_trigger`，并冻结 Proposed OOF call rate/trigger-FE 分布；最后在完整 train 重拟合 SBS、Selectors 与 Decision fits。train outer OOF 只承担候选选择和开发期诊断，不是选中 procedure 的无偏估计。BBOB-validation 已被历史开发读取，只给已见内部有限集估计；CEC2017 只给已见外部开发估计。selected procedure 与 milestone-only B3--T0 的确认性证据等待闭合后首次运行的 CEC2022 与工程集合。
+主模型按 BBOB-train outer-function OOF 的 run-level first-trigger mean `G_FE` 选择。每个 outer fold 只用 outer-fit functions 计算 `SBS_outer`，cross-fit Query 与 Behavior-only Selectors生成 outer-fit Decision labels。每个 inner fold 还必须只用 inner-fit functions 重算 `SBS_inner`、cross-fit/拟合两类 Selectors、生成三类 Utility并拟合 preprocessing/Decision；inner-holdout Utility 与 score 只能由 inner-fit 上游组件产生。拼接端到端 inner OOF outcomes 后分别拟合两个 first-trigger thresholds。outer holdout 只在全部组件é¢åæå®后评价一次，不得影响 SBS、Selector、Utility、preprocessing、Decision、threshold 或 Random calibration。不得先在完整 BBOB-train 生成一张 Selector/Utility 表，再把它当作端到端 OOF 证据。随后用完整 BBOB-train 的 grouped-by-function 上游 OOF 分数按 first-trigger 规则é¢åæå® `oof_utility_first_trigger` 与 `oof_behavior_utility_first_trigger`，并é¢åæå® Proposed OOF call rate/trigger-FE 分布；最后在完整 train 重拟合 SBS、Selectors 与 Decision fits。train outer OOF 只承担候选选择和开发期诊断，不是选中 procedure 的无偏估计。BBOB-validation 已被历史开发读取，只给已见内部有限集估计；CEC2017 只给已见外部开发估计。selected procedure 与 milestone-only B3--T0 的确认性证据等待闭合后首次运行的 CEC2022 与工程集合。
 
-主拟合使用 `cluster_balanced_fit`：在每个 fit fold 内依次使 function、fixed dimension stratum、static problem 与 optimizer run 等权，再把 run 权重等分到其合格 states，并把 fold 内 row weights 归一化到均值 1。`sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动修正训练权重；imputation/scaling 与三个候选 estimator 尚未完成统一的 cluster-weight wiring，是模型冻结 blocker。
+主拟合使用 `cluster_balanced_fit`：在每个 fit fold 内依次使 function、fixed dimension stratum、static problem 与 optimizer run 等权，再把 run 权重等分到其合格 states，并把 fold 内 row weights 归一化到均值 1。`sample_weight=1` 的 state-row 等权拟合降为 `row_weighted_fit` sensitivity。nested first-trigger evaluation 不会自动修正训练权重；imputation/scaling 与三个候选 estimator 尚未完成统一的 cluster-weight wiring，是模型é¢åæå® blocker。
 
 对 run $r$ 的有序机会 $t_{r1},\ldots,t_{rK}$，令
 
@@ -535,10 +535,10 @@ BBOB：
 
 - BBOB-validation：已见内部评价集；历史开发读取过 outcome，只报告固定六函数有限集估计。
 - CEC2017：已见外部开发集；历史 online/targeted 诊断读取过 outcome，只报告外部开发有限集估计。
-- CEC2022：预定 untouched external confirmation；当前缺少冻结配置，在 functions、dimensions、budgets、repetitions、references、失败端点、factory/runner 与 contrasts 闭合前不得运行。
+- CEC2022：预定 untouched external confirmation；当前缺少é¢åæå®配置，在 functions、dimensions、budgets、repetitions、references、失败端点、factory/runner 与 contrasts 闭合前不得运行。
 - Engineering problems：预定 untouched external confirmation；当前还缺少问题清单、配置、factory、预算、重复、reference/gap、constraint rule 与 endpoints，全部是确认性运行 blocker。
 
-“确认性”只表示 suite 与分析在首次 outcome 前 prospective 冻结，不表示预列 benchmark functions 是函数超总体的概率样本。
+“确认性”只表示 suite 与分析在首次 outcome 前 prospective é¢åæå®，不表示预列 benchmark functions 是函数超总体的概率样本。
 
 ---
 
@@ -564,13 +564,13 @@ random instance split。
 
 固定100 FE。
 
-采用冻结协议 `phase1_dynamic_budget_event_v1`。候选监测网格为 `0.20–0.60`、步长 `0.01`，必选预算里程碑为：
+采用é¢åæå®协议 `phase1_dynamic_budget_event_v1`。候选监测网格为 `0.20–0.60`、步长 `0.01`，必选预算里程碑为：
 
     20%, 22%, 24%, 26%, 28%, 30%, 34%, 38%, 42%, 46%, 50%, 60%
 
-事件状态由 improvement resume、stagnation onset、covariance effective-rank change、elite migration 和 diversity recovery 的冻结阈值触发。每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；若同一 update 跨过的监测点含预算里程碑，则以该里程碑为合并行名义节点，附着事件但不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；若不含里程碑，则以最新跨过的监测点为名义节点。冻结的 `population_size=40` 与 `FE_total=1000D` 保证一次 update 的 ratio 跨度不超过 `0.01`，不会同时跨过两个预算里程碑。每阶段最多 2 个 event-only 状态，event-only 实际 FE-ratio 间隔至少 `0.02`；被 gap/quota 抑制落盘的 crossing 仍推进再武装状态。每个 run 输出 12–18 个状态。
+事件状态由 improvement resume、stagnation onset、covariance effective-rank change、elite migration 和 diversity recovery 的é¢åæå®阈值触发。每个跨过至少一个 `0.01` 监测网格的完整原生 update 只判定一次事件；若同一 update 跨过的监测点含预算里程碑，则以该里程碑为合并行名义节点，附着事件但不消耗 event-only 配额、最小间隔锚点或 `event_index_in_phase`；若不含里程碑，则以最新跨过的监测点为名义节点。é¢åæå®的 `population_size=40` 与 `FE_total=1000D` 保证一次 update 的 ratio 跨度不超过 `0.01`，不会同时跨过两个预算里程碑。每阶段最多 2 个 event-only 状态，event-only 实际 FE-ratio 间隔至少 `0.02`；被 gap/quota 抑制落盘的 crossing 仍推进再武装状态。每个 run 输出 12–18 个状态。
 
-`FE_ratio` 必须等于实际 `FE/FE_total`，名义里程碑保存为 `budget_milestone_ratio`。跨表状态键使用整数 `FE`，不使用浮点 ratio。首轮离线样本不由模型分数选择，不按 outcome 事后改权；主拟合使用 fit-fold 内计算的 `cluster_balanced_fit`，state-row 等权只作 sensitivity。阈值 Q10 邻近带只能在模型冻结后作 online 附加复查，且所有比较策略必须共享相同 decision opportunities。
+`FE_ratio` 必须等于实际 `FE/FE_total`，名义里程碑保存为 `budget_milestone_ratio`。跨表状态键使用整数 `FE`，不使用浮点 ratio。首轮离线样本不由模型分数选择，不按 outcome 事后改权；主拟合使用 fit-fold 内计算的 `cluster_balanced_fit`，state-row 等权只作 sensitivity。阈值 Q10 邻近带只能在模型é¢åæå®后作 online 附加复查，且所有比较策略必须共享相同 decision opportunities。
 
 RQ2 的主 Time-only 比较只使用 12 个预算里程碑：`milestone_only_T0` 与 milestone-only B3 必须在相同行上配对。事件机会的出现由 Behavior 条件决定，因此完整 dynamic schedule 上的 T0 只能作为 schedule-conditioned sensitivity。
 
@@ -594,11 +594,11 @@ Selection Reference 将扣除 query sampling FE 后的 `remaining_budget_ratio` 
 
 ## Random Analysis
 
-`matched_rate_random`：run-level 调用率与已调用 run 的 first-trigger `FE_ratio` 经验分布只由 BBOB-train 端到端 OOF Proposed policy 冻结。每个 run 开始时预抽是否调用和目标 FE ratio，在第一个不早于目标的在线合格机会触发；不存在该机会则不触发。30 个 Random streams 先在同一 run 内平均，再进入 problem/function 聚合，不能作为独立统计复制。不得事后从完整机会集合均匀选 state，外部结果不参与 calibration。
+`matched_rate_random`：run-level 调用率与已调用 run 的 first-trigger `FE_ratio` 经验分布只由 BBOB-train 端到端 OOF Proposed policy é¢åæå®。每个 run 开始时预抽是否调用和目标 FE ratio，在第一个不早于目标的在线合格机会触发；不存在该机会则不触发。30 个 Random streams 先在同一 run 内平均，再进入 problem/function 聚合，不能作为独立统计复制。不得事后从完整机会集合均匀选 state，外部结果不参与 calibration。
 
 ## Traditional AAS
 
-`pre_run_aas_fe0`：在 optimizer prefix 前、`FE=0` 执行 query，只用 query features 与剩余预算选择初始算法，并以 `B-FE_query` 运行；它是 query-only、sample-isolated 的 pre-run AAS，query sample 不初始化或扩充 optimizer population。它与 Always Query 分开运行、分开报告。该基线及 portfolio 结论只条件于仓内固定 DE/PSO/CMA-ES/SHADE 实现、冻结参数与 `population_size=40`，不代表所有 Traditional AAS 或所有 portfolio instantiations。
+`pre_run_aas_fe0`：在 optimizer prefix 前、`FE=0` 执行 query，只用 query features 与剩余预算选择初始算法，并以 `B-FE_query` 运行；它是 query-only、sample-isolated 的 pre-run AAS，query sample 不初始化或扩充 optimizer population。它与 Always Query 分开运行、分开报告。该基线及 portfolio 结论只条件于仓内固定 DE/PSO/CMA-ES/SHADE 实现、é¢åæå®参数与 `population_size=40`，不代表所有 Traditional AAS 或所有 portfolio instantiations。
 
 FE=0 AAS 的显式关系记账固定为：`prefix_algorithm=selected_algorithm`（仅表示 fresh run 的选中算法，不表示存在 optimizer prefix）、`selected_equals_prefix=true`、`handoff_required=false`、`handoff_type=fresh_optimizer_initialization`；`default_algorithm` 与 `no_query_algorithm` 均为对应 fold 的 SBS。该关系不能误写为 population transfer。
 
@@ -656,11 +656,18 @@ VBS 保留为标准静态 problem-level hindsight reference。对每个 `problem
 
 RQ1 的目标分布固定为 `descriptor_cheap_invariant`、SBS prefix 和 `phase1_dynamic_budget_event_v1` eligible states。统一聚合层级为 state → run → static problem → fixed dimension stratum → function：run 内 eligible states 等权；`function × dimension × instance` static problem 内 paired optimizer runs 等权；每个 `function × dimension` 内 static problems 等权；最后在 function 内使 10D/20D/40D 固定 strata 等权。policy endpoint 从 run 层开始同序聚合。function 是顶层统计单位；state、seed、instance 或 function × dimension 不是独立顶层复制。
 
-BBOB-validation 的 estimand 是 F5、F9、F13、F14、F19、F24 六个固定 functions 的等权有限集均值，条件于这 6 个 functions、冻结 dimensions/instances/static problems 与固定 query realizations。历史模型比较、调参、消融与采样设计已经读取该集合，因此它是已见内部评价集；历史旧结果不能恢复未见性。CEC2017 已有历史 online/targeted 诊断，是已见外部开发集。二者均不提供确认性证据，也不支持 function 或 transformed-instance 超总体推断。
+BBOB-validation 的 estimand（2026-08-21 扩充，两层 50/50 预指定组成）为：
 
-当前 BBOB 的 3 instances × 30 optimizer seeds 与 CEC2017 的 30 seeds 没有仓内 precision/power 依据，只是固定开发期采样设计；报告必须给出实际区间宽度，不能把重复次数本身当作充分性证明。CEC2022 与工程问题必须在首次 outcome 前冻结 endpoint-specific precision target、只使用开发集合方差信息的 repeats 确定方法与最终重复数；未闭合时不得启动对应前瞻评价。
+$$
+\mu_{\mathrm{val}}=0.5\cdot\frac{1}{6}\sum_{f\in\{5,9,13,14,19,24\}}\mu_f
+\;+\;0.5\cdot\frac{1}{18}\sum_{c\in\mathcal{M}_{\mathrm{val}}}\mu_c,
+$$
 
-主 95% CI 固定为 10,000 次条件配对层级 bootstrap：所有 replicate 均保留全部 6 个 validation functions、全部固定 dimensions 与 instances 1/2/3 对应的全部 static problems；只在每个固定 static problem 内配对重抽 optimizer seeds。RQ1 对每个抽中 seed/run 保留完整有序 state 序列。不得在主 CI 中重抽 function 或 static problem。有放回重抽 6 个 functions 的结果只作函数组成敏感性，必须单独命名，不得替代主 CI、恢复确认性或扩张为 function/transformed-instance 超总体区间。
+其中第一层是 F5、F9、F13、F14、F19、F24 六个固定 functions 的等权有限集子均值（内部与旧口径完全同构，整体乘 2 可还原旧 estimand），第二层是 18 个é¢åæå® `mabbob_validation` 定义（`configs/phase1_mabbob_validation.yaml`，candidate 201–218，components 仅含六个 validation 函数、dense 权重支持集不越界，10/20/40D、instance 1、seeds 1–5、reflect）的等权有限集子均值。50/50 为预指定固定组成，不得在查看 outcome 后调整；两层信息同源于六个 validation 函数族，50/50 只表示权重而非独立信息量。该集合条件于固定 functions/definitions、é¢åæå® dimensions/instances/static problems 与固定 query realizations。历史模型比较、调参、消融与采样设计已经读取该集合，因此它是已见内部评价集；历史旧结果不能恢复未见性。CEC2017 已有历史 online/targeted 诊断，是已见外部开发集。二者均不提供确认性证据，也不支持 function 或 transformed-instance 超总体推断。`mabbob_validation` 为 evaluation-only：不得进入 Selector 或 Decision Model 的任何 fitting split。
+
+当前 BBOB 的 3 instances × 5 optimizer seeds 与 CEC2017 的 5 seeds（2026-08-21 由 30 seeds 下调，属开发期采样设计变更，非精度驱动）没有仓内 precision/power 依据，只是固定开发期采样设计；报告必须给出实际区间宽度，不能把重复次数本身当作充分性证明。主 CI 的 seed 层配对 bootstrap 在每个 static problem 内仅有 5 个重抽单元。CEC2022 与工程问题必须在首次 outcome 前é¢åæå® endpoint-specific precision target、只使用开发集合方差信息的 repeats 确定方法与最终重复数；未闭合时不得启动对应前瞻评价。
+
+主 95% CI 固定为 10,000 次条件配对层级 bootstrap：所有 replicate 均保留全部 6 个 validation functions、18 个 `mabbob_validation` 定义、全部固定 dimensions 与 instances 1/2/3（validation 侧 MA-BBOB 为 instance 1）对应的全部 static problems；只在每个固定 static problem 内配对重抽 optimizer seeds。两层各自内部沿用统一聚合层级（state → run → static problem → fixed dimension stratum → function/definition），再按固定 50/50 组成合并；不重抽 function、definition，也不重抽层的组成。RQ1 对每个抽中 seed/run 保留完整有序 state 序列。不得在主 CI 中重抽 function 或 static problem。有放回重抽 6 个 functions 的结果只作函数组成敏感性，必须单独命名，不得替代主 CI、恢复确认性或扩张为 function/transformed-instance 超总体区间。
 
 ERT 使用专用 paired hierarchical ratio bootstrap。主区间条件于固定 functions、fixed dimensions、instances/static problems 与 query realizations：每个 replicate 保留全部 static problems，只在每个固定 problem 内联合配对重抽 optimizer runs，分别重算 treatment/reference 的 `N_FE` 与 `N_hit`，计算 $ERT=N_{FE}/N_{hit}$ 及 `log10(ERT_treatment/ERT_reference)`；之后对 fixed dimensions 等权形成 function effect，再对 fixed functions 等权。function resampling 只允许作为单独命名的函数组成敏感性，不得替代主区间或产生 function/transformed-instance 超总体推断。
 
@@ -668,11 +675,11 @@ ERT 使用专用 paired hierarchical ratio bootstrap。主区间条件于固定 
 
 代码中的专用 ERT ratio/strata 函数目前尚未接入 suite-level attempted denominator/coverage、双向 failure sensitivity 与报告表 consumer；这项 wiring 是正式推断 blocker。仅生成 complete-pair ERT ratio 不能视为该 endpoint 已闭合。
 
-Utility ±0.01、`log10_gap` ±0.05、runtime ratio `[0.95,1.05]` 及 call/target-hit-rate 差 ±0.05 只称“项目内预设 operational tolerance”；项目内尚无独立领域依据将其称为 confirmatory equivalence。BBOB-validation 与 CEC2017 使用条件区间逐项描述相对 tolerance 的位置，非显著差异不建立等价，Utility 内的 gap/runtime 抵消也不建立单独 endpoint 等价。未来 untouched external suite 若预列 simultaneous intervals，其 family 与 interval level 必须在首次 outcome 前冻结；第一篇论文仍不据项目内 tolerance 作确认性等价声明。
+Utility ±0.01、`log10_gap` ±0.05、runtime ratio `[0.95,1.05]` 及 call/target-hit-rate 差 ±0.05 只称“项目内预设 operational tolerance”；项目内尚无独立领域依据将其称为 confirmatory equivalence。BBOB-validation 与 CEC2017 使用条件区间逐项描述相对 tolerance 的位置，非显著差异不建立等价，Utility 内的 gap/runtime 抵消也不建立单独 endpoint 等价。未来 untouched external suite 若预列 simultaneous intervals，其 family 与 interval level 必须在首次 outcome 前é¢åæå®；第一篇论文仍不据项目内 tolerance 作确认性等价声明。
 
-RQ2 唯一主要科学 contrast 是冻结模型家族的 milestone-only B3--T0。BBOB-validation 与 CEC2017 分别给已见内部/外部开发估计；确认性证据只来自配置、factory/runner、端点与 contrasts 全部闭合后首次运行的 CEC2022 与工程集合。LDA、Logistic Regression 与 Ridge 的 train outer-OOF 两两 contrasts 只作选模诊断。
+RQ2 唯一主要科学 contrast 是é¢åæå®模型家族的 milestone-only B3--T0。BBOB-validation 与 CEC2017 分别给已见内部/外部开发估计；确认性证据只来自配置、factory/runner、端点与 contrasts 全部闭合后首次运行的 CEC2022 与工程集合。LDA、Logistic Regression 与 Ridge 的 train outer-OOF 两两 contrasts 只作选模诊断。
 
-RQ3--RQ5 在六函数 BBOB-validation 上全部是有限集估计性分析。paired sign-flip 依赖固定 function effects 的 signs 在零假设下可交换这一额外假设；六函数双侧 exact raw p 最小为 0.03125，RQ3 与 RQ5 各自六 contrast Holm family 的最小 adjusted p 均为 0.1875，在 0.05 下不可能拒绝。RQ4 按 suite 与 endpoint 分开，不把四个 suites 组成同一 Holm family；未来某 suite 内若有多个 contrasts，须在首次 outcome 前单独冻结 family。逐 function/problem effects、固定有限集均值、条件 95% CI、coverage 与失败敏感性是主证据；sign-flip/Holm 若保留，只进入 assumption-sensitive 辅助表，不承担 RQ 成败判据。未拒绝不表示等价或无效，任何 p 值都不产生函数超总体推断。
+RQ3--RQ5 在六函数 BBOB-validation 上全部是有限集估计性分析。paired sign-flip 依赖固定 function effects 的 signs 在零假设下可交换这一额外假设；六函数双侧 exact raw p 最小为 0.03125，RQ3 与 RQ5 各自六 contrast Holm family 的最小 adjusted p 均为 0.1875，在 0.05 下不可能拒绝。RQ4 按 suite 与 endpoint 分开，不把四个 suites 组成同一 Holm family；未来某 suite 内若有多个 contrasts，须在首次 outcome 前单独é¢åæå® family。逐 function/problem effects、固定有限集均值、条件 95% CI、coverage 与失败敏感性是主证据；sign-flip/Holm 若保留，只进入 assumption-sensitive 辅助表，不承担 RQ 成败判据。未拒绝不表示等价或无效，任何 p 值都不产生函数超总体推断。
 
 ---
 
@@ -733,7 +740,7 @@ Decision-before-Feature 是否减少无效 query 调用？
 
 - 所有计划 run 先进入 coverage denominator；失败记录不得按结果方向删除。
 - Decision score 缺失时该机会按 No-query；query 触发后发生 feature/selector failure 时，已消耗的 query FE 与时间保留，并以 query-adjusted budget 原生 `continue_current`。
-- BBOB train/validation 与 CEC2017 固定 `failure_loss_cap=1e20`、取 `log10` 前 raw-gap floor/cap `1e-12/1e20`、`success_gap_target=1e-8`、单 state-action path timeout `3600 s`，并逐 objective evaluation 记录 `observed_first_hit_FE`。timeout/failed path 保留为路径失败；若失败前已经命中，`target_hit_observed=true` 且标准 ERT 保留 observed first hit，同时 `endpoint_success=false`。只有未命中项的 ERT contribution 计该路径完整 planned budget。failure cap 只用于保留有限 target 与双向极端 sensitivity，不得掩盖 failure/coverage/ERT。CEC2022/工程问题必须在首次前瞻评价运行前冻结同类字段；工程集合还必须冻结 constraint rule，缺少配置/factory 时不得启动。
+- BBOB train/validation 与 CEC2017 固定 `failure_loss_cap=1e20`、取 `log10` 前 raw-gap floor/cap `1e-12/1e20`、`success_gap_target=1e-8`、单 state-action path timeout `3600 s`，并逐 objective evaluation 记录 `observed_first_hit_FE`。timeout/failed path 保留为路径失败；若失败前已经命中，`target_hit_observed=true` 且标准 ERT 保留 observed first hit，同时 `endpoint_success=false`。只有未命中项的 ERT contribution 计该路径完整 planned budget。failure cap 只用于保留有限 target 与双向极端 sensitivity，不得掩盖 failure/coverage/ERT。CEC2022/工程问题必须在首次前瞻评价运行前é¢åæå®同类字段；工程集合还必须é¢åæå® constraint rule，缺少配置/factory 时不得启动。
 - 缺失状态键或配对 outcome 是数据生成错误，必须重生成对应 shard，不作统计插补。
 - 每个 suite × endpoint 报告 attempted denominator/coverage、失败率、complete-pair estimate 与双向极端 failure sensitivity。未闭合 pair 的 favorable/adverse 值运行前固定：gap 用 floor/cap；`target_hit_observed` 用 1/0；ERT adverse 未命中 contribution 用 full planned budget，ERT favorable 命中 contribution 用该行在已知 prefix、已计 query FE 与 endpoint 时间原点下最早可行的 objective-evaluation index（prefix 已命中则保留其实际 first hit，无 prefix 信息的 FE=0 全路径下界为 1）；runtime 用该 suite complete pairs 的最小正值/timeout。若最早可行 first-hit FE 或最小正 runtime 不可重建，相应 sensitivity 为 undefined。Utility 从同一组极端 endpoints 重算。科学 path failure 已按 cap/timeout 保留时不当作 missing pair。只要效应方向、区间相对 operational tolerance 的位置任一改变、coverage<95%，或 sensitivity undefined，对应结论即未建立。
 
@@ -741,11 +748,11 @@ Decision-before-Feature 是否减少无效 query 调用？
 
 # 16.2 Computational Scenarios and Pre-run Checklist
 
-BBOB train + validation 包含 25,920 个基础 optimizer runs、至少 311,040 个 mandatory states 和 0.6048B 基础 FE。Query sample artifact 按 `problem × sample_design` 生成一次，不能按 state/prefix 重复计入 action-loss producer。12 个 mandatory milestones 的平均 prefix ratio 为 0.35、平均 future-path ratio 为 0.65；旧 `FE_prefix=0.60B` 单点假设把 future-path FE 低估为真实 mandatory 平均的 $0.40/0.65=1/1.625$。在无 event/failure 的算术情景中，跨 Stage-A matrices 共享一次 Skip/Behavior `continue_current` 但不复用基础 trajectory时，Stage A 为 main cheap 37.467612B FE、三档 53.434836B FE；若逐行证明基础 trajectory 终值同义并复用，分别为 32.750172B/48.717396B。当前 main producer 每个 action-budget CLI 另执行一次 Skip，Stage A 为 46.902492B；三档 current-producer 量等待实际调用图枚举。
+BBOB train + validation 包含 4,320 个基础 optimizer runs（5 seeds）、至少 51,840 个 mandatory states 和 0.1008B 基础 FE。Query sample artifact 按 `problem × sample_design` 生成一次，不能按 state/prefix 重复计入 action-loss producer。12 个 mandatory milestones 的平均 prefix ratio 为 0.35、平均 future-path ratio 为 0.65；旧 `FE_prefix=0.60B` 单点假设把 future-path FE 低估为真实 mandatory 平均的 $0.40/0.65=1/1.625$。在无 event/failure 的算术情景中，跨 Stage-A matrices 共享一次 Skip/Behavior `continue_current` 但不复用基础 trajectory时，Stage A 为 main cheap 6.244602B FE、三档 8.905806B FE；若逐行证明基础 trajectory 终值同义并复用，分别为 5.458362B/8.119566B。当前 main producer 每个 action-budget CLI 另执行一次 Skip，Stage A 为 7.817082B；三档 current-producer 量等待实际调用图枚举。
 
-主 replay 每个 role 只走一个 fold-specific SBS prefix；5 outer × 4 inner 加 full-train→validation 使 train state 有 22 个逻辑 roles、validation state 有 1 个 role，预算加权 role-state basis 为 30.3912B。Stage-B 三次 selected future-path timing 加主 pre-run AAS timing 为 main cheap 178.24212B FE、三档 296.7678B FE。与 Stage A 合并后，仅跨 matrices 共享时为 215.709732B/350.202636B；进一步复用基础 trajectory 时为 210.992292B/345.485196B；保持当前 main producer 时主 query 为 225.144612B，三档 current-producer 量仍待枚举。完整 online evaluator 每个 base tuple 有 7 条固定政策和 30 条 Random，每条 1 次 Stage-A 加 3 次 Stage-B；现 CEC2017 配置另需 11.5884B planned FE，BBOB-validation 全 instances 另需 5.5944B FE，但当前 evaluator 不支持后者。上述仍不含 event-only/更早 states、失败、CEC query/VBS、CEC2022、工程问题或额外 query replicates，只能称 mandatory-only 算术情景，不能称严格下界或资源可行性证明。
+主 replay 每个 role 只走一个 fold-specific SBS prefix；5 outer × 4 inner 加 full-train→validation 使 train state 有 22 个逻辑 roles、validation state 有 1 个 role，预算加权 role-state basis 为 5.0652B。Stage-B 三次 selected future-path timing 加主 pre-run AAS timing 为 main cheap 29.70702B FE、三档 49.4613B FE。与 Stage A 合并后，仅跨 matrices 共享时为 35.951622B/58.367106B；进一步复用基础 trajectory 时为 35.165382B/57.580866B；保持当前 main producer 时主 query 为 37.524102B，三档 current-producer 量仍待枚举。完整 online evaluator 每个 base tuple 有 7 条固定政策和 30 条 Random，每条 1 次 Stage-A 加 3 次 Stage-B；现 CEC2017 配置（5 seeds）另需 1.9314B planned FE，BBOB-validation 全 instances 另需 0.9324B FE，但当前 evaluator 不支持后者。上述仍不含 event-only/更早 states、失败、CEC query/VBS、CEC2022、工程问题或额外 query replicates，只能称 mandatory-only 算术情景，不能称严格下界或资源可行性证明。
 
-22 个 fold roles 是逻辑评价依赖，不自动等于 22 条不可共享的科学 outcome；Stage-A 四动作矩阵已经允许不同 roles 读取同一实际 action outcome。当前 Stage-B 资源情景仍按每个 role 的完整 selected path 计费，因为主 timing estimand 要求真实执行对应 Selector inference 与完整 future path。若要按 `state × matrix × actual action` 去重物理 continuation，必须先冻结逐 repetition 的组件合成、cache/order、censoring 与 artifact-specific inference 计时规则，并证明它与完整路径 wall-clock 的目标一致；在此裁决前不得把较小去重量写成正式预算。Planner 已有枚举能力，但 grouped-by-function Selector artifact 路由、runner、物化实测 plan、Stage-A 共享/复用、BBOB instance-aware online endpoint、timing、资源与排期仍是 blockers。
+22 个 fold roles 是逻辑评价依赖，不自动等于 22 条不可共享的科学 outcome；Stage-A 四动作矩阵已经允许不同 roles 读取同一实际 action outcome。当前 Stage-B 资源情景仍按每个 role 的完整 selected path 计费，因为主 timing estimand 要求真实执行对应 Selector inference 与完整 future path。若要按 `state × matrix × actual action` 去重物理 continuation，必须先é¢åæå®逐 repetition 的组件合成、cache/order、censoring 与 artifact-specific inference 计时规则，并证明它与完整路径 wall-clock 的目标一致；在此裁决前不得把较小去重量写成正式预算。Planner 已有枚举能力，但 grouped-by-function Selector artifact 路由、runner、物化实测 plan、Stage-A 共享/复用、BBOB instance-aware online endpoint、timing、资源与排期仍是 blockers。
 
 正式运行前必须确认：
 
@@ -758,7 +765,7 @@ BBOB train + validation 包含 25,920 个基础 optimizer runs、至少 311,040 
 7. `pre_run_aas_fe0` 在 FE=0 独立生成，online `FE_query` 只按实际触发路径收费；
 8. replay planner 目前仅有枚举能力；offline decision-state-to-terminal runner 尚未实现，fold-role-complete plan 尚未物化实测并核对，均为正式运行 blocker。runner 实现后还必须把 Stage-A 科学端点与 Stage-B timing-only 字段分开，保存三次 future-path wall-clock 与独立 FE=0 policy wall-clock、`cyclic_complete_path_v1` order、线程、机器、组件、原始时间、逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；三次预定重复不得选择性重跑；
 9. 72 个 trajectory/final-performance pair、reference/final gap/log10 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success`、失败字段、cap/floor/timeout 与 coverage denominator 完整，trajectory/Behavior 不含这些 outcome 输入字段；ERT 使用逐 function × dimension 重算的专用 ratio bootstrap，零命中 stratum 不删除；
-10. CEC2022 的配置及工程集合的配置/factory/constraint endpoints 在首次确认性 outcome 前补齐并冻结；活动输出不读取历史产物，BBOB-validation/CEC2017 不标为确认性。
+10. CEC2022 的配置及工程集合的配置/factory/constraint endpoints 在首次确认性 outcome 前补齐并é¢åæå®；活动输出不读取历史产物，BBOB-validation/CEC2017 不标为确认性。
 
 任一项未确认时不得启动正式矩阵。上述数字是计划下界，不是已经完成的运行量。
 

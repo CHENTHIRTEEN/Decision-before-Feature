@@ -9,3 +9,6 @@ dist/
 *.egg-info/
 results/
 logs/
+
+# generated experiment outputs (large binaries and derived data)
+outputs/

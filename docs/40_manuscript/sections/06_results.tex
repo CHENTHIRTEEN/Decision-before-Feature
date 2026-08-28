@@ -69,7 +69,7 @@ first-trigger $G_FE$.  These outcomes select among candidates and provide
 development diagnostics; after selection they are not an unbiased estimate of
 the selected procedure.  AUROC, average precision, and Spearman correlation
 are secondary; continuous-Utility RMSE is defined only for Ridge.  After the
-model family is frozen, B3 is compared with T0 on the same 12 mandatory
+model family is predefined, B3 is compared with T0 on the same 12 mandatory
 milestone rows.  This prespecified BBOB-validation B3--T0 comparison is a
 post-development internal finite-set estimate, not an independent confirmation;
 external suites are evaluated separately.  A dimension-stratified T0 fit,
@@ -123,7 +123,7 @@ reranking or function-superpopulation claim.
 
 \TBD{TBD-RQ2-CLAIM-01} Behavior provides value beyond elapsed budget only if
 the milestone-matched B3--T0 effect is supported on the primary policy endpoint
-and is not contradicted by terminal performance, runtime, or frozen evaluation.
+and is not contradicted by terminal performance, runtime, or predefined evaluation.
 A schedule-conditioned T0 result cannot support that claim.
 
 \FloatBarrier
@@ -198,12 +198,12 @@ endpoints, is insufficient.
 
 \FloatBarrier
 
-\subsection{RQ4: How does the frozen procedure transport beyond BBOB training?}
+\subsection{RQ4: How does the predefined procedure transport beyond BBOB training?}
 
 BBOB validation, CEC2017, CEC2022, and engineering problems are separate
 evaluation domains.  BBOB validation and CEC2017 are previously inspected
 internal and external development evaluations, respectively.  CEC2017 is now
-frozen to the official 29-problem set F1, F3--F30.  CEC2022 and engineering
+predefined to the official 29-problem set F1, F3--F30.  CEC2022 and engineering
 evaluations remain blocked until their functions/problems, dimensions,
 budgets, targets, caps, timeouts, and constraint-handling rules are fixed.
 
@@ -219,7 +219,7 @@ budgets, targets, caps, timeouts, and constraint-handling rules are fixed.
     & Runtime ratio & Success/failure \\
     \midrule
     BBOB validation & Previously inspected, 6 functions & -- & -- & -- & -- & -- \\
-    CEC2017 & Frozen: F1, F3--F30 & -- & -- & -- & -- & -- \\
+    CEC2017 & predefined: F1, F3--F30 & -- & -- & -- & -- & -- \\
     CEC2022 & Blocked: suite endpoints unresolved & -- & -- & -- & -- & -- \\
     Engineering problems & Blocked: problems/constraints unresolved & -- & -- & -- & -- & -- \\
     \bottomrule
@@ -233,9 +233,9 @@ budgets, targets, caps, timeouts, and constraint-handling rules are fixed.
   \centering
   \fbox{\parbox[c][42mm][c]{0.94\textwidth}{\centering
   \TBD{TBD-RQ4-FIG-01}\\[0.8ex]
-  Suite-separated function/problem effects for the frozen proposed policy and
+  Suite-separated function/problem effects for the predefined proposed policy and
   prespecified references, with coverage and failure markers.}}
-  \caption{RQ4 frozen evaluation.  Suites are not pooled into a single transfer
+  \caption{RQ4 predefined evaluation.  Suites are not pooled into a single transfer
   score and cannot trigger model reselection.}
   \label{fig:rq4-generalization}
 \end{figure*}
@@ -261,7 +261,7 @@ first-trigger threshold within the same complete nested chain.  The primary
 T0 comparison uses milestone rows only.
 
 \begin{table*}[t]
-  \caption{RQ5 six-group ablation using one frozen model family.  The Motion and
+  \caption{RQ5 six-group ablation using one predefined model family.  The Motion and
   Maturity groups are siblings, permitting the two corresponding incremental
   contrasts.}
   \label{tab:rq5-ablation}
@@ -280,7 +280,7 @@ T0 comparison uses milestone rows only.
     B3 & 31 & Motion and Maturity & -- & -- & -- & two sibling increments \\
     \bottomrule
     \multicolumn{7}{l}{\TBD{TBD-RQ5-TAB-01}: add paired function effects,
-    95\% CIs, six Holm-adjusted contrasts, call/terminal endpoints, and frozen
+    95\% CIs, six Holm-adjusted contrasts, call/terminal endpoints, and predefined
     BBOB-validation estimates.  RMSE is N/A unless Ridge is selected.} \\
   \end{tabularx}
 \end{table*}

@@ -1,6 +1,6 @@
 # 最小 Action Loss 字段规范 v1
 
-> 唯一活动字段规范（2026-08-16）。本文定义 action loss shard 的最小必需字段集合。方案 A 主功效为 `G_FE`（等总 FE，runtime 不进入主标签）；时间保留为辅助端点。这里的 action loss 是 FE-indexed optimization loss，不是 wall-clock/runtime 标签。旧 `G_FE` / `g_fe_gt_zero` / `g_fe` / `runtime_ratio` 等作为诊断，不作为活动训练或评估的默认 target。
+> 唯一活动字段规范（2026-08-16）。本文定义 action loss shard 的最小必需字段集合。主 Decision 功效为 `g_fe_selected_path`（等总 FE，runtime 不进入主标签）；时间保留为辅助端点。这里的 action loss 是 FE-indexed optimization loss，不是 wall-clock/runtime 标签。`g_fe` / `g_fe_gt_zero` 表示最佳已观测动作诊断，不作为活动训练或评估的默认 target。
 
 ## 1. 核心原则
 
@@ -122,16 +122,18 @@ completed repetition 的 censored time = raw；timed_out/failed repetition 的 c
 
 ### 3.5 方案 A 主功效字段
 
-> `g_fe` 是按等总 FE 预算定义的主功效；runtime 仅作为独立资源/计时端点保存。
+> `g_fe_selected_path` 是按等总 FE 预算定义的主功效；runtime 仅作为独立资源/计时端点保存。`g_fe` 是最佳已观测动作诊断。
 
 在 utility label 层附加，不在 action loss shard 层：
 
 | 字段 | 含义 |
 |---|---|
-| `g_fe` | 主功效 $G_{FE} = \log\frac{E_{skip}+\epsilon_p}{E_{query}+\epsilon_p}$ |
-| `g_fe_bounded` | 有界版本 |
-| `g_fe_gt_zero` | 布尔标签 |
-| `g_fe_gt_practical` | 实用意义布尔标签 |
+| `g_fe_selected_path` | 主功效 $\log\frac{E_{skip}+\epsilon_p}{E_{query,selected}+\epsilon_p}$ |
+| `g_fe_selected_path_bounded` | 主功效有界版本 |
+| `g_fe_selected_path_gt_zero` | 主功效二元标签 |
+| `g_fe_selected_path_gt_practical` | 主功效实用意义标签 |
+| `g_fe` | 最佳已观测动作诊断 |
+| `g_fe_gt_zero` | 最佳已观测动作二元诊断 |
 | `epsilon_p` | 问题尺度协变稳定项 |
 | `delta_practical` | 实用阈值 |
 
@@ -180,7 +182,7 @@ completed repetition 的 censored time = raw；timed_out/failed repetition 的 c
 ## 6. 一致性校验入口
 
 - `query-consistency`：检查三档预算、feature whitelist、共享样本键、零额外函数评价、BBOB group failure、整列缺失和 action-loss 预算隔离。
-- `utility-labels-validate`：逐行重算五条路径及加法分解，校验 `g_fe` 从 `p_skip_raw` / `p_query_raw` / `benchmark_reference_value` / `epsilon_p` 复算一致，校验 `g_fe_gt_zero == (g_fe > 0)`。
+- `utility-labels-validate`：逐行重算五条路径及加法分解，校验 `g_fe_selected_path` 从 `p_skip_raw` / `p_query_raw` / `benchmark_reference_value` / `epsilon_p` 复算一致，并分别校验两个功效字段及其标签。
 
 ## 7. 数据隔离规则
 

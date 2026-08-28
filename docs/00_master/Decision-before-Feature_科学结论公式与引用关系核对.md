@@ -113,7 +113,7 @@ flowchart TD
 | C9   | 所有策略应共享相同总函数评价预算                          |    D / M | [R10], [R11]       | COCO 将函数评价数作为核心黑盒成本                                          |
 | C10  | $G_FE$、$U_b$ 与 $query_operational_increment$ 应保存为连续标签，而不只保存二元标签 |        O | [R3] 仅作背景      | 三个量定义不同，不能用一个 `G_FE` 字段代替                              |
 | C11  | Query 路径应使用现实可部署的 selector；VBS 只能作为理论上界 |    D / M | [R1], [R4], [R5]   | SBS/VBS 是算法选择中的标准比较概念                                         |
-| C12  | Query 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持冻结采样协议和开展敏感性分析                                       |
+| C12  | Query 特征会受采样策略与样本规模影响                        |        D | [R8], [R9]         | 直接支持é¢åæå®采样协议和开展敏感性分析                                       |
 | C12a | 当前 `selection_reference` 是固定下游组件，不是本文贡献点 |    M / O | [R3], [R5], [R5a]  | 文献支持 ELA-based selector 范式；当前实现质量和泛化风险必须由本文诊断报告 |
 | C12b | 在线共享状态任务的 selector 应由同一状态上的候选 continuation loss 监督，并连续接收剩余预算 | O | [R5], [R29] 作背景 | 性能回归与配对运行提供方法背景；逐状态动作集合、`cv_group_id = function_id` cross-fitted predictions 和 best-observed-action 分解属于本项目协议 |
 | C12c | 逐状态最小已观测 action loss 不能称为 oracle，也不能在实测 loss 外再次扣除 Population Transfer 影响 | O | 无需外部引用 | 这是术语与代数一致性要求；handoff 已进入 observed action loss，query FE 已进入等总预算路径 |
@@ -131,7 +131,7 @@ flowchart TD
 | C15  | 改进率、多样性、停滞和集合分布变化可描述不同搜索状态     |    I / O | [R12], [R14]          | 行为分析提供动机；本文集合统计及其预测价值仍需验证      |
 | C16  | Search Maturity 是既有 Behavior 的三项确定性基函数组      |        O | [R12]–[R15] 仅作灵感 | 不是独立观测、latent state、收敛判据或因果中介         |
 | C17  | $M_t=ES_t(1-XS_t)$、线性组合与 explore/exploit ratio 是预设重参数化 | O | 无直接支持 | 只能通过六组消融评价其对固定线性候选的预测增量         |
-| C18  | Maturity 与 Utility 的曲线方向不在定义中预设             |        O | 无直接支持            | 任何曲线形状均须由冻结结果与不确定性描述               |
+| C18  | Maturity 与 Utility 的曲线方向不在定义中预设             |        O | 无直接支持            | 任何曲线形状均须由é¢åæå®结果与不确定性描述               |
 
 ---
 
@@ -272,7 +272,7 @@ $$
 t_r^*=\min\{t:z_\theta(s_{r,t})>\tau_{\mathrm{OOF}}\}.
 $$
 
-$\tau_{\mathrm{OOF}}$ 只从 BBOB-train 的 fold-specific 上游 OOF score 与 first-trigger Utility 冻结；BBOB-validation 与外部 suite 不参与。Utility 相同时先取调用 run 更少的 threshold，再取数值更大的 threshold。该部署 threshold 与等价性 operational tolerance 是不同对象，不能共用 $\delta$ 混写。
+$\tau_{\mathrm{OOF}}$ 只从 BBOB-train 的 fold-specific 上游 OOF score 与 first-trigger Utility é¢åæå®；BBOB-validation 与外部 suite 不参与。Utility 相同时先取调用 run 更少的 threshold，再取数值更大的 threshold。该部署 threshold 与等价性 operational tolerance 是不同对象，不能共用 $\delta$ 混写。
 
 ---
 
@@ -297,7 +297,7 @@ Bootstrap 与 Monte Carlo 方法可引用 [R17]；当前层级、次数和修正
 - geometric-mean runtime ratio：$[0.95,1.05]$；
 - call rate 或 target-hit rate 差：$[-0.05,0.05]$；`endpoint_success` rate 不复用该名称，若分析须另行预设边界。
 
-Utility $\pm0.01$ 在主 log-ratio scalarization 下约对应 $\pm2.3\%$ 复合 ratio，不是领域普适阈值。主条件 CI 为 95%，只描述相对项目内 tolerance 的位置；同一预设 family 的描述性 Bonferroni 区间在 $m$ 个 contrasts 时每项双侧 level 为 $1-0.05/m$，提供 family-wise 95% coverage，但不构成等价检验。若未来未查看评价集要作正式等价判断，须在 outcome 前另行冻结有领域含义的边界、显著性水平与 TOST/同时区间程序。Utility 中 gap/runtime 的抵消不能替代各 endpoint 自身的判断；差异不显著也不等于等价。[R16] 只支持等价性原则，不为当前数值提供领域依据。
+Utility $\pm0.01$ 在主 log-ratio scalarization 下约对应 $\pm2.3\%$ 复合 ratio，不是领域普适阈值。主条件 CI 为 95%，只描述相对项目内 tolerance 的位置；同一预设 family 的描述性 Bonferroni 区间在 $m$ 个 contrasts 时每项双侧 level 为 $1-0.05/m$，提供 family-wise 95% coverage，但不构成等价检验。若未来未查看评价集要作正式等价判断，须在 outcome 前另行é¢åæå®有领域含义的边界、显著性水平与 TOST/同时区间程序。Utility 中 gap/runtime 的抵消不能替代各 endpoint 自身的判断；差异不显著也不等于等价。[R16] 只支持等价性原则，不为当前数值提供领域依据。
 
 ---
 
@@ -430,7 +430,7 @@ S_t=
 \right),
 $$
 
-其中 $W$ 是预先冻结的窗口。停滞作为行为信息可引用 [R12]；公式属于本文设计。
+其中 $W$ 是预先é¢åæå®的窗口。停滞作为行为信息可引用 [R12]；公式属于本文设计。
 
 ---
 
@@ -566,7 +566,7 @@ $$
 
 ## 4.19 三档预定义 Landscape Query 的表示依赖性
 
-当前实验从本次协议冻结起不再根据 BBOB-validation、CEC2017 或后续结果搜索紧凑特征子集或改选 query。BBOB-validation 已被历史流程查看，不能以“实验前未见”描述。三档 query 分别构造完整的 joint、Behavior-only 与 operational-increment 链：
+当前实验从本次协议é¢åæå®起不再根据 BBOB-validation、CEC2017 或后续结果搜索紧凑特征子集或改选 query。BBOB-validation 已被历史流程查看，不能以“实验前未见”描述。三档 query 分别构造完整的 joint、Behavior-only 与 operational-increment 链：
 
 $$
 U_{q,\mathrm{descriptor\_cheap\_invariant}}^{joint},\quad
@@ -746,7 +746,7 @@ SHAP [R23] 解释的是模型预测贡献，不直接证明：
 - 特征不可替代；
 - 获取该特征不值得。
 
-必要性必须通过冻结特征子集后的 OOD 等价性实验建立。
+必要性必须通过é¢åæå®特征子集后的 OOD 等价性实验建立。
 
 ---
 
@@ -929,7 +929,7 @@ glasserman1992crn
 4. query-feature predictive increment 与 full-budget operational increment 的方向是否一致或存在 trade-off；
 5. Decision gate 的实测开销、terminal `log10_gap`、runtime 和 query calls 是否分别满足声明所需的端点边界；
 6. 结论在 `descriptor_cheap_invariant`、`pflacco_standard_invariant` 与 `pflacco_broad_invariant` 三个预定义配置间是否一致，或表现出 representation dependence；
-7. 完整冻结链在已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题上的效应与失败覆盖，四者分开定位；
+7. 完整é¢åæå®链在已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题上的效应与失败覆盖，四者分开定位；
 8. 跨 prefix/algorithm 分层下的关联是否稳定，且不依赖显式算法 identity。
 
 这些没有直接文献支持并不是缺点。它们恰恰构成论文的贡献空间，前提是不要在实验完成前把它们写成已经由宇宙认证的事实。

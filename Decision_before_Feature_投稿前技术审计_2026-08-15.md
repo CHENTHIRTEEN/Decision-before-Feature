@@ -54,7 +54,7 @@
 | 代码—文档一致性 | 当前较弱 | CV 分组、五路径、selector target、加权拟合、LDA 定义、CEC2017 配置等存在实质不一致 |
 | 算法基线可信度 | 当前不足 | 四个优化器均为仓内实现，尚无与可信实现或 COCO 基准结果的能力审计 |
 | 统计设计 | 中上 | 分层权重、嵌套 OOF、效应量意识较好；但状态级依赖、确认性样本和不确定性目标仍需收紧 |
-| 外部泛化证据 | 当前不足 | BBOB validation 已被检查，CEC2017 已进入开发协议，真正 prospective 的外部确认尚未冻结 |
+| 外部泛化证据 | 当前不足 | BBOB validation 已被检查，CEC2017 已进入开发协议，真正 prospective 的外部确认尚未é¢åæå® |
 | 计算可行性 | 高风险 | 仓库估算主路径超过 2100 亿 FE，三档查询约 3450–3500 亿 FE，尚未见小规模实测资源审计 |
 | 可复现软件工程 | 当前不足 | 有锁文件和大量契约检查，但没有 CI、正式测试目录、LICENSE、CITATION.cff 和发布级 manifest |
 
@@ -181,7 +181,7 @@ $$
 | P0-06 | 仓内 SHADE 供体索引疑似不满足经典 distinctness 约束，四算法均未做能力审计 | 高 | Selector 可能学到实现缺陷而非算法互补性 |
 | P0-07 | 当前物理执行计划约 2100–3500 亿 FE，未完成小规模实测资源审计 | 高 | 项目可能在得到首个可用主结果前耗尽算力和开发周期 |
 | P0-08 | 仓库无正式 CI/测试体系，本次也未能动态执行 | 高 | 复杂协议缺少可持续的机器验证 |
-| P0-09 | BBOB validation 和 CEC2017 已进入开发视野，真正 prospective 外部确认集未冻结 | 高 | 不能把它们包装成独立确认性证据 |
+| P0-09 | BBOB validation 和 CEC2017 已进入开发视野，真正 prospective 外部确认集未é¢åæå® | 高 | 不能把它们包装成独立确认性证据 |
 | P0-10 | 论文、TBD 和代码对 cluster weighting、LDA、CEC2022 状态的描述不一致 | 高 | 读者无法判断究竟哪套实现产生结果 |
 
 ---
@@ -666,7 +666,7 @@ population_size = 40
 - PSO 和 DE 的参数也影响组合互补性；
 - 统一种群规模可能人为改变 SBS 和切换收益。
 
-因此论文应把它称为“用于本研究状态接口的冻结 portfolio configuration”，而不是暗示这些是各算法的通用标准版本。
+因此论文应把它称为“用于本研究状态接口的é¢åæå® portfolio configuration”，而不是暗示这些是各算法的通用标准版本。
 
 ## 9.2 SHADE 供体索引存在静态疑点
 
@@ -768,7 +768,7 @@ Selector 可能学到的是：
 
 这不使研究无效，但 estimand 必须写清：
 
-> 选择的是“算法 + 冻结转移规则”组成的 action。
+> 选择的是“算法 + é¢åæå®转移规则”组成的 action。
 
 ## 10.3 推荐敏感性
 
@@ -911,7 +911,7 @@ Stage B：
 
 ### Stage 3：prospective 外部确认
 
-在冻结外部配置后一次性运行，不再调阈值和模型。
+在é¢åæå®外部配置后一次性运行，不再调阈值和模型。
 
 ## 11.5 更根本的简化选择
 
@@ -1033,7 +1033,7 @@ $$
 - elite migration；
 - diversity recovery。
 
-冻结它们可以防止事后调参，但不能证明：
+é¢åæå®它们可以防止事后调参，但不能证明：
 
 - 对 DE、PSO、CMA-ES、SHADE 同样合理；
 - 对 10D、20D、40D 同样合理；
@@ -1226,7 +1226,7 @@ trajectory/warm-starting 文献已经表明，可以复用先前评价或状态�
 
 ### function-level 泛化 estimand
 
-以 function 为等权单位，回答对冻结 function 集合的平均效果。它不同于 seed-level 置信区间。
+以 function 为等权单位，回答对é¢åæå® function 集合的平均效果。它不同于 seed-level 置信区间。
 
 ## 17.2 推荐权重
 
@@ -1320,7 +1320,7 @@ $$
 
 CEC2017 配置、函数和代码已经被反复讨论，且当前配置还需要修复，因此更适合作为 development external benchmark。
 
-## 18.3 立即冻结真正 prospective 的外部集
+## 18.3 立即é¢åæå®真正 prospective 的外部集
 
 推荐两条互补路线：
 
@@ -1361,7 +1361,7 @@ MA-BBOB 文献已经显示，从原始 BBOB 训练的 selector 对 affine combin
 可选择：
 
 1. 先只使用真正的无约束/box-constrained 工程代理问题；
-2. 或冻结一个统一的 feasibility/penalty 规则，并承认研究对象已扩展。
+2. 或é¢åæå®一个统一的 feasibility/penalty 规则，并承认研究对象已扩展。
 
 ---
 
@@ -1475,7 +1475,7 @@ Query path 同时包含：
 | LDA | 正文类似 sklearn LDA | 自定义 `WeightedLinearDiscriminantAnalysis` | 给出算法定义并做等权一致性测试 |
 | Logistic | 正文提 balanced class weights | 代码主要使用 cluster sample weight，`class_weight=None` | 决定唯一正式配置 |
 | CEC2017 | F1–F29 | 官方最终 29 题不含 F2、含 F30 | 修复配置和 evaluator 映射 |
-| CEC2022 | 文档称 factory 未实现 | `benchmarks/factory.py` 已可路由 OPFUNU | blocker 改为冻结配置、端点和验证链 |
+| CEC2022 | 文档称 factory 未实现 | `benchmarks/factory.py` 已可路由 OPFUNU | blocker 改为é¢åæå®配置、端点和验证链 |
 | matched acquisition | 讨论称不存在 | utility fields/generation 已包含 | 删除旧限制文字 |
 | query feature increment | 旧字段名仍残留于部分代码/文档 | 活动协议已有新路径分解 | 清理 deprecated schema |
 | Result 状态 | 论文结果章节有结构占位 | 正式结果尚未运行 | 所有结果语气保持 future/placeholder |
@@ -1655,7 +1655,7 @@ $$
 5. 统一 weighting/LDA/logistic 文档；
 6. 修复或验证 SHADE；
 7. 建立 CI 与 smoke config；
-8. 冻结外部 prospective suite；
+8. é¢åæå®外部 prospective suite；
 9. 生成 protocol manifest；
 10. 禁止读取旧 artifact。
 
@@ -1669,7 +1669,7 @@ $$
 - failure audit；
 - transfer audit。
 
-若某算法明显不合格，先修实现，再重新冻结版本。
+若某算法明显不合格，先修实现，再重新é¢åæå®版本。
 
 ## 23.3 Phase C：小规模端到端 pilot
 
@@ -1711,11 +1711,11 @@ wall-clock coefficient of variation < prespecified threshold
 
 ## 23.5 Phase E：query configuration sensitivity
 
-在冻结子集上比较 standard/broad，不以其结果重新选择主模型或阈值。
+在é¢åæå®子集上比较 standard/broad，不以其结果重新选择主模型或阈值。
 
 ## 23.6 Phase F：prospective external confirmation
 
-冻结后只执行一次：
+é¢åæå®后只执行一次：
 
 - 不重新训练超参数；
 - 不重新调 threshold；
@@ -1818,7 +1818,7 @@ wall-clock coefficient of variation < prespecified threshold
 
 ## Contribution 3：跨函数与 prospective 外部证据
 
-> We evaluate whether pre-query permutation-invariant behavior predicts query acquisition value under function-grouped nested learning and a prospectively frozen external benchmark.
+> We evaluate whether pre-query permutation-invariant behavior predicts query acquisition value under function-grouped nested learning and a prospectively predefined external benchmark.
 
 不要在没有结果前写：
 
@@ -1854,7 +1854,7 @@ wall-clock coefficient of variation < prespecified threshold
 - [ ] 完成四算法 competency audit；
 - [ ] 更新 weighting/LDA/logistic/CEC2022 状态；
 - [ ] 建立 CI 和 tiny end-to-end test；
-- [ ] 冻结 prospective external suite；
+- [ ] é¢åæå® prospective external suite；
 - [ ] 完成资源 pilot；
 - [ ] 实现物理路径缓存与去重；
 - [ ] 旧 artifact 全部 schema-invalid。
@@ -1898,7 +1898,7 @@ wall-clock coefficient of variation < prespecified threshold
 - [ ] 论文公式与代码 target 一致；
 - [ ] 五路径名称和字段一致；
 - [ ] function ID / family / CV group 不再复用同一字段；
-- [ ] external suite 已冻结。
+- [ ] external suite 已é¢åæå®。
 
 ## Code
 
@@ -1920,8 +1920,8 @@ wall-clock coefficient of variation < prespecified threshold
 
 ## Statistics
 
-- [ ] 主 estimand 已冻结；
-- [ ] 主 comparator 已冻结；
+- [ ] 主 estimand 已é¢åæå®；
+- [ ] 主 comparator 已é¢åæå®；
 - [ ] primary/secondary 分离；
 - [ ] weighting estimand 已说明；
 - [ ] precision target 已给出；
@@ -1968,7 +1968,7 @@ wall-clock coefficient of variation < prespecified threshold
 - 消除语义漂移；
 - 证明 portfolio 实现可信；
 - 把 3500 亿 FE 的物理执行压缩到真正必要的唯一反事实；
-- 冻结一个真正 prospective 的外部测试；
+- é¢åæå®一个真正 prospective 的外部测试；
 - 让五路径服务于一个主问题，而不是让主问题被五路径拖走。
 
 完成这些修改后，该项目会从“极其复杂的研究基础设施”转化为“问题清楚、证据可审计、能够被反驳也能够被复现的方法学论文”。这才是冲击高水平期刊真正需要的形态。

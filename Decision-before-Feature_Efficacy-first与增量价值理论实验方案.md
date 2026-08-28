@@ -135,7 +135,7 @@ Query 先消耗 $c_q$ 次 FE，再由下游 Selector 选择后续动作。
 
 - 两条路径共享相同前缀；
 - 同算法 continuation 使用完整原生状态；
-- 跨算法使用冻结的 handoff 协议；
+- 跨算法使用é¢åæå®的 handoff 协议；
 - 候选 continuation 使用语义分离但可复现的随机流；
 - 所有事实字段先保存，派生功效和价值在下游计算。
 
@@ -238,7 +238,7 @@ $$
 
 - $E_{\mathrm{prefix}}$ 是共享前缀 best-so-far gap；
 - $S_p$ 是合法的、仅用于离线评价的问题尺度；
-- $\eta$ 是预先冻结的小常数；
+- $\eta$ 是预先é¢åæå®的小常数；
 - $\epsilon_0$ 防止数值下溢。
 
 推荐主功效定义：
@@ -1257,7 +1257,7 @@ predicted action losses
 4. 从同一 action-loss table 读取两个 Selector 实际选择动作的 observed loss；
 5. 计算 $V_{\Phi\mid B}^{\mathrm{real}}$；
 6. 所有 Decision Controller 标签均来自 out-of-fold 下游策略；
-7. validation 和 external test 只使用完整 BBOB train 重训后的冻结模型。
+7. validation 和 external test 只使用完整 BBOB train 重训后的é¢åæå®模型。
 
 不得：
 
@@ -2003,7 +2003,7 @@ algorithms = DE, PSO, CMA-ES, SHADE
 
 ### 决策机会
 
-- 冻结的 milestone + event opportunities；
+- é¢åæå®的 milestone + event opportunities；
 - milestone-only 消融；
 - equal-count fixed opportunities；
 - 每条 run 最多一次 Query。
@@ -2059,7 +2059,7 @@ $$
 - black-box；
 - 评估成本明确；
 - 有合法 best-known/reference；
-- 预算可冻结；
+- 预算可é¢åæå®；
 - 约束处理可统一。
 
 工程问题只用于外部验证，不参与模型或模糊规则训练。
@@ -2476,7 +2476,7 @@ $$
 
 # 17. 实施路线
 
-## Step 1：冻结客观功效
+## Step 1：é¢åæå®客观功效
 
 - 使用 benchmark-reference gap；
 - 实现 $G_{\mathrm{FE}}$；
@@ -2670,7 +2670,7 @@ Renau, Q., Doerr, C., Dreo, J., & Doerr, B. (2020). *Exploratory Landscape Analy
 **支持内容**：
 
 - ELA 特征依赖采样策略和样本规模；
-- Query 配置必须版本化、冻结并进行敏感性分析。
+- Query 配置必须版本化、é¢åæå®并进行敏感性分析。
 
 ---
 

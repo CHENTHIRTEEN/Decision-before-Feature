@@ -23,7 +23,7 @@ benchmark configuration
 -> three-repeat decision-state-to-terminal timing
 -> G_FE + auxiliary runtime/resource outputs
 -> fold-specific Decision models + first-trigger thresholds
--> baselines and frozen external evaluation
+-> baselines and predefined external evaluation
 -> hierarchical inference and manuscript tables
 ```
 
@@ -39,7 +39,7 @@ configs/phase1_bbob_validation.yaml
 configs/phase1_cec2017_test.yaml
 ```
 
-共同冻结：
+共同é¢åæå®：
 
 ```text
 failure_loss_cap = 1e20
@@ -52,7 +52,7 @@ timing_repetitions = 3
 timing_order_protocol = cyclic_complete_path_v1
 ```
 
-BBOB train / validation 为 function split，维度 10 / 20 / 40D、3 instances、30 seeds；CEC2017 为 29 functions、10 / 30 / 50D、30 seeds。CEC2022 与工程问题只有在 benchmark factory、约束规则、reference、budget、repeats、endpoint 和 contrast 冻结后才可纳入正式 pipeline。
+BBOB train / validation 为 function split，维度 10 / 20 / 40D、3 instances、5 optimizer seeds（2026-08-21 由 30 下调）；CEC2017 为 29 functions、10 / 30 / 50D、5 seeds。CEC2022 与工程问题只有在 benchmark factory、约束规则、reference、budget、repeats、endpoint 和 contrast é¢åæå®后才可纳入正式 pipeline。
 
 ## 4. Trajectory 与完整预算 endpoint
 
@@ -129,7 +129,7 @@ Reservoir 只保存已评价点流的固定容量代表性子集；它能回答�
 
 ## 9. Stage-A 科学端点与 Stage-B 三次 future-path 计时
 
-Stage-A 两套 action matrices 的预指定单次 outcome 唯一固定每条科学路径的 terminal gap、observed hit、path completion、endpoint success、planned/effective FE 与失败状态。Selector 冻结后，Stage-B 将 selected Skip / Query / Behavior-only 从同一复制 state/RNG 到 terminal 真实 replay 预定三次，固定机器 / 线程 / 常驻进程，但只决定 wall-clock。canonical order 按 `cyclic_complete_path_v1` 循环移位；逐次保存 repetition、order、raw/censored 组件 / 完整路径时间、status、observed hit、path completion、endpoint success 与 effective FE。completed repetition 的 censored time 等于 raw，timed-out/failed repetition 为 `max(raw, role timeout)`，主时间使用三次 censored median，raw median 只作诊断。
+Stage-A 两套 action matrices 的预指定单次 outcome 唯一固定每条科学路径的 terminal gap、observed hit、path completion、endpoint success、planned/effective FE 与失败状态。Selector é¢åæå®后，Stage-B 将 selected Skip / Query / Behavior-only 从同一复制 state/RNG 到 terminal 真实 replay 预定三次，固定机器 / 线程 / 常驻进程，但只决定 wall-clock。canonical order 按 `cyclic_complete_path_v1` 循环移位；逐次保存 repetition、order、raw/censored 组件 / 完整路径时间、status、observed hit、path completion、endpoint success 与 effective FE。completed repetition 的 censored time 等于 raw，timed-out/failed repetition 为 `max(raw, role timeout)`，主时间使用三次 censored median，raw median 只作诊断。
 
 路径身份、completed replays 内部 endpoint、Stage-A→completed replay endpoint 一致性分别保存；Stage-B status instability 与跨阶段 completion instability 也分别保存。任何 replay 不得覆盖科学字段或被选择性补跑。共享 prefix 是 sunk cost；FE=0→terminal policy wall-clock 独立保存且不进入 Utility。
 

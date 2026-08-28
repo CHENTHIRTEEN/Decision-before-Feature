@@ -5,7 +5,7 @@
 当前文档按以下顺序使用：
 
 1. `../AGENTS.md`：最高优先级开发与实验约束。
-2. `../DEVELOPMENT_DECISIONS.md`：已冻结的可执行协议。
+2. `../DEVELOPMENT_DECISIONS.md`：已预先指定的可执行协议。
 3. `00_master/`：研究问题、数学定义、论文结构和引用边界。
 4. `10_protocols/`：数据、标签、模型、baseline 和成本评价协议。
 5. `30_results/`：只记录已历史旧结果的影响范围；完整两阶段链重生成后再新增正式结果。
@@ -43,7 +43,7 @@
 - `Decision-before-Feature_实验数据生成与算法无关行为建模设计.md`
 - `Decision-before-Feature 完整实验Pipeline与代码架构设计.md`
 - `Decision-before-Feature_Offline Utility Label构建协议.md`
-- `Decision-before-Feature_phase1_refined_sampling_指标口径冻结.md`
+- `10_protocols/` 中的 phase1 refined sampling 指标口径文档（预先指定）。
 - `Decision-before-Feature_phase1_utility_label_column_spec.md`
 - `Decision-before-Feature Algorithm Portfolio与Selection Reference设计.md`
 - `Decision-before-Feature_逐状态动作损失Selection Reference修订.md`
@@ -53,7 +53,7 @@
 - `Decision-before-Feature Search Maturity与ELA Utility关系验证设计.md`
 - `Decision-before-Feature_Decision_Model计算成本与资源开销分析设计.md`
 
-正式 phase1 的关键冻结口径：
+正式 phase1 的关键预先指定口径：
 
 ```text
 BBOB train/validation dimensions: 10, 20, 40
@@ -80,7 +80,7 @@ SBS 只从相应 fit functions 的完整预算终值表计算：raw gap 按配�
 
 统一 median/IQR preprocessing 后恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr` 已从主 query 活动 whitelist 删除，因此 cheap 从 16 列改为 14 列；query ID、`lhs_50d`、5% FE 和既有 action-loss 设计不变。
 
-正式运行前仍有 blockers：replay planner 已有枚举能力，但 offline decision-state-to-terminal runner、物化实测 plan 与 Stage-A Skip 复用尚未闭合；资源/排期未确认；CEC2017 F2/F30 函数集口径需核对；CEC2022 与工程问题的 suite endpoint 和 constraint rule 尚未冻结。
+正式运行前仍有 blockers：replay planner 已有枚举能力，但 offline decision-state-to-terminal runner、物化实测 plan 与 Stage-A Skip 复用尚未闭合；资源/排期未确认；CEC2017 F2/F30 函数集口径需核对；CEC2022 与工程问题的 suite endpoint 和 constraint rule 尚未预先指定。
 
 ## 20_extensions
 
@@ -88,6 +88,7 @@ SBS 只从相应 fit functions 的完整预算终值表计算：raw gap 按配�
 
 - `Decision-before-Feature_特征信息必要性与ELA信息价值验证设计.md`
 - `Decision-before-Feature_维度与泛化实验设计.md`
+- `Decision-before-Feature_10D_BBOB_MABBOB_行为标签与Selector扩展实验草案.md`：RL-DAS/AS-LGBM 启发的待细化扩展，不替代当前主协议。
 
 preliminary/min_support 的扩展计划和归因记录已移动到 `archive/min_support/`。
 

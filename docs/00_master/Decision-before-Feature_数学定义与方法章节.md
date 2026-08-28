@@ -141,7 +141,7 @@ $$
 
 ## 6. Utility 与 query 操作性增量
 
-对 $k\in\{s,q,b\}$，使用 suite 预先冻结的 raw-gap floor/cap：
+对 $k\in\{s,q,b\}$，使用 suite 预先é¢åæå®的 raw-gap floor/cap：
 
 $$
 \ell_k=\log_{10}\left(\min\{\max(g_k,10^{-12}),10^{20}\}\right).
@@ -149,31 +149,24 @@ $$
 
 Stage-B 将 `skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget` 五条 selected 路径从同一 decision state/RNG 到 terminal 真实执行预定三次，但只用于计时；按 `cyclic_complete_path_v1` 交错顺序。每次保留 raw observed wall-clock；completed repetition 的 censored time 等于 raw，timed-out/failed repetition 的 censored time 为 `max(raw, role timeout)`，$T_k$ 固定为三次 censored time 的中位数。raw observed median 只作诊断，旧 failure-worst-case 字段只作同一 censored 值的别名。每次保存 status、observed hit、path completion、endpoint success、effective FE 与失败字段。路径身份、completed replays 内部 endpoint 和 Stage-A 到 completed replay 的 endpoint 一致性分别保存；Stage-B 内部 status instability 与 Stage-A/Stage-B completion instability 也分别保存。任何 replay 都不得改写 Stage-A 科学端点或被选择性补跑。共享 prefix 视为 sunk cost；FE=0→terminal online policy wall-clock 另作政策端点，不进入 Utility。
 
-主配置 $\lambda_T=1,\lambda_M=0$：
+当前主 Decision target 只使用等总 FE 的 Stage-A 科学端点，不包含 runtime：
 
 $$
-G_FE
-=(\ell_s-\ell_q)
--\lambda_T(\log_{10}T_q-\log_{10}T_s),
+g_{fe,selected}
+=\log\frac{E_{skip}+\epsilon_p}{E_{query,selected}+\epsilon_p}.
 $$
 
-$$
-U_b
-=(\ell_s-\ell_b)
--\lambda_T(\log_{10}T_b-\log_{10}T_s),
-$$
+其中 $E_{query,selected}$ 是 Query Selector 实际选中动作的终点 gap。四个已观测动作中的最小 gap 另保存为 `g_fe`，仅作最佳已观测动作诊断：
 
 $$
-query_operational_increment
-=(\ell_b-\ell_q)
--\lambda_T(\log_{10}T_q-\log_{10}T_b)
-=G_FE-U_b.
+g_{fe,best}
+=\log\frac{E_{skip}+\epsilon_p}{E_{best\ observed\ action}+\epsilon_p}.
 $$
 
-`G_FE` 是主 Decision target；其二元标签为
+主标签是 `g_fe_selected_path`；其二元标签为
 
 $$
-y_q=\mathbb I[G_FE>0].
+y_q=\mathbb I[g_{fe,selected}>0].
 $$
 
 `query_operational_increment` 比较两条可操作路径，包含 query sample FE、sample best、预算差、Selector 和 runtime，不得称为纯信息效应或 causal effect。
@@ -215,7 +208,7 @@ Population transfer 已包含在 observed $L_a$ 和 path runtime 中；query FE 
 
 ## 8. Behavior representation
 
-Decision state 由 query 前 Behavior 构成。活动输出共 34 个唯一 `bf_*` 字段：31 个正式输入、3 个诊断字段。正式输入按以下六组冻结：
+Decision state 由 query 前 Behavior 构成。活动输出共 34 个唯一 `bf_*` 字段：31 个正式输入、3 个诊断字段。正式输入按以下六组é¢åæå®：
 
 | 组 | 内容 | 字段数 |
 |---|---|---:|
@@ -286,7 +279,7 @@ outer-fit functions
 
 每个 inner fold 又必须只用 inner-fit functions 重算 `SBS_inner`、Selectors、Utility 和 Decision。不得先用完整 BBOB-train 生成标签，再对 Decision 单独 OOF。
 
-主模型选择指标为拼接 outer holdout 后，按 first-trigger policy 重建的 run-level mean `G_FE`。AUROC、Average Precision 和 Spearman 只作辅助；连续 Utility RMSE 只对 Ridge 定义。BBOB-validation 已在历史流程中用于模型比较、调参与消融，不能再作为未查看评价集或 selected procedure 的无偏性能估计；当前流程仍禁止用其继续拟合或重选。
+主模型选择指标为拼接 outer holdout 后，按 first-trigger policy 重建的 run-level mean `g_fe_selected_path`。AUROC、Average Precision 和 Spearman 只作辅助；连续功效 RMSE 只对 Ridge 定义。BBOB-validation 已在历史流程中用于模型比较、调参与消融，不能再作为未查看评价集或 selected procedure 的无偏性能估计；当前流程仍禁止用其继续拟合或重选。
 
 主拟合权重依次使 function、固定 dimension stratum、static problem 与 optimizer run 等权，再把每个 run 的权重均分给其 eligible states，并缩放到平均 row weight 为 1。旧 `sample_weight=1` 只作敏感性。现有 estimator wiring 尚未闭合该权重，闭合前不得启动正式拟合。
 
@@ -316,7 +309,7 @@ B3 - (B2+Maturity)
 
 ## 12. 失败、统计与解释边界
 
-BBOB train/validation 与 CEC2017 冻结：raw-gap floor/cap `1e-12/1e20`、`failure_loss_cap=1e20`、`success_gap_target=1e-8`、action timeout `3600 s`、Stage-A 每次 objective evaluation 记录 first hit、Stage-B 三次 decision-state future-path timing-only replay 和独立 FE=0 policy wall-clock。Stage-A timeout/failed path 的 final-gap endpoint按失败 cap 保留；若失败前已经命中 target，standard ERT 仍保留 observed first hit，而 `endpoint_success=false` 明确路径未完成。未命中项的 ERT contribution 计完整 planned budget。Stage-B timeout/failure 用删失 runtime 进入主时间成本，并另进入 timing failure/instability sensitivity，但不改写 Stage-A gap 或 path completion。
+BBOB train/validation 与 CEC2017 é¢åæå®：raw-gap floor/cap `1e-12/1e20`、`failure_loss_cap=1e20`、`success_gap_target=1e-8`、action timeout `3600 s`、Stage-A 每次 objective evaluation 记录 first hit、Stage-B 三次 decision-state future-path timing-only replay 和独立 FE=0 policy wall-clock。Stage-A timeout/failed path 的 final-gap endpoint按失败 cap 保留；若失败前已经命中 target，standard ERT 仍保留 observed first hit，而 `endpoint_success=false` 明确路径未完成。未命中项的 ERT contribution 计完整 planned budget。Stage-B timeout/failure 用删失 runtime 进入主时间成本，并另进入 timing failure/instability sensitivity，但不改写 Stage-A gap 或 path completion。
 
 function 是最高聚合层。BBOB-validation estimand 是六个已见固定 functions、固定 dimensions 与 instances 1/2/3 上的等权有限集均值；10,000 次条件 bootstrap 固定全部六函数、dimensions 与 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；RQ1 对每个抽中 seed/run 保留完整有序 state 序列。function-resampling 只作函数组成敏感性，不作 function 或 transformed-instance 超总体推断。六函数 sign-flip 还要求 signs 可交换；RQ3 与 RQ5 的六 contrast Holm families 数学上不能在 0.05 下拒绝，只作假设敏感辅助。RQ4 按 suite/endpoint 分开，不构造跨 suite 的四 contrast Holm family。有限集效应量、逐 function/problem 结果和条件区间是主证据。Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内预设 operational tolerance。
 

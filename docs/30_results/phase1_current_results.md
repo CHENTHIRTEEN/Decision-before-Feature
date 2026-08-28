@@ -2,7 +2,7 @@
 
 > 2026-08-14 统一撤回说明：本页数值来自 population-only 重建式 continuation、把 population 行号当作跨代个体身份的旧 Behavior、problem 级静态标签与 nearest performance bucket 的旧 Selection Reference、max-scale/线性相对时间 Utility（历史），以及被笼统称为 ELA 的 16 维自定义描述符。因此旧 behavior、landscape features、selection reference、utility labels、Decision Model 与下游评价不得作为论文证据。当前主 `descriptor_cheap_invariant` 已在统一 median/IQR preprocessing 后删除恒为 0/1 的 `descriptor_y_median`、`descriptor_y_iqr`，为 14 维；该构念修正不能追溯性修复本页数值。
 
-> 当前模型协议已另行冻结：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger 主功效选择（方案 A 为 `G_FE`；主标签为 `G_FE`）；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
+> 当前模型协议已另行é¢åæå®：活动候选只包括 LDA、Logistic Regression 与 Ridge，按 BBOB-train 完整 nested function OOF 的 run-level first-trigger 主功效选择（方案 A 为 `G_FE`；主标签为 `G_FE`）；`oof_utility_first_trigger` threshold、matched-rate Random calibration 与完整 train OOF score 都必须来自 fold-specific SBS/Selectors/Utility 上游链。下述撤回数值只保留历史记录，不能作为候选缩减、模型选择、阈值或“分类边界”解释的经验依据。
 
 旧 `results/ela/`、旧 `u_ela_*` / `need_ela_*` 标签和历史模型缺少 `query_id`、`query_protocol`、`sample_design_id` 与固定 feature 列信息。它们不是活动数据契约的一部分；新读取入口必须明确失败，不提供兼容层。
 
@@ -32,10 +32,6 @@
 
 ## 3. 已撤回的模型比较记录
 
-完整模型比较表位于：
-
-- 本机归档：`results/archive/withdrawn_20260811/decision/phase1_refined_sampling/model_benchmark_comparison/model_benchmark_comparison_report.md`
-
 关键结果如下：
 
 | 口径 | 模型 | BBOB validation 结果 |
@@ -52,10 +48,6 @@
 这些指标回答不同问题，不能只按 RMSE 选模型。历史流程曾据此选择 LDA 并解释 top-10% capture；该选择未包含 fold-specific SBS/Selectors/Utility、first-trigger reconstruction 或当前 Utility，因此已经撤回，不能迁移到活动模型选择。
 
 ## 4. 调参与消融
-
-分类器调参结果位于：
-
-- 本机归档：`results/archive/withdrawn_20260811/decision/phase1_refined_sampling/classifier_feature_engineering_tuning/classifier_feature_engineering_tuning_report.md`
 
 shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
@@ -89,7 +81,7 @@ shrinkage=0.5 的 LDA 在同一 validation 上得到：
 
 ## 6. 外部评价状态
 
-CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配置；函数集已按官方 29 题口径冻结为 F1, F3-F30。此前的 F2/F30 blocker 已在不查看 policy outcome 的前提下闭合。
+CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配置；函数集已按官方 29 题口径é¢åæå®为 F1, F3-F30。此前的 F2/F30 blocker 已在不查看 policy outcome 的前提下闭合。
 
 当前已有的在线 CEC2017 结果只用于以下检查：
 
@@ -121,6 +113,6 @@ CEC2017 的 10D/30D/50D、30 seeds、等总 FE 预算和动态采样已写入配
 2. 重提取 Behavior，执行 Stage-A 两套四动作 matrices 与 FE=0 outcomes 各一次；用这些单次 outcomes 固定科学 gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success` 与 planned/effective FE，并由 fold-specific SBS/Selectors 生成 OOF selected actions。
 3. Replay planner 已有枚举能力；下一步实现 offline decision-state-to-terminal runner，物化并核对 plan，对 Skip/Query/Behavior-only 及 FE=0 policy paths 各执行三次 Stage-B timing-only replay，保存逐次 status/effective FE/timeout/completion、完成端点一致性与 instability；将 Stage-A 科学端点和 Stage-B 计时中位数组合成新 Utility 与方案 A 主标签 `G_FE`。不得用 replay outcome 改写科学端点或选择性补跑。
 4. 对 LDA、Logistic Regression 与 Ridge 重新执行完整 `cv_group_id = function_id` nested OOF、first-trigger model selection、threshold/Random calibration、六组消融、baselines 与估计性统计分析。BBOB-validation 只作已见固定六函数内部评价。
-5. CEC2017 已按官方 29 题口径闭合，只作已见外部开发评价；CEC2022 和工程问题须在首次 outcome 前冻结 suite endpoints、constraint rule 与分析计划，才可承担前瞻确认。
+5. CEC2017 已按官方 29 题口径闭合，只作已见外部开发评价；CEC2022 和工程问题须在首次 outcome 前é¢åæå® suite endpoints、constraint rule 与分析计划，才可承担前瞻确认。
 
 当前额外 blockers 是 `cv_group_id = function_id` Selector artifact 路由、runner、物化实测 replay plan、Stage-A 共享/复用裁决、BBOB instance-aware online endpoint、cluster-balanced Selector/Decision fit、资源排期与真实 evaluator timing。12 个 mandatory milestones 的平均 prefix ratio 为 0.35；只含这些 states 时，仅跨 matrices 共享的 main cheap 为 215.709732B FE、三档为 350.202636B FE；进一步复用基础 trajectory 时为 210.992292B/345.485196B；保持当前 main producer 时主 query 为 225.144612B FE，三档当前量待枚举。event-only states 尚未计入。现 CEC2017 online evaluator 另需 11.5884B planned FE，已见 BBOB-validation 全 instances 需 5.5944B 但当前不可执行；这些只是 mandatory-only 算术情景，不是严格下界。

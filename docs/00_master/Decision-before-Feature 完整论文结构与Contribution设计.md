@@ -14,7 +14,7 @@
 
 - 固定 portfolio：DE、PSO、CMA-ES、SHADE；
 - 固定 query、采样和成本口径；
-- BBOB-train 冻结组件及指定的 held-out/external suites；
+- BBOB-train é¢åæå®组件及指定的 held-out/external suites；
 - 一次 first-trigger 决策；
 - 观察性、预测性和操作性比较，不作因果主张。
 
@@ -64,7 +64,7 @@ $$
 
 对应解释严格区分：
 
-- `G_FE`：固定 query、full Selector、动作选择与 continuation 的联合路径相对 Skip 的净差，是主 Decision target；
+- `g_fe_selected_path`：固定 query、full Selector、动作选择与 continuation 的联合路径相对 Skip 的等总 FE 净差，是主 Decision target；`g_fe` 仅是最佳已观测动作诊断；
 - `u_behavior_only_full_budget_lamT_1`：不执行 query 的行为选择路径相对 Skip 的净差；
 - `query_operational_increment`：Query 路径相对 Behavior-only full-budget 路径的操作性增量，包含 query FE、时间、sample best 与预算差，不是纯信息效应；
 - `query_feature_predictive_increment_log10_gap`：`query_adjusted_state_only_selector` 与 full Query Selector 在同一 query-budget 四动作 outcomes 上的 OOF selected continuation-only `log10_gap` 差；不新增 action losses、不计 sample best、不扣 acquisition cost，只是 query descriptors 的边际预测贡献诊断。
@@ -121,7 +121,7 @@ RQ1 估计状态分布，不把每个 state 当独立统计单位，也不预设
 
 ### RQ2：Behavior 是否提供超出预算阶段的信息？
 
-先只用 B3 的 nested BBOB-train first-trigger Utility 选择 LDA、Logistic Regression 或 Ridge。随后冻结同一模型家族，在相同 12 个 mandatory milestone rows 上比较 B3 与 `milestone_only_T0`；完整 dynamic schedule 上的 T0 只能称为 `schedule_conditioned_T0` sensitivity。由于维度和绝对预算也是调用前已知上下文，另做按 dimension 预先分层、每层仍只输入 FE ratio 的 `dimension_stratified_T0`；主 Decision X 不加入 dimension。若主 cheap 的 planned query-cost ratio 恒定，则明确其不可识别，不把常数列包装成对照。
+先只用 B3 的 nested BBOB-train first-trigger Utility 选择 LDA、Logistic Regression 或 Ridge。随后é¢åæå®同一模型家族，在相同 12 个 mandatory milestone rows 上比较 B3 与 `milestone_only_T0`；完整 dynamic schedule 上的 T0 只能称为 `schedule_conditioned_T0` sensitivity。由于维度和绝对预算也是调用前已知上下文，另做按 dimension 预先分层、每层仍只输入 FE ratio 的 `dimension_stratified_T0`；主 Decision X 不加入 dimension。若主 cheap 的 planned query-cost ratio 恒定，则明确其不可识别，不把常数列包装成对照。
 
 只有 B3 相对 milestone-only T0 与 dimension-stratified T0 的 Utility、terminal endpoints 和未查看外部评价方向稳定时，才能写“Behavior 提供超出阶段及已知维度上下文的预测价值”。
 
@@ -138,13 +138,13 @@ RQ1 估计状态分布，不把每个 state 当独立统计单位，也不预设
 7. self-thresholded Behavior-only Selection；
 8. Decision-before-Feature。
 
-所有顺序策略每 run 最多一次 first trigger。Random 冻结 train-OOF run call rate 与 trigger-FE 经验分布；30 个流先在同一科学 run 内平均。Policy capture 对所有策略共享 native SBS/default trajectory 的 run-level hindsight maximum，分子只取 first-trigger state。
+所有顺序策略每 run 最多一次 first trigger。Random é¢åæå® train-OOF run call rate 与 trigger-FE 经验分布；30 个流先在同一科学 run 内平均。Policy capture 对所有策略共享 native SBS/default trajectory 的 run-level hindsight maximum，分子只取 first-trigger state。
 
-### RQ4：冻结过程能否迁移？
+### RQ4：é¢åæå®过程能否迁移？
 
-分别报告已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题，不能池化成单一“OOD”结论。前两者只作开发期有限集评价；后两者只有在本次协议之后先冻结完整配置和分析规则、再首次生成 outcome 时，才可承担独立确认性评价。任何 external suite 不参与 preprocessing、选模、feature-group 选择、threshold 或 Random calibration。
+分别报告已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022 与前瞻工程问题，不能池化成单一“OOD”结论。前两者只作开发期有限集评价；后两者只有在本次协议之后先é¢åæå®完整配置和分析规则、再首次生成 outcome 时，才可承担独立确认性评价。任何 external suite 不参与 preprocessing、选模、feature-group 选择、threshold 或 Random calibration。
 
-CEC2017 的 F2/F30 口径、CEC2022/工程问题的函数、维度、预算、failure endpoint 与 constraint rule 必须在运行前冻结；未冻结部分不是可执行实验。
+CEC2017 的 F2/F30 口径、CEC2022/工程问题的函数、维度、预算、failure endpoint 与 constraint rule 必须在运行前é¢åæå®；未é¢åæå®部分不是可执行实验。
 
 ### RQ5：哪些预设 Behavior 基函数与预测表现相关？
 
@@ -180,7 +180,7 @@ handoff_required = not selected_equals_prefix
 
 ### Section 5 Experimental Setup
 
-冻结 `cv_group_id = function_id` split、SBS/VBS 聚合、baseline、Stage-A 科学失败端点、Stage-B 三次 decision-state future-path timing-only replay、raw/censored runtime、observed hit/path completion/endpoint success、三类一致性、两类 instability、FE=0 policy wall-clock、禁止选择性重跑、固定六函数条件 bootstrap、函数组成敏感性和项目内 operational tolerance。BBOB-validation 的 estimand 只是已见固定六函数有限集均值；RQ3--RQ5 在该集合上采用估计性分析，sign-flip/Holm 仅作假设敏感的辅助描述。
+é¢åæå® `cv_group_id = function_id` split、SBS/VBS 聚合、baseline、Stage-A 科学失败端点、Stage-B 三次 decision-state future-path timing-only replay、raw/censored runtime、observed hit/path completion/endpoint success、三类一致性、两类 instability、FE=0 policy wall-clock、禁止选择性重跑、固定六函数条件 bootstrap、函数组成敏感性和项目内 operational tolerance。BBOB-validation 的 estimand 只是已见固定六函数有限集均值；RQ3--RQ5 在该集合上采用估计性分析，sign-flip/Holm 仅作假设敏感的辅助描述。
 
 ### Section 6 Results
 
@@ -202,7 +202,7 @@ handoff_required = not selected_equals_prefix
 
 function 是最高聚合层。BBOB-validation 的条件 CI 固定 F5/F9/F13/F14/F19/F24、全部 dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds；RQ1 对每个抽中 seed/run 保留完整 state sequence。function-resampling 只作函数组成敏感性，不推断到 transformed-instance 超总体。项目内 operational tolerance 没有领域普适含义。六函数双侧 exact sign-flip 还要求 signs 可交换，raw p 最小 0.03125；RQ3 与 RQ5 各自六 contrast 的最小 Holm-adjusted p 均为 0.1875，故在 0.05 下不可能拒绝。RQ4 不把四个 suites 组成一个 Holm family，而是按 suite 与 endpoint 分别给有限集估计。ERT 在每个 bootstrap replicate 内固定 static problems、只在 problem 内配对重抽 runs，并逐 `function × dimension` 重新计算 numerator/target-hit count 与 policy log-ratio；零命中保留为有符号无穷或 undefined mass，扩展实数分位数决定有限/无界/undefined 状态，不能因任一 replicate 零命中就自动判定区间未建立。
 
-基础 BBOB trajectory 为 0.6048B FE。12 个 mandatory milestones 的平均 prefix ratio 为 0.35，future path 平均为 0.65B，旧 0.60B 单点假设低估 1.625 倍。只含 mandatory states 时，Stage-A 跨 matrices 共享但不复用基础 trajectory 为 main cheap 37.467612B、三档 53.434836B；进一步复用基础 trajectory 为 32.750172B/48.717396B；当前 main producer 为 46.902492B。计入 fold-role selected paths 的三次 timing 与 pre-run AAS 后，总量分别为 215.709732B/350.202636B、210.992292B/345.485196B，当前 main producer 为 225.144612B。event-only states、外部 suites、失败和额外 query replicates 均未计入，因此这些只称 mandatory-only 算术情景。当前 CEC2017 online evaluator 另需 11.5884B planned FE；已见 BBOB-validation 全 instances 需 5.5944B，但当前 evaluator 不支持。
+基础 BBOB trajectory 为 0.1008B FE（5 seeds）。12 个 mandatory milestones 的平均 prefix ratio 为 0.35，future path 平均为 0.65B，旧 0.60B 单点假设低估 1.625 倍。只含 mandatory states 时，Stage-A 跨 matrices 共享但不复用基础 trajectory 为 main cheap 6.244602B、三档 8.905806B；进一步复用基础 trajectory 为 5.458362B/8.119566B；当前 main producer 为 7.817082B。计入 fold-role selected paths 的三次 timing 与 pre-run AAS 后，总量分别为 35.951622B/58.367106B、35.165382B/57.580866B，当前 main producer 为 37.524102B。event-only states、外部 suites、失败和额外 query replicates 均未计入，因此这些只称 mandatory-only 算术情景。当前 CEC2017 online evaluator 另需 1.9314B planned FE（5 seeds）；已见 BBOB-validation 全 instances 需 0.9324B，但当前 evaluator 不支持。
 
 ## 8. 允许与禁止的结论
 

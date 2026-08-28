@@ -68,6 +68,8 @@ Agent 只能使用：
 
 ## 禁止行为
 
+Search Maturity 由三个备选行为派生形式组成：`bf_search_maturity`、`bf_search_maturity_linear`、`bf_explore_exploit_ratio`。三者必须通过 BBOB-train nested function-family OOF 消融决定使用哪一个；Decision Model 使用固定的 `RandomForestRegressor(n_estimators=200, max_depth=8, max_features=sqrt)`。下游 Selector 不使用这三个成熟度字段，只使用无成熟度行为、query descriptors 和连续 `remaining_budget_ratio`。
+
 禁止：
 
 - 扫描用户主目录寻找旧代码；
@@ -103,7 +105,7 @@ Agent 必须：
 
 - 文件哈希、checksum、digest、canonical-byte 比较或其他完整性身份系统；
 - receipt、manifest、authorization、source closure、append-only、quarantine 或执行解锁机制；
-- frozen/successor/v2/v3 式代码复制、一次性运行声明或隐藏阶段门；
+- successor/v2/v3 式代码复制、以不可变阶段命名的代码复制、一次性运行声明或隐藏阶段门；
 - dry、smoke、synthetic validation、resource calibration 或与真实科学运行无关的替代工作流；
 - pytest、JSON Schema、schema registry、测试目录或测试依赖；
 - 代码生成器、脚本调用脚本、循环依赖、同一逻辑的多版本并存；
@@ -116,6 +118,8 @@ Agent 必须：
 # 0.3学术方法与表述
 
 论文、研究方案、配置、源码符号和输出字段必须使用与实际科学操作对应的领域术语，不得用治理或问责隐喻包装普通实验步骤。
+
+不得使用将研究步骤比喻为低温固化状态的中英文术语。禁用词由以下字符组成：中文 `U+51BB U+7ED3`；英文 `f-r-o-z-e-n`（连写）。该限制无场景例外，适用于对话、论文、研究方案、配置、源码符号、注释、帮助文本、图表、输出字段、生成产物、第三方接口参数和引用内容。必须按实际科学操作改写为“预先指定”“训练后固定”“仅用于评价”“保持参数不变”“不得重新拟合”“确定阈值”等准确表述；若现有实现依赖含禁用词的接口或符号，应改用不含该词的等价实现。
 
 - 算法比较使用“性能评价”“基准比较”或 `evaluation/benchmarking`；
 - 实验设计与数据条件使用“有效性检查”“一致性检查”或“数据质量检查”；
@@ -229,24 +233,19 @@ benchmark_reference_value、已知最优值 gap 以及所有 gap 字段只可用
 - Function ID；
 - Algorithm ID。
 
-Decision Model 活动候选固定为：
+Decision Model 活动候选固定为 Random Forest Regressor（`n_estimators=200, max_depth=8, max_features=sqrt`）。
 
-- LDA；
-- Logistic Regression；
-- Ridge；
-- Random Forest Classifier（`n_estimators=200, max_depth=8, max_features=sqrt`）。
+离线 action-loss 生成不得用 wall-clock time 定义科学标签。主结果一律是严格等总 FE 预算下的 FE-indexed optimization losses；`g_fe_selected_path`、action labels、best-action labels 和 Controller targets 均不得把 runtime 作为组成项。`g_fe` 仅作最佳已观测动作诊断。wall-clock/runtime 只保留给端到端部署评价与资源分析。
 
-离线 action-loss 生成不得用 wall-clock time 定义科学标签。主结果一律是严格等总 FE 预算下的 FE-indexed optimization losses；`G_FE`、action labels、best-action labels 和 Controller targets 均不得把 runtime 作为组成项。wall-clock/runtime 只保留给端到端部署评价与资源分析。
+模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于确定 `oof_utility` threshold。BBOB-validation 只作训练完成后的固定程序评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。
 
-模型主选择必须使用 BBOB-train 上的 nested function-family OOF decision utility；完整 BBOB-train 的 family-OOF 分数用于冻结 `oof_utility` threshold。BBOB-validation 只作冻结评价，不参与 preprocessing、选模、特征筛选或 threshold 拟合。AUROC、Average Precision、Spearman 为辅助指标；连续 Utility RMSE 只对 Ridge 定义。
-
-**并列处理规则：** 活动候选的 tie-break 顺序为 LDA → Logistic Regression → Ridge → Random Forest Classifier。四个候选在 B3 特征组上按 function-balanced mean first-trigger 主功效（方案 A 为 `G_FE`）选择，并列时按上述顺序破局。Random Forest 与 LDA/LogReg/Ridge 并列处理，即四者在同一协议下公平竞争，RF 只在严格优于其他三者时被选中。
+Search Maturity 三种形式按 BBOB-train nested function-family OOF 的 function-balanced mean first-trigger `g_fe_selected_path` 比较，数值较高者优先；BBOB-validation 不参与形式选择。
 
 不得继续增加 XGBoost、LightGBM、MLP 或其变体作为活动 Decision Model 候选；Selection Reference 中固定的 action-loss regression 不受此条限制。
 
 所有顺序策略的活动单位是完整 trajectory。每条 trajectory 最多执行一次 query；机会按整数 `FE` 排序，同一 FE 若存在多行再按 `decision_opportunity_index` 排序。给定 threshold，只在最早满足 `score > threshold` 的机会触发；未触发 run 的政策 Utility 为 0，首次触发后的状态在该策略下不可达。模型选择、inner/full-train threshold、validation、baseline、call rate、precision、Utility capture 和全部策略指标必须使用这一 run-level first-trigger 规则；逐状态 AUROC、Average Precision、Spearman 和 Ridge RMSE 只能作辅助 score 诊断。
 
-Selection Reference 固定使用四个互不重复动作：`continue_current` 加其余三个 portfolio algorithms。模型使用多输出 `RandomForestRegressor`，输入为 query features、算法无关 behavior 与连续 `remaining_budget_ratio`。主目标变换固定为 `clipped_log10_gap_advantage_vs_continue_current`：
+Selection Reference 固定使用四个互不重复动作：`continue_current` 加其余三个 portfolio algorithms。下一轮 Decision Model 训练的正式下游 Selector 使用 `dimension_aware_hybrid_selector`：10D/20D 保留旧 `formal_multioutput_rf`，40D 使用 `pairwise_aggregation_rf_classifier`。`pairwise_aggregation_rf_classifier` 由六个 one-vs-one RandomForestClassifier 聚合四算法排序，并作为全维度 selector sensitivity 报告。基础输入仍为 query features、算法无关 behavior 与连续 `remaining_budget_ratio`；`dimension` 只作为预定义 strata 路由变量，不加入基础模型 feature columns。主目标变换固定为 `clipped_log10_gap_advantage_vs_continue_current`：
 
 $$
 Y_{s,a}=\log_{10}\!\left(\operatorname{clip}(L_{s,a},g_{\min},g_{\max})\right)
@@ -255,7 +254,7 @@ $$
 
 `continue_current` 的主 target 恒为 0。原 `statewise_minmax_observed_action_loss` 只作预设 Selector target 敏感性分析，不得生成主 selected action、Utility、Decision label 或政策评价。
 
-正式 Utility 必须同时物化且逐状态配对五条路径：`skip`、`query_joint`、`query_matched_state_only`、`sampling_only_continue_current` 与 `behavior_only_full_budget`。主 estimand 是 `query_joint` 相对 `skip` 的 query+selector 联合策略效用；`behavior_only_full_budget` 使用 query 前 Behavior、`FE_query=0` 和完整剩余预算的四动作 Selector。`query_matched_state_only` 与 `query_joint` 使用相同 query realization、sample endpoint、query-adjusted 四动作 outcome 和剩余预算，只移除 query descriptors；`sampling_only_continue_current` 执行同一 query acquisition 后原生继续当前算法。五路径分解只表示固定模型、预算和 transition rule 下的操作性分解，不作因果解释。
+当前主 Decision 标签阶段只物化 query-adjusted 主路径与 `skip` 科学端点，并生成等总 FE 的 `g_fe_selected_path`。`g_fe` 仅作最佳已观测动作诊断。`behavior_only_full_budget`、`query_matched_state_only`、`sampling_only_continue_current`、pre-run AAS 和五路径操作性分解均延后，不能成为当前标签、Decision dataset、模型训练或在线评价输入的前置依赖。若后续重新启用这些 baseline，必须另行生成并保持与主标签隔离。
 
 Selection Reference、Utility、Decision dataset 与在线输出必须保存 `selected_equals_default`、`selected_equals_prefix` 和 `handoff_required`；其中 `handoff_required = not selected_equals_prefix`，并与 `handoff_type == population_transfer_initialization` 逐行一致。不得生成 `label_source` 或以 `same_algorithm/changed_algorithm` 代替这些显式关系。
 
@@ -291,14 +290,13 @@ Function Family Split。
 
 # 4. ELA Utility
 
-令 $\ell_k$ 为路径 $k$ 的 suite-specific floor/cap 截断后 terminal `log10_gap`，$T_k$ 为同一 decision state 到 terminal 的三次删失 wall-clock 中位数。这里的 $G_{FE}$ 仅表示等总 FE 下的主功效，不使用 wall-clock 来定义科学标签。主 `lambda_time=1` 时：
+当前主 Decision target 是严格等总 FE 下的性能功效：
 
 $$
-U_{query}^{joint}=(\ell_{skip}-\ell_{query})
--\lambda_T\log_{10}(T_{query}/T_{skip}).
+G_{FE}=\log\frac{E_{skip}+\epsilon_p}{E_{query}+\epsilon_p}.
 $$
 
-主 Decision target 固定为 canonical `action_loss` 体系下的主效用标签，标签必须离线生成。还必须保存 Behavior-only Utility、Query 相对 Behavior-only 的 `query_operational_increment`、matched-acquisition descriptor-use increment、state-only-vs-sampling increment 和 sampling-direct increment，并逐行满足五路径加法分解。所有主标签均基于 FE-indexed optimization losses；联合效用、操作性增量和 query-feature 预测诊断不得互相替代，也不得把 runtime 当作科学标签组成项。
+其中 $E_{skip}$ 与 $E_{query,selected}$ 来自 query-adjusted Stage-A 科学端点，$\epsilon_p$ 为预先指定的问题尺度稳定项。主标签为 `g_fe_selected_path = log((E_skip+epsilon_p)/(E_query_selected+epsilon_p))`；`g_fe` 是最佳已观测动作诊断。标签必须离线生成，runtime、wall-clock、component runtime 和完整路径计时均不得进入主标签、二值标签、阈值拟合或模型选择。runtime 仅在后续端到端部署评价与资源分析中单独实测；当前阶段不生成 runtime 相关标签。
 
 ---
 
@@ -341,17 +339,18 @@ $$
 
 | 特征类 | 前缀 | 列数 | 来源文件 |
 |---|---|---:|---|
-| Landscape descriptor | `descriptor_*` | 14 | `results/landscape_queries/features/{query_id}/{split}/features.parquet` |
-| Behavior feature | `bf_*` | 34 | `results/phase1_pilot/bbob_train/bbob_f{NNN}/dimension_{D}/behavior.parquet` |
-| Budget ratio | `FE_prefix` / `FE_total` / `remaining_budget_ratio` | 3 | selection_reference 内置列 |
+| Selector landscape descriptor | `descriptor_*` | 14 | `results/landscape_queries/features/{query_id}/{split}/features.parquet` |
+| Selector behavior feature | `bf_*` | 28 | `results/phase1_refined_sampling/{split}/.../behavior.parquet` |
+| Selector budget ratio | `remaining_budget_ratio` | 1 | selection_reference 内置列 |
 
-正式 B3 特征组定义在 `behavior/features.py` 的 `BEHAVIOR_FEATURE_GROUPS["B3"]`（31 列 behavior + 14 列 descriptor = 45 列）。
+正式 Selector 特征组定义在 `behavior/features.py` 的 `SELECTOR_BEHAVIOR_FEATURE_COLUMNS`，即 28 列无成熟度行为 + 14 列 descriptor + 1 列 remaining budget。Decision 输入不读取 descriptor 或预算列，只从三个成熟度消融组中选择 29 列 `bf_*` 行为列。
 
 **外部脚本直接读取 `selection_reference.parquet` 时，`bf_*` 列不会自动存在，必须手动从 `behavior.parquet` 按 `(problem_id, function_id, family, cv_group_id, dimension, algorithm=prefix_algorithm, seed, FE)` join。**
 
 构建后必须执行断言：
 ```python
-assert len(feature_cols) >= 45, f"Expected ≥45 features (B3), got {len(feature_cols)}"
+assert len(selector_feature_cols) == 43, f"Expected 43 Selector features, got {len(selector_feature_cols)}"
+assert len(decision_feature_cols) == 29, f"Expected 29 Decision behavior features, got {len(decision_feature_cols)}"
 assert any(c.startswith("bf_") for c in feature_cols), "Missing behavior features"
 assert any(c.startswith("descriptor_") for c in feature_cols), "Missing descriptor features"
 ```
@@ -366,7 +365,7 @@ assert any(c.startswith("descriptor_") for c in feature_cols), "Missing descript
 
 | 维度 | 允许离线 | 必须 online 实测 |
 |---|---|---|
-| gap / G_FE / AUC / F1 | ✅ | — |
+| gap / g_fe_selected_path / AUC / F1 | ✅ | — |
 | terminal gap（科学端点） | ✅ | — |
 | runtime / wall-clock time | ❌ | ✅ |
 | Pareto（gap vs time） | ❌ | ✅ |

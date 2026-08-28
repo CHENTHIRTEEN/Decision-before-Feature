@@ -22,7 +22,7 @@ NeurELA、Deep-ELA、Progressive ELA 与动态 query-type selection 不在第一
 
 主问题是：
 
-> 在冻结状态分布、portfolio、Selector、预算和 first-trigger policy 下，query 前算法无关 Behavior 能否预测执行 `descriptor_cheap_invariant` 与 full Selector 相对原生 SBS continuation 的联合净效用？
+> 在é¢åæå®状态分布、portfolio、Selector、预算和 first-trigger policy 下，query 前算法无关 Behavior 能否预测执行 `descriptor_cheap_invariant` 与 full Selector 相对原生 SBS continuation 的联合净效用？
 
 方案 A 下，主功效使用等总 FE 的 `G_FE = log((E_skip + epsilon_p) / (E_query + epsilon_p))`，runtime 不进入主标签。对 Skip 与 Query path：
 

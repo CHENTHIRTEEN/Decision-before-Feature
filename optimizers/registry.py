@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 from benchmarks.core import Problem
-from optimizers.state import advance_optimizer_state, initialize_optimizer_state
+from optimizers.state import (
+    OptimizerState,
+    advance_optimizer_state,
+    initialize_optimizer_state,
+)
 from optimizers.settings import OptimizerSettings
 from trajectory.final_performance import FinalPerformanceRecord
 from trajectory.recorder import TrajectoryRecorder
@@ -18,6 +23,8 @@ class OptimizerRunResult:
     trajectory_records: list[TrajectoryRecord]
     final_performance: FinalPerformanceRecord
     trajectory_query_records: list[dict]
+    local_landscape_records: list[dict] = field(default_factory=list)
+    optimizer_checkpoint_records: list[dict] = field(default_factory=list)
 
 
 def run_optimizer(
@@ -32,6 +39,11 @@ def run_optimizer(
     success_gap_target: float,
     failure_loss_cap: float,
     trajectory_query_split: str | None = None,
+    evaluation_callback: Callable[[object, float], None] | None = None,
+    decision_state_callback: Callable[[TrajectoryRecord, int], None] | None = None,
+    decision_optimizer_state_callback: (
+        Callable[[TrajectoryRecord, int, OptimizerState], None] | None
+    ) = None,
 ) -> OptimizerRunResult:
     key = algorithm.lower()
     if key not in SUPPORTED_ALGORITHMS:
@@ -62,6 +74,34 @@ def run_optimizer(
             point=point,
             value=value,
         )
+        if evaluation_callback is not None:
+            evaluation_callback(point, float(value))
+
+    def observe_native_state(updated) -> None:
+        previous_count = len(recorder.records)
+        recorder.observe(
+            problem=problem,
+            algorithm=key,
+            seed=seed,
+            fe=updated.evaluations,
+            fe_total=fe_total,
+            native_updates=updated.generation,
+            population=updated.population,
+            fitness=updated.fitness,
+            best_fitness=updated.best_fitness,
+        )
+        if len(recorder.records) == previous_count:
+            return
+        if len(recorder.records) != previous_count + 1:
+            raise RuntimeError("one native update emitted multiple decision states")
+        if decision_state_callback is not None:
+            decision_state_callback(recorder.records[-1], previous_count)
+        if decision_optimizer_state_callback is not None:
+            decision_optimizer_state_callback(
+                recorder.records[-1],
+                previous_count,
+                updated,
+            )
 
     state = None
     run_failure: Exception | None = None
@@ -73,33 +113,13 @@ def run_optimizer(
             settings=settings,
             on_evaluation=observe_evaluation,
         )
-        recorder.observe(
-            problem=problem,
-            algorithm=key,
-            seed=seed,
-            fe=state.evaluations,
-            fe_total=fe_total,
-            native_updates=state.generation,
-            population=state.population,
-            fitness=state.fitness,
-            best_fitness=state.best_fitness,
-        )
+        observe_native_state(state)
         while state.evaluations < fe_total:
             advance_optimizer_state(
                 state=state,
                 problem=problem,
                 fe_budget=fe_total - state.evaluations,
-                on_native_update=lambda updated: recorder.observe(
-                    problem=problem,
-                    algorithm=key,
-                    seed=seed,
-                    fe=updated.evaluations,
-                    fe_total=fe_total,
-                    native_updates=updated.generation,
-                    population=updated.population,
-                    fitness=updated.fitness,
-                    best_fitness=updated.best_fitness,
-                ),
+                on_native_update=observe_native_state,
                 on_evaluation=observe_evaluation,
             )
         if evaluation_count != state.evaluations:

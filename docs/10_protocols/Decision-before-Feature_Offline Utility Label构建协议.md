@@ -1,6 +1,14 @@
 # Decision-before-Feature Offline Utility Label 构建协议
 
-> 唯一活动协议（2026-08-16，方案 A + 最小 Action Loss 规范 v1 对齐修订）。本文件直接维护联合策略 estimand、Behavior-only 对照和 first-trigger 数据契约；每条 action 记录必须同时保留行标识、科学端点、censored runtime 和一个 canonical loss（`action_loss`）。这里的 canonical loss 是严格等总 FE 预算下的 FE-indexed optimization loss，不得用 wall-clock time 定义科学标签。旧单一 `G_FE`、一次性完整-train Selector 标签和逐状态 policy 汇总不再使用。
+> 当前活动范围（2026-08-24）：只构造主决策器所需的 query-adjusted `g_fe_selected_path` 标签。`g_fe` 仅作最佳已观测动作诊断。Behavior-only、pre-run AAS、matched-acquisition、五路径操作性分解与 runtime 标签暂不生成。本文件后续保留的多路径字段仅作为未来资源评价扩展说明，不得成为当前 Decision dataset、阈值拟合或模型训练的前置依赖。
+
+当前主标签为：
+
+$$
+G_{FE}=\log\frac{E_{skip}+\epsilon_p}{E_{query}+\epsilon_p},
+$$
+
+其中两个端点均来自严格等总 FE 的 Stage-A 科学运行。wall-clock、component runtime 与完整路径计时不进入 `g_fe_selected_path` 或其二值标签。当前输入只需要四个 split 的 query-adjusted canonical `action_loss`；不得读取旧 RF 派生标签。
 
 ## 1. 研究问题与标签边界
 
@@ -96,7 +104,7 @@ no_query_algorithm
 
 ## 5. 性能与时间定义
 
-预指定 Stage-A 对每条路径执行一次科学运行，并由该行唯一固定 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success`、planned FE、effective FE、ERT contribution 与科学失败状态。冻结语义为：
+预指定 Stage-A 对每条路径执行一次科学运行，并由该行唯一固定 terminal gap、`observed_first_hit_FE`、`target_hit_observed`、`path_completed`、`endpoint_success`、planned FE、effective FE、ERT contribution 与科学失败状态。é¢åæå®语义为：
 
 ```text
 target_hit_observed := observed_first_hit_FE != null
@@ -193,8 +201,8 @@ Utility 是预设 scalarization，不代表普适资源偏好。主结果必须�
 2. 在 outer-fit functions 内 cross-fit Query Selector 与 Behavior-only Selector；
 3. 用 cross-fit selected actions对应的 Stage-A `log10_gap` 和 Stage-B 三次 future-path wall-clock 中位数生成 outer-fit Decision labels；
 4. 每个 inner fold 只用 inner-fit functions 重新计算 `SBS_inner`、cross-fit/拟合两类 Selector并生成 inner-fit labels；inner holdout labels、score 与 Utility 只能由 inner-fit 上游组件产生；
-5. 用端到端 inner OOF first-trigger outcomes 冻结 outer thresholds；
-6. 用 outer-fit 全量 Selector 生成 outer holdout labels，所有上游组件冻结后才评价 outer holdout。
+5. 用端到端 inner OOF first-trigger outcomes é¢åæå® outer thresholds；
+6. 用 outer-fit 全量 Selector 生成 outer holdout labels，所有上游组件é¢åæå®后才评价 outer holdout。
 
 outer 或 inner holdout 不得影响其评价链中的 SBS、Selector、Utility/cost processing、Decision、threshold、Random calibration 或 score-neighborhood。完整 BBOB-train OOF 也必须执行 fold-specific 上游链；一张由 full-train Selector 预制的 labels 表不能替代 outer/inner 链。
 

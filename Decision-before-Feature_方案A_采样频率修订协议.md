@@ -29,9 +29,9 @@ $$
 这一修改不要求推翻原有“高频观测、低频决策、共享前缀、每条 run 至多一次 Query”的实验骨架，但需要对采样协议作以下修订：
 
 1. **原生轨迹观测继续保持高频**：每次完整 optimizer update 后更新轻量行为历史；
-2. **离线分叉状态保持稀疏**：完整 checkpoint 只在冻结的 milestone 或 behavior-event opportunity 保存；
+2. **离线分叉状态保持稀疏**：完整 checkpoint 只在é¢åæå®的 milestone 或 behavior-event opportunity 保存；
 3. **旧的 $[0.20,0.60]$ 候选区间必须经过新标签 Pilot 重新验证**，不能继续由已撤回的旧 Utility 结果担保；
-4. **正式在线策略继续采用 run-level one-shot first-trigger**，但 decision schedule 和 score threshold 必须在 BBOB train 的 grouped OOF 结果上联合冻结；
+4. **正式在线策略继续采用 run-level one-shot first-trigger**，但 decision schedule 和 score threshold 必须在 BBOB train 的 grouped OOF 结果上联合é¢åæå®；
 5. **milestone + event 机会生成器必须做独立消融**，以区分机会生成规则与 Controller 本身的贡献；
 6. **Trajectory-based zero-FE descriptor 应在轨迹采集阶段同步保留**，避免正式运行后无法补充最近邻强基线；
 7. **若后续采用 Skip–Defer–Query 三向策略**，则 Defer 与 Skip 必须拥有不同的复查频率，否则它们在执行层面没有区别。
@@ -53,7 +53,7 @@ $$
 - 哪些状态需要保存完整 optimizer checkpoint；
 - 哪些状态需要进行 No-query / Query 配对续跑；
 - 在线 Controller 在哪些状态获得决策机会；
-- decision schedule 与 threshold 如何冻结；
+- decision schedule 与 threshold 如何é¢åæå®；
 - 采样频率如何做公平消融；
 - 哪些修改会迫使重新生成 trajectory，哪些只需重算下游结果。
 
@@ -94,7 +94,7 @@ $$
 - 不同 run 的状态数是否造成训练权重偏差；
 - OOD 测试时是否出现训练未覆盖的 decision opportunity。
 
-因此，采样频率必须被版本化、冻结并单独消融。
+因此，采样频率必须被版本化、é¢åæå®并单独消融。
 
 ---
 
@@ -333,7 +333,7 @@ $$
 
 ## 3.3 时钟 C：离线标签 opportunity
 
-只有在冻结的 candidate opportunity 处才：
+只有在é¢åæå®的 candidate opportunity 处才：
 
 - 保存完整 optimizer checkpoint；
 - 提取正式 Behavior；
@@ -351,7 +351,7 @@ $$
 
 ## 3.4 时钟 D：在线 decision opportunity
 
-在线 Controller 只在冻结的机会集合：
+在线 Controller 只在é¢åæå®的机会集合：
 
 $$
 \mathcal T_{\mathrm{online}}
@@ -398,7 +398,7 @@ $$
 2. 在正式全量采集前增加早期与晚期 Pilot 候选点；
 3. 采样范围选择必须依据功效质量覆盖，而不是仅依据正标签行数；
 4. milestone + event generator 必须与 milestone-only、equal-count fixed grid 比较；
-5. online schedule 和 threshold 必须按 run-level OOF 目标联合冻结；
+5. online schedule 和 threshold 必须按 run-level OOF 目标联合é¢åæå®；
 6. trajectory-based zero-FE descriptor 必须在原始采集阶段可构造；
 7. 所有状态必须有明确且唯一的 `decision_opportunity_index`；
 8. 同一 FE 上的 milestone 与多个 event 应合并为一个状态；
@@ -465,7 +465,7 @@ Instances: 1
 Seeds: 1,2,3
 Prefix algorithms: DE, PSO, CMA-ES, SHADE
 Query: 主 cheap query
-Opportunity: expanded milestones + frozen event generator
+Opportunity: expanded milestones + predefined event generator
 ```
 
 函数作用：
@@ -533,7 +533,7 @@ $$
 }
 $$
 
-## 5.5 正式范围冻结规则
+## 5.5 正式范围é¢åæå®规则
 
 当前 $[0.20,0.60]$ 可继续使用，当且仅当训练 Pilot 支持：
 
@@ -554,9 +554,9 @@ $$
 - 结论在单峰、多峰和复杂函数上不完全相反；
 - 不使用 BBOB validation 或 CEC 决定正式范围。
 
-上述 0.95 与 0.90 是项目预设判据，不是文献定理，必须在正式运行前冻结。
+上述 0.95 与 0.90 是项目预设判据，不是文献定理，必须在正式运行前é¢åæå®。
 
-## 5.6 可能的冻结结果
+## 5.6 可能的é¢åæå®结果
 
 ### 结果 A：旧范围充分
 
@@ -645,7 +645,7 @@ $$
 
 ## 6.3 Event类型
 
-冻结候选事件：
+é¢åæå®候选事件：
 
 ```text
 improvement_resume
@@ -911,7 +911,7 @@ $$
 主在线策略可以使用：
 
 - 与正式离线相同的 milestone + event opportunities；
-- 或从离线机会集合中选择train-only冻结的子集。
+- 或从离线机会集合中选择train-onlyé¢åæå®的子集。
 
 必须满足：
 
@@ -1154,7 +1154,7 @@ $$
 
 ```text
 fine opportunities:
-all frozen milestones + accepted behavior events
+all predefined milestones + accepted behavior events
 
 coarse opportunities:
 phase boundaries or at least 0.05 FE-ratio gap
@@ -1309,7 +1309,7 @@ run-level policy contribution
 - future performance；
 - event的未来结果解释字段。
 
-允许进入Decision X的阶段信息仅限冻结的：
+允许进入Decision X的阶段信息仅限é¢åæå®的：
 
 ```text
 FE_ratio
@@ -1668,7 +1668,7 @@ trajectory_query_baseline:
 online_policy:
   semantics: one_shot_first_trigger
   max_query_calls_per_run: 1
-  opportunity_source: frozen_train_protocol
+  opportunity_source: predefined_train_protocol
   schedule_selection: grouped_oof_run_utility
   max_decision_checks: 7
   threshold_selection: grouped_oof_run_utility
@@ -1688,9 +1688,9 @@ external_test:
 - 扩展0.10–0.70；
 - 运行最小真实BBOB子集；
 - 计算CoverageMass与CoverageRun；
-- 冻结正式范围。
+- é¢åæå®正式范围。
 
-## Step 2：冻结opportunity generator
+## Step 2：é¢åæå®opportunity generator
 
 - milestone规则；
 - event规则；
@@ -1728,7 +1728,7 @@ external_test:
 - $G_{\mathrm{FE}}$；
 - practical label。
 
-## Step 7：训练与冻结在线schedule
+## Step 7：训练与é¢åæå®在线schedule
 
 - grouped nested OOF；
 - run-level first-trigger；
@@ -1755,7 +1755,7 @@ external_test:
 
 ## 21.1 方法部分
 
-> Search behavior is monitored after every complete native optimizer update, whereas expensive paired continuation labels are generated only at a sparse set of frozen budget milestones and behavior-triggered opportunities. The online controller is evaluated under a one-shot first-trigger policy, and both the opportunity schedule and score threshold are selected exclusively from grouped out-of-fold predictions on the training function families.
+> Search behavior is monitored after every complete native optimizer update, whereas expensive paired continuation labels are generated only at a sparse set of predefined budget milestones and behavior-triggered opportunities. The online controller is evaluated under a one-shot first-trigger policy, and both the opportunity schedule and score threshold are selected exclusively from grouped out-of-fold predictions on the training function families.
 
 ## 21.2 采样范围说明
 
@@ -1844,11 +1844,11 @@ Renau, Q., Doerr, C., Dreo, J., & Doerr, B. (2020). *Exploratory Landscape Analy
 支持内容：
 
 - ELA特征对采样方法和样本规模敏感；
-- Landscape Query配置必须版本化、冻结并进行敏感性分析。
+- Landscape Query配置必须版本化、é¢åæå®并进行敏感性分析。
 
 ---
 
-# 23. 最终冻结建议
+# 23. 最终é¢åæå®建议
 
 方案 A 下，采样频率不应整体推翻，而应按以下结论修订：
 
@@ -1857,7 +1857,7 @@ Renau, Q., Doerr, C., Dreo, J., & Doerr, B. (2020). *Exploratory Landscape Analy
 3. **完整状态与昂贵配对标签只在12–18个稀疏milestone/event机会生成。**
 4. **在正式全量运行前，用0.10–0.70小规模Pilot重新验证旧的0.20–0.60区间。**
 5. **正式在线主策略继续使用run-level one-shot first-trigger。**
-6. **在线schedule和threshold只用BBOB train grouped OOF结果冻结。**
+6. **在线schedule和threshold只用BBOB train grouped OOF结果é¢åæå®。**
 7. **milestone+event必须与milestone-only和equal-count fixed grid做公平消融。**
 8. **Trajectory-based zero-FE descriptor必须在原始采集阶段同步保留。**
 9. **不同机会频率必须分别重新校准，不能共享同一threshold。**

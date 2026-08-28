@@ -3,6 +3,11 @@
 > 创建日期：2026-08-21
 > 状态：📝 **方案设计**
 > 关联：MA-BBOB diversity pilot（42 定义）已就绪，可直接用于 selector 训练
+>
+> **⚠️ 协议状态修订（2026-08-21，以 `docs/10_protocols/Decision-before-Feature_Downstream_Selector_Protocol.md` 为准）：**
+> 1. `mabbob_formal` 的角色已定为 Selector **训练增强集**（`FORMAL_SELECTOR_TRAINING_SPLITS = {bbob_train, mabbob_formal}`），**不是**本文所述的“最终验证/测试集”；一旦用于 fitting，即不能再作任何确认性评价集。本文中“测试集：MA-BBOB formal（最终评估）”及 Final-RF/Final-LGB 的“最终测试”行均按此修正理解。
+> 2. 验证侧评价集合为新增的 `mabbob_validation`（18 个定义、components 仅含 F5/F9/F13/F14/F19/F24、seeds 1–5、10/20/40D、evaluation-only），见协议文档 §2.4；它以两层 50/50 组成并入 BBOB-validation estimand。
+> 3. 2026-08-24 后，下一轮 Decision Model 训练使用的正式下游 Selector 调整为 `dimension_aware_hybrid_selector`：10D/20D 保留多输出 RF，40D 使用 `pairwise_aggregation_rf_classifier`。旧多输出 RF 保留为基线；本文中的 LightGBM 对比候选不属于当前活动协议。
 
 ---
 
@@ -13,6 +18,124 @@
 > **在已决策执行 ELA 的前提下，根据 ELA 特征选择最优算法**
 
 这与 DBF 的核心创新点（`search behavior -> decide whether to execute ELA`）是**互补关系**，而非竞品。Selector 是 ELA 路径的**终端决策器**，DBF controller 是 ELA 路径的**门控器**。
+
+### 0.1 正式方案：pairwise aggregation 与 dimension-aware hybrid selector（2026-08-24）
+
+基于 40D validation high-regret 失误归因与正式训练集 OOF 诊断，下一轮 Decision Model 训练使用的正式下游 Selector 调整为 `dimension_aware_hybrid_selector`。`pairwise_aggregation_rf_classifier` 同时作为该正式方案的 40D 组件和全维度 selector sensitivity。训练、预测与评价现已并入 `uv run selection-reference-build`；进入下一轮训练前必须用该入口重新生成对应 Selection Reference、Utility labels 与 Decision dataset。
+
+```text
+selector_status = dimension_aware_hybrid_selector
+component_selector = pairwise_aggregation_rf_classifier
+base_model_10d_20d = formal_multioutput_rf
+base_model_40d = pairwise_aggregation_rf_classifier
+portfolio = de, pso, cmaes, shade
+query_id = descriptor_cheap_invariant
+train_splits = bbob_train, mabbob_formal
+validation_splits = bbob_validation, mabbob_validation
+n_estimators = 200
+random_state = 1701
+```
+
+选择规则固定为：
+
+```text
+if dimension == 40:
+    selected_algorithm = pairwise_aggregation_rf_classifier(selected_algorithm)
+else:
+    selected_algorithm = formal_multioutput_rf(selected_algorithm)
+```
+
+该规则只使用 `dimension` 作为模型路由字段，不把 `dimension` 加入任一基础模型的输入特征；基础模型仍只读取 B3 behavior、14 个 descriptor 和 `remaining_budget_ratio`。`dimension` 在这里是预先定义的数据 strata 路由，用于处理 40D 下 CMA-ES/SHADE 排序错误的结构性诊断结果，不作为 Decision Model 输入，也不改变 action set、action-loss 标签、Utility 标签或 first-trigger policy 规则。
+
+#### 0.1.1 é¢åæå®依据
+
+规则é¢åæå®必须先基于正式训练集 OOF，而不是 validation 结果。当前已执行：
+
+```bash
+uv run selection-reference-build \
+  --query-id descriptor_cheap_invariant \
+  --train-action-losses results/selection_reference/descriptor_cheap_invariant/bbob_train/query_adjusted_budget.parquet \
+  --train-action-losses results/selection_reference/descriptor_cheap_invariant/mabbob_formal/query_adjusted_budget.parquet \
+  --predict-action-losses results/selection_reference/descriptor_cheap_invariant/bbob_validation/query_adjusted_budget.parquet \
+  --predict-action-losses results/selection_reference/descriptor_cheap_invariant/mabbob_validation/query_adjusted_budget.parquet \
+  --behavior results/phase1_refined_sampling/bbob_train \
+  --behavior results/phase1_mabbob/mabbob_formal \
+  --behavior results/phase1_refined_sampling/bbob_validation \
+  --behavior results/phase1_mabbob_validation/mabbob_validation \
+  --query-features results/landscape_queries/features/descriptor_cheap_invariant \
+  --overwrite
+```
+
+训练 OOF 范围为 `bbob_train + mabbob_formal`，共 `71433` rows、`42` 个 `cv_group_id`。输出位置：
+
+```text
+results/selection_reference/descriptor_cheap_invariant/selection_reference.parquet
+results/selection_reference/descriptor_cheap_invariant/pairwise_aggregation_sensitivity.parquet
+results/selection_reference/descriptor_cheap_invariant/formal_multioutput_rf_baseline.parquet
+results/selection_reference/descriptor_cheap_invariant/selector_evaluation_summary.parquet
+results/selection_reference/descriptor_cheap_invariant/statewise_selector.joblib
+```
+
+训练 OOF 的 40D mean four-action regret：
+
+| selector | 40D mean regret | 40D best-match rate |
+|---|---:|---:|
+| formal_multioutput_rf | 0.529868 | 0.536067 |
+| pairwise_aggregation_rf_classifier | 0.282770 | 0.603925 |
+| dimension_aware_hybrid_selector | 0.282770 | 0.603925 |
+
+训练 OOF 的 all-dimension mean four-action regret：
+
+| selector | all-dimension mean regret | all-dimension best-match rate |
+|---|---:|---:|
+| formal_multioutput_rf | 0.409362 | 0.567595 |
+| pairwise_aggregation_rf_classifier | 0.279453 | 0.587054 |
+| dimension_aware_hybrid_selector | 0.328462 | 0.589811 |
+
+解释：40D 上 pairwise aggregation 明显降低 regret；10D/20D 按本候选规则保留 formal RF。虽然 train OOF 中全维度 pairwise aggregation 的 mean regret 更低，但本候选的预注册目标是**只修复 40D 高 regret 失误来源，同时降低 10D/20D 架构变更带来的协议风险**。
+
+#### 0.1.2 Validation 只读评价
+
+在上述规则é¢åæå®后，使用已训练的全量正式候选模型对 `bbob_validation + mabbob_validation` 做只读评价：
+
+上方统一命令中的两个 `--predict-action-losses` 参数同时生成 held-out 预测；无需再运行独立 validation 脚本。
+
+输出位置：
+
+```text
+results/selection_reference/descriptor_cheap_invariant/selector_evaluation_summary.parquet
+```
+
+validation all-dimension mean four-action regret：
+
+| selector | all-dimension mean regret | all-dimension best-match rate |
+|---|---:|---:|
+| formal_multioutput_rf | 0.382582 | 0.523558 |
+| pairwise_aggregation_rf_classifier | 0.290066 | 0.571342 |
+| dimension_aware_hybrid_selector | 0.228883 | 0.613998 |
+
+validation 40D mean four-action regret：
+
+| selector | 40D mean regret | 40D best-match rate |
+|---|---:|---:|
+| formal_multioutput_rf | 0.801924 | 0.326948 |
+| pairwise_aggregation_rf_classifier | 0.330835 | 0.604147 |
+| dimension_aware_hybrid_selector | 0.330835 | 0.604147 |
+
+split × dimension 核对显示，`dimension_aware_hybrid_selector` 在 10D/20D 与 formal RF 完全一致，在 40D 与 pairwise aggregation 完全一致，符合é¢åæå®规则定义。
+
+#### 0.1.3 正式使用边界
+
+该方案作为下一轮 Decision Model 训练的正式下游 Selector。正式使用时必须在方案é¢åæå®后重新生成对应 Selection Reference、Utility labels、Decision dataset 与 online evaluation 产物，并明确与旧 RF 产物的边界；不能用现有 validation 表事后调节维度阈值、pairwise 投票阈值、样本权重或基础模型超参数。
+
+该候选不得改变：
+
+- Decision Model 活动候选集合；
+- Decision Model 输入特征；
+- `FORMAL_SELECTOR_TRAINING_SPLITS = (bbob_train, mabbob_formal)`；
+- `bbob_validation` 与 `mabbob_validation` 的 evaluation-only 地位；
+- 四动作 portfolio 与 `continue_current` target transform；
+- 旧 RF `selection_reference.parquet` 和 `statewise_selector.joblib` 的历史结果；新一轮训练必须使用按本方案重新生成的产物。
 
 ---
 
@@ -38,13 +161,13 @@
 **结论**：本方案采用 **Performance Regression** 范式，原因：
 1. 与现有 `selection_reference/model.py` 实现一致（`RandomForestRegressor` 预测 `target_selector_loss`）
 2. 支持任意 portfolio 扩展（当前 4 个：DE/PSO/CMA-ES/SHADE）
-3. 可直接复用 action-loss 标签（已冻结协议）
+3. 可直接复用 action-loss 标签（已é¢åæå®协议）
 
 ---
 
 ## 2. 当前实现现状
 
-### 2.1 已冻结的 selector 实现
+### 2.1 已é¢åæå®的 selector 实现
 
 `selection_reference/model.py` 已实现：
 
@@ -82,7 +205,7 @@ Pipeline([
 | BBOB train（18 函数 × 2 instances × 10D/20D） | ✅ 已采集 | ~2,880 runs | 训练集 |
 | BBOB validation（6 函数 × 2 instances × 10D/20D） | ✅ 已采集 | ~960 runs | 验证集 |
 | **MA-BBOB diversity pilot（42 定义 × 1 instance × 10D）** | ✅ **新采集** | **1,680 runs** | **扩展训练集** |
-| MA-BBOB formal（24 定义 × 1 instance × 10D） | ⏳ 待采集 | 960 runs | 最终验证 |
+| MA-BBOB formal（24 定义 × 1 instance × 10D） | ⏳ 待采集 | 960 runs | Selector 训练增强（非最终验证，见顶部修订说明） |
 
 ### 2.3 现有问题（来自历史诊断）
 
@@ -102,10 +225,10 @@ Pipeline([
 
 **固定一个下游 ELA-based selector**，满足：
 
-1. **协议冻结**：输入/输出契约与现有 `selection_reference` 完全兼容
+1. **协议é¢åæå®**：输入/输出契约与现有 `selection_reference` 完全兼容
 2. **数据充分**：在 BBOB + MA-BBOB diversity 池上训练，覆盖更广泛的景观
 3. **模型多样性**：对比 RF vs LightGBM（Guo 2025），选择更稳健的模型
-4. **可复现**：种子、超参数、特征集全部冻结
+4. **可复现**：种子、超参数、特征集全部é¢åæå®
 5. **可评估**：提供完整的验证报告（accuracy、regret、U_ELA 等）
 
 ### 3.2 训练数据准备
@@ -122,7 +245,7 @@ Pipeline([
 **训练集构成**：
 - **主训练集**：BBOB train + MA-BBOB diversity pilot
 - **验证集**：BBOB validation（严格隔离，不参与训练）
-- **测试集**：MA-BBOB formal（最终评估）
+- **训练增强**：MA-BBOB formal（`mabbob_formal`；见顶部修订说明，不作最终评估）
 
 #### 3.2.2 特征工程
 
@@ -159,11 +282,12 @@ SELECTOR_BEHAVIOR_FEATURE_COLUMNS = (
 - **注意**：景观特征在 state-level 可能为空（未执行 query），需使用 `WeightedMedianImputer` 填充
 
 **目标特征**：
-- `remaining_budget_ratio`：剩余预算比例（FE_ratio）
+- `remaining_budget_ratio`：进入 Selector regression 的唯一预算 covariate。
+- `FE_prefix` 与 `FE_total`：必须加载并用于校验 query-adjusted budget、shared-state FE 账本和 `remaining_budget_ratio`，但不直接进入 Selector 模型特征，避免模型利用绝对预算、维度或 suite 规模形成捷径。
 
 #### 3.2.3 标签构造
 
-**action-loss 标签**（已冻结协议）：
+**action-loss 标签**（已é¢åæå®协议）：
 ```python
 # 对于每个 state（problem × algorithm × seed × FE），有 4 个 candidate actions
 # 每个 action 对应一个 target_algorithm ∈ {de, pso, cmaes, shade}

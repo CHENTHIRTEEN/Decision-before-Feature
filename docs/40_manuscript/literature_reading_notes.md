@@ -180,7 +180,7 @@
 - 核读范围：项目内 PDF 与 Zotero 索引全文；核读纵向 population summaries、维度与群体规模相关的表示、分类标签、数据生成、计算量讨论、3D BBOB 范围与局限。
 - 可支撑：跨代的 population-level summaries 可以刻画 problem--algorithm interaction；使用原生优化轨迹可以省去独立目标函数采样；纵向集合动态是轻量行为摘要的合理灵感来源。
 - 不可支撑：问题分类准确率不等同于 query utility；DynamoRep 的代内坐标／适应度 min、max、mean、std 对 population 行重排本身不敏感，但其分类器按 optimizer 分别训练，坐标级表示长度随维数和代数增长；3D BBOB 问题分类不等同于固定维、跨优化器的 query-utility state，也不能证明本文 B2/B3 特征或 Search Maturity 有效。
-- 正文用途：Related Work 的 trajectory representation；Method 中解释 DynamoRep-lite 只借鉴“纵向集合动态”思想，同时采用本文冻结的算法无关集合统计与窗口定义。
+- 正文用途：Related Work 的 trajectory representation；Method 中解释 DynamoRep-lite 只借鉴“纵向集合动态”思想，同时采用本文é¢åæå®的算法无关集合统计与窗口定义。
 
 ### B.4 Hayward and Engelbrecht (2025)
 
@@ -203,7 +203,7 @@
 - BibTeX key：`mbassoHowMetaheuristicsExploit2026`
 - 核读范围：项目内 PDF 与 Zotero 索引全文；核读 particle movement、directional entropy、stagnation、distance-to-reference、行为监测开销、优化器特定 intervention、CEC 2025 实验与局限。
 - 可支撑：distance decay、directional entropy 与 stagnation 是可解释的搜索行为维度；复用搜索历史虽不新增独立景观样本，行为监测仍有计算开销；本文只借鉴 distance-decay 与 stagnation 的行为语义，并重新定义距离参照。
-- 不可支撑：optimizer-specific intervention 不是 query acquisition；particle-wise directional entropy 依赖跨代个体身份，因而未进入本文冻结输入；其 CEC 2025 数值、干预收益或结论不能证明本文 RQ1--RQ5、Search Maturity 或外部泛化。
+- 不可支撑：optimizer-specific intervention 不是 query acquisition；particle-wise directional entropy 依赖跨代个体身份，因而未进入本文é¢åæå®输入；其 CEC 2025 数值、干预收益或结论不能证明本文 RQ1--RQ5、Search Maturity 或外部泛化。
 - 正文用途：Related Work 与 Method 的行为 taxonomy；Results RQ5 的描述性解释边界，避免把行为相关性写成因果作用。
 
 ## C. Zotero 邻近研究
@@ -253,7 +253,7 @@
 - BibTeX key：`renauAlgorithmSelectionProbing2025b`
 - 核读范围：Zotero 索引 PDF 全文，共 18 页；核读 probing-trajectory 定义、17 类时间序列分类器、LOIO/LOPO 划分、BBOB 任务范围、结果与局限。
 - 可支撑：probing trajectory 是由短期 objective-value sequence 构成的 algorithm-centric 输入；分类器选择会影响此类时序输入的选择表现；leave-one-problem-out 比 leave-one-instance-out 更能暴露未见问题上的困难。
-- 不可支撑：该文仍在 representation 已构建后直接选择 portfolio algorithm，不定义独立 query 的 paired skip/query utility；BBOB 分类器结果不能证明本文行为输入、阈值或跨套件泛化；不得把其分类器候选加入本文冻结的 LDA、Logistic Regression、Ridge 集合。
+- 不可支撑：该文仍在 representation 已构建后直接选择 portfolio algorithm，不定义独立 query 的 paired skip/query utility；BBOB 分类器结果不能证明本文行为输入、阈值或跨套件泛化；不得把其分类器候选加入本文é¢åæå®的 LDA、Logistic Regression、Ridge 集合。
 - 正文用途：Related Work 中补充 probing-trajectory 的模型与划分敏感性；支持把预测模型和 problem split 写成经验设计的一部分，同时精确区分其 action-selection 目标与本文 query-acquisition 目标。
 
 ### C.5 van der Blom and Vermetten (2026)
@@ -321,7 +321,7 @@
 4. query gate 与下游 portfolio action selector 分离，并显式区分 native continuation 与 population-transfer initialization；
 5. 选模和阈值只使用 BBOB-training function families，held-out BBOB、CEC 与工程问题不反馈到 preprocessing、特征选择、模型或阈值。
 
-因此可使用的表述是：**“Among the literature reviewed here, we did not identify a method that makes the same pre-query, cost-adjusted information-acquisition decision.”** 这是一项由当前核读语料限定的 gap 陈述，不是绝对首创声明。文献只支持问题的合理性、邻近方法的任务边界以及冻结评价设计；它们不支持将 RQ1--RQ5、BBOB-validation、CEC2017、CEC2022 或工程问题结果写成已经验证，也不支持使用任何已历史实验数值。
+因此可使用的表述是：**“Among the literature reviewed here, we did not identify a method that makes the same pre-query, cost-adjusted information-acquisition decision.”** 这是一项由当前核读语料限定的 gap 陈述，不是绝对首创声明。文献只支持问题的合理性、邻近方法的任务边界以及é¢åæå®评价设计；它们不支持将 RQ1--RQ5、BBOB-validation、CEC2017、CEC2022 或工程问题结果写成已经验证，也不支持使用任何已历史实验数值。
 
 ## F. 与当前 BibTeX 的题名和 DOI 对照
 
@@ -366,7 +366,7 @@ Renau and Hart (2025) 已按 Zotero 全文证据纳入正文和 BibTeX；其用�
 - BibTeX key：`haywardSurveyAnalysisMetaheuristic2026`
 - 核读范围：Zotero 索引 PDF 全文；正式期刊元数据经 Crossref 核对。
 - 可支撑：行为指标需同时考虑敏感性、冗余性、单次运行可计算性和部署时信息边界，不能因可计算就默认有辨识力。
-- 不可支撑：PSO variants 的案例不能验证本文冻结的五类行为输入，也不能证明这些输入跨 DE、PSO、CMA-ES 和 SHADE 完全算法无关。
+- 不可支撑：PSO variants 的案例不能验证本文é¢åæå®的五类行为输入，也不能证明这些输入跨 DE、PSO、CMA-ES 和 SHADE 完全算法无关。
 - 正文用途：Related Work 中限定行为指标选择与解释。
 
 ### G.3 Janković and Doerr (2019), Adaptive Landscape Analysis

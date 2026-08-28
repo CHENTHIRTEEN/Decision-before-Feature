@@ -9,7 +9,7 @@
 | BBOB-train | 1,2,3,4,6,7,8,10,11,12,15,16,17,18,20,21,22,23 | 10,20,40 | 1,2,3 | 1--30 | 完整 nested function OOF、选模、threshold/Random calibration 与最终重拟合 |
 | BBOB-validation | 5,9,13,14,19,24 | 10,20,40 | 1,2,3 | 1--30 | 已见固定六函数内部评价 |
 
-当前 COCO `bbob` suite 不支持 50D，因此 BBOB 50D/100D 不进入主 validation。若未来选择支持这些维度的 suite，必须作为新的 extension，独立冻结 functions、bounds、budget、targets 和 failure rules。
+当前 COCO `bbob` suite 不支持 50D，因此 BBOB 50D/100D 不进入主 validation。若未来选择支持这些维度的 suite，必须作为新的 extension，独立é¢åæå® functions、bounds、budget、targets 和 failure rules。
 
 ## 2. Dimension 的信息边界
 
@@ -41,7 +41,7 @@ $$
 
 ### 4.2 Dimension 分层
 
-在 BBOB train OOF 和冻结 validation 内分别报告 10D、20D、40D 的：
+在 BBOB train OOF 和é¢åæå® validation 内分别报告 10D、20D、40D 的：
 
 - $G_{\mathrm{FE}}$（方案 A 主标签）、$U_b$、`query_operational_increment`；
 - terminal/continuation-only `log10_gap`、target-hit rate、endpoint-success rate、ERT；
@@ -53,13 +53,13 @@ Dimension 分层是 heterogeneity analysis，不把每个 function--dimension �
 
 ### 4.3 Cross-benchmark evaluation
 
-BBOB-train 冻结的 SBS、Selectors、Decision preprocessing/model、feature group、threshold 和 Random calibration 原样用于外部 suite。已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022、前瞻 MA-BBOB 与前瞻工程问题分别报告，不池化为单一“OOD”分数，也不把任一外部 suite 用于重新训练。只有在本轮冻结后先完成配置/端点/分析规则、再首次生成 outcome 的外部集合可承担独立确认。
+BBOB-train é¢åæå®的 SBS、Selectors、Decision preprocessing/model、feature group、threshold 和 Random calibration 原样用于外部 suite。已见 BBOB-validation、已见 CEC2017、前瞻 CEC2022、前瞻 MA-BBOB 与前瞻工程问题分别报告，不池化为单一“OOD”分数，也不把任一外部 suite 用于重新训练。只有在本轮é¢åæå®后先完成配置/端点/分析规则、再首次生成 outcome 的外部集合可承担独立确认。
 
-CEC2017 当前维度、seeds 和预算写为 10D/30D/50D、30 seeds、$1000D$；但 `configs/phase1_cec2017_test.yaml` 使用 F1--F29，即包含 F2、排除 F30。项目内尚无依据确认该函数集与所用实现/官方口径一致，必须在运行前核对并冻结，不能静默改配置或先看结果。
+CEC2017 当前维度、seeds 和预算写为 10D/30D/50D、5 seeds（2026-08-21 由 30 下调）、$1000D$；但 `configs/phase1_cec2017_test.yaml` 使用 F1--F29，即包含 F2、排除 F30。项目内尚无依据确认该函数集与所用实现/官方口径一致，必须在运行前核对并é¢åæå®，不能静默改配置或先看结果。
 
-MA-BBOB 由 IOHexperimenter 的 `ManyAffine` 生成器提供，适合作为训练用生成数据集和 transfer robustness 基准。它与 BBOB 的关系是“由 BBOB 组合生成的外部问题集”，不是 BBOB 的 instance split。训练用 MA-BBOB 的 functions、instances、dimensions 与 seeds 必须在 `configs/prospective_suites.yaml` 中冻结后使用，且不回填到 BBOB-train / validation。
+MA-BBOB 由 IOHexperimenter 的 `ManyAffine` 生成器提供，适合作为训练用生成数据集和 transfer robustness 基准。它与 BBOB 的关系是“由 BBOB 组合生成的外部问题集”，不是 BBOB 的 instance split。训练用 MA-BBOB 的 functions、instances、dimensions 与 seeds 必须在 `configs/prospective_suites.yaml` 中é¢åæå®后使用，且不回填到 BBOB-train / validation。
 
-CEC2022 与工程问题尚未冻结具体 functions/problems、dimension、bounds、budget、success target、gap floor/cap、timeout、first-hit 和 constraint-handling rule，因此当前不能执行或声称覆盖。
+CEC2022 与工程问题尚未é¢åæå®具体 functions/problems、dimension、bounds、budget、success target、gap floor/cap、timeout、first-hit 和 constraint-handling rule，因此当前不能执行或声称覆盖。
 
 ### 4.4 Cross-prefix/algorithm robustness
 
@@ -71,14 +71,14 @@ CEC2022 与工程问题尚未冻结具体 functions/problems、dimension、bound
 
 Function 是最高聚合层。层级固定为 run → static problem → fixed dimension stratum → function。BBOB-validation 的 10,000 次条件 bootstrap 保留全部六个已见固定 functions、dimensions 与 instances 1/2/3 对应的 static problems，只在每个固定 static problem 内配对重抽 optimizer seeds。Dimension 与 static problems 均为固定 strata；function-resampling 只作函数组成敏感性，不进入主 CI，也不产生 transformed-instance 超总体推断。
 
-Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先冻结有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。方案 A 下主功效以 `G_FE` 为主，Utility 仅作历史记录。
+Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/target-hit rate $\pm0.05$ 只称项目内 operational tolerance。条件 CI 仅逐项描述相对边界的位置；未来未查看评价集若作等价判断，须先é¢åæå®有领域含义的边界与 simultaneous interval。不同 dimension 的 Utility 抵消不能替代 terminal performance 或 runtime 的端点判断。方案 A 下主功效以 `G_FE` 为主，Utility 仅作历史记录。
 
 ## 6. 可支持的结论
 
 只有在对应效应与区间完整时，才可写：
 
-- 冻结 policy 在所评估维度上的效应稳定或表现出 dimension dependence；
-- 冻结 BBOB-train procedure 在某个具体 external suite 上保持、减弱、反转或未建立效应；
+- é¢åæå® policy 在所评估维度上的效应稳定或表现出 dimension dependence；
+- é¢åæå® BBOB-train procedure 在某个具体 external suite 上保持、减弱、反转或未建立效应；
 - 某 query 配置的 failure/runtime 随 dimension 改变。
 
 不得写：
@@ -87,7 +87,7 @@ Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/t
 - 不输入 dimension 即证明 dimension-invariant learning；
 - CEC 天然代表所有 OOD；
 - 部分 suite 成功即证明无条件跨 benchmark 泛化；
-- 未冻结或未运行的 50D/100D、CEC2022 或工程问题已被覆盖。
+- 未é¢åæå®或未运行的 50D/100D、CEC2022 或工程问题已被覆盖。
 
 ## 7. 执行顺序
 
@@ -96,7 +96,7 @@ Utility $\pm0.01$、`log10_gap` $\pm0.05$、runtime ratio $[0.95,1.05]$、call/t
 1. main `descriptor_cheap_invariant` BBOB train/validation；
 2. `pflacco_standard_invariant` / `pflacco_broad_invariant` 配置稳健性；
 3. 函数集口径核对后的 CEC2017；
-4. 配置和 constraint rule 冻结后的 CEC2022；
-5. 配置冻结后的工程问题。
+4. 配置和 constraint rule é¢åæå®后的 CEC2022；
+5. 配置é¢åæå®后的工程问题。
 
 阶段性结果必须注明实际覆盖，不能冒充尚未完成的全协议结论。
