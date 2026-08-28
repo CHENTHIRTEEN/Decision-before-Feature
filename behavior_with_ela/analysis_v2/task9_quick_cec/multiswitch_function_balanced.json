@@ -1,0 +1,16 @@
+{
+  "action_gain_classifier": {
+    "mean_log10_gap": -1.578759491688606,
+    "mean_relative_gain_vs_continue": 1.8405459453487347,
+    "switch_rate": 0.6999999999999998,
+    "mean_switch_count": 1.2,
+    "max_switch_count": 4.333333333333333
+  },
+  "v2_regression": {
+    "mean_log10_gap": -1.6060940905715786,
+    "mean_relative_gain_vs_continue": 1.8678805442317072,
+    "switch_rate": 0.6666666666666666,
+    "mean_switch_count": 0.6666666666666666,
+    "max_switch_count": 1.0
+  }
+}

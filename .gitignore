@@ -21,3 +21,8 @@ behavior_with_ela/results/*
 behavior_with_ela/results/analysis_v2/*
 !behavior_with_ela/results/analysis_v2/task*/
 behavior_with_ela/results/analysis_v2/task*/oof_*.parquet
+behavior_with_ela/results/analysis_v2/task9_quick_cec/v2_online_bundle.joblib
+!behavior_with_ela/results/online/
+behavior_with_ela/results/online/*
+!behavior_with_ela/results/online/cec2017_quick3/
+!behavior_with_ela/results/online/cec2017_quick3_multiswitch/
