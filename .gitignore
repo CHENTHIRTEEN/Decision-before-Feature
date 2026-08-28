@@ -12,3 +12,12 @@ logs/
 
 # generated experiment outputs (large binaries and derived data)
 outputs/
+
+# behavior_with_ela: track curated analysis tables under results/analysis_v2,
+# keep heavy row-level OOF prediction files local only
+!behavior_with_ela/results/
+behavior_with_ela/results/*
+!behavior_with_ela/results/analysis_v2/
+behavior_with_ela/results/analysis_v2/*
+!behavior_with_ela/results/analysis_v2/task*/
+behavior_with_ela/results/analysis_v2/task*/oof_*.parquet

@@ -1,0 +1,102 @@
+[
+  {
+    "check": "state-action key uniqueness (135k rows)",
+    "status": "PASS",
+    "detail": "duplicate rows=0"
+  },
+  {
+    "check": "action matrix completeness per state",
+    "status": "PASS",
+    "detail": "states=45139, all have exactly 3 candidates: True"
+  },
+  {
+    "check": "candidate set equals portfolio",
+    "status": "PASS",
+    "detail": "observed candidates=['cmaes', 'pso', 'shade']"
+  },
+  {
+    "check": "continue-current handoff is native optimizer state",
+    "status": "PASS",
+    "detail": "continue rows=45139, all native: True"
+  },
+  {
+    "check": "action labels: continue_current for same-prefix rows, candidate identity for switches",
+    "status": "PASS",
+    "detail": "continue rows=45139 labeled continue_current: True; switch rows=90278 labeled by candidate: True"
+  },
+  {
+    "check": "switch actions use population transfer initialization",
+    "status": "PASS",
+    "detail": "switch rows=90278, all population_transfer_initialization: True"
+  },
+  {
+    "check": "repetition replicate ids are paired 1 or 3 without gaps",
+    "status": "PASS",
+    "detail": "repetition state-actions=135417"
+  },
+  {
+    "check": "repetition counts match planned_action_repetitions",
+    "status": "PASS",
+    "detail": "compared=135417, match=True"
+  },
+  {
+    "check": "every OOF prediction row belongs to its held-out family",
+    "status": "PASS",
+    "detail": "folds=[1, 2, 3, 4, 5]"
+  },
+  {
+    "check": "OOF rows are BBOB only",
+    "status": "PASS",
+    "detail": "rows=50938"
+  },
+  {
+    "check": "OOF covers all BBOB switch rows exactly",
+    "status": "PASS",
+    "detail": "oof=50938"
+  },
+  {
+    "check": "MA-BBOB definitions never carry held-out BBOB function identity",
+    "status": "PASS",
+    "detail": "mabbob definitions=24, definitions with overlapping components (rows)=33696 (excluded per fold by _ma_overlaps_heldout)"
+  },
+  {
+    "check": "validation rows used for fit/threshold = 0",
+    "status": "PASS",
+    "detail": "{\"fit\": 0, \"threshold\": 0}"
+  },
+  {
+    "check": "function-balanced mean = mean of per-family means",
+    "status": "PASS",
+    "detail": "manual=0.846671865 reported=0.846671865"
+  },
+  {
+    "check": "first-trigger produces exactly one row per run",
+    "status": "PASS",
+    "detail": "runs=1620, unique=True"
+  },
+  {
+    "check": "selected FE is the earliest threshold-crossing state (BBOB OOF)",
+    "status": "PASS",
+    "detail": "compared=1243, aligned=1243, threshold=0.244490"
+  },
+  {
+    "check": "train OOF policy metrics carry threshold-selection optimism",
+    "status": "WARNING",
+    "detail": "selected threshold 0.2445 maximises function_balanced_mean_gain over 40060 candidates (median=0.5709, max=0.8467); mitigation: Phase 1 headline claims also reported on untouched BBOB validation"
+  },
+  {
+    "check": "action-loss target matrix follows [pso, shade, cmaes] order",
+    "status": "PASS",
+    "detail": "states=45139, target shape=(45139, 3), 25 random states verified=True"
+  },
+  {
+    "check": "A1 vs A3 validation first-trigger decisions identical (re-verified)",
+    "status": "PASS",
+    "detail": "same action=1.0000, same FE=1.0000"
+  },
+  {
+    "check": "A1 vs A3 train OOF state-level top-1 disagreement",
+    "status": "INFO",
+    "detail": "disagreement=0.0160 over 25469 states; score mean|diff|=0.5149"
+  }
+]
