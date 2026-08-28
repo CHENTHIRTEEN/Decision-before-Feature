@@ -270,6 +270,7 @@ def run_one_switch_policy(
                     {
                         "policy_protocol": policy_protocol,
                         "switch_rule": switch_rule,
+                        "initial_prefix_algorithm": prefix_algorithm,
                         "split": suite.split,
                         "suite": suite.suite,
                         "problem_id": problem.problem_id,
@@ -359,8 +360,13 @@ def run_one_switch_policy(
     selected_equals_prefix = selected_algorithm == prefix_algorithm
     outcome = {
         "policy_protocol": policy_protocol,
+        "initial_prefix_algorithm": prefix_algorithm,
         "switch_rule": switch_rule,
         "switch_count": len(switches),
+        "switch_chain": " -> ".join(
+            f"{item['FE']}:{item['from_algorithm']}->{item['to_algorithm']}"
+            for item in switches
+        ),
         "split": suite.split,
         "suite": suite.suite,
         "problem_id": problem.problem_id,

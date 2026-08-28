@@ -24,3 +24,15 @@
 5. first_trigger 语义保留为默认值，历史结果可复现（本次 FE 记账口径变化使 first_trigger 数值与 09 报告存在 ±0.07 以内的微小差异——旧口径用优化器自身计数，新口径用全局预算计数，后者与离线/repeated_das 一致）。
 
 产物：`results/online/cec2017_quick3_multiswitch/`（两策略 outcomes/opportunities）、`analysis_v2/task9_quick_cec/multiswitch_summary.csv`。
+
+## 补充（2026-08-29）：多次切换 run 的实际动作序列
+
+机会行新增 `initial_prefix_algorithm` 归因列、结果行新增 `switch_chain` 后的精确重建：
+
+- 多次切换 run 共 26 个（2 次 14、3 次 8、4 次 1、5 次 3），**最终算法全部为 cmaes**。
+- 3 个 5 次切换 run 全部是 F10 上的 **cmaes↔shade 振荡**：
+  - F10 seed=3（初始 pso）：pso --@2000--> cmaes --@2120--> shade --@2200--> cmaes --@2400--> shade --@2600--> cmaes
+  - F10 seed=4（初始 pso）：pso --@2000--> cmaes --@2200--> shade --@2400--> cmaes --@2600--> shade --@2800--> cmaes
+  - F29 seed=6（初始 pso）：pso --@2000--> cmaes --@2200--> shade --@2400--> cmaes --@2520--> shade --@2600--> cmaes
+- F1 上的典型模式是开局 pso --@2000--> shade --@2200--> cmaes（10 个 pso-initial run 中 10/10 如此）；F29 上还出现末段切换（如 cmaes --@5720--> shade --@6000--> cmaes）。
+- 振荡（shade↔cmaes 在相邻机会间来回）正是无滞回、无最小停留时间的逐点触发策略的预期病理，也是 Repeated DAS 协议引入 dwell 时间与滞回边际的动机；v2 回归载体在相同规则下从不二次切换，无振荡。
