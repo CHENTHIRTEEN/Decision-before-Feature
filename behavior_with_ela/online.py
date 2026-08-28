@@ -44,6 +44,10 @@ def evaluate_one_switch_online(
     initial_algorithm: str = "sbs",
     workers: int = 1,
     switch_rule: str = "first_trigger",
+    minimum_dwell_fe: int = 0,
+    hysteresis_margin: float = 0.0,
+    scheduling_label: str | None = None,
+    record_segments: bool = False,
     overwrite: bool = False,
 ) -> dict[str, int]:
     config = load_experiment_config(config_path)
@@ -67,6 +71,7 @@ def evaluate_one_switch_online(
     outcome_path = output / "online_policy_outcomes.parquet"
     opportunity_path = output / "online_opportunities.parquet"
     resource_path = output / "online_deployment_resources.parquet"
+    segment_path = output / "online_segments.parquet"
     paths = (outcome_path, opportunity_path, resource_path)
     if any(path.exists() for path in paths) and not overwrite:
         raise FileExistsError(f"online outputs already exist; pass --overwrite: {output}")
@@ -74,13 +79,23 @@ def evaluate_one_switch_online(
     if overwrite:
         for path in paths:
             path.unlink(missing_ok=True)
+        segment_path.unlink(missing_ok=True)
 
-    function_results: list[tuple[list[dict], list[dict], list[dict]]] = []
+    function_results: list[tuple[list[dict], list[dict], list[dict], list[dict]]] = []
     if workers == 1:
         for suite, function in tasks:
             function_results.append(
                 _evaluate_function(
-                    config, bundle, suite, function, prefixes, switch_rule
+                    config,
+                    bundle,
+                    suite,
+                    function,
+                    prefixes,
+                    switch_rule,
+                    minimum_dwell_fe,
+                    hysteresis_margin,
+                    scheduling_label,
+                    record_segments,
                 )
             )
     else:
@@ -94,6 +109,10 @@ def evaluate_one_switch_online(
                     function,
                     prefixes,
                     switch_rule,
+                    minimum_dwell_fe,
+                    hysteresis_margin,
+                    scheduling_label,
+                    record_segments,
                 )
                 for suite, function in tasks
             ]
@@ -102,9 +121,11 @@ def evaluate_one_switch_online(
     outcomes = [row for result in function_results for row in result[0]]
     opportunities = [row for result in function_results for row in result[1]]
     resources = [row for result in function_results for row in result[2]]
+    segments = [row for result in function_results for row in result[3]]
     if not outcomes:
         raise ValueError("online evaluation produced no policy outcomes")
-    pd.DataFrame(outcomes).sort_values(
+    label = scheduling_label or switch_rule
+    pd.DataFrame(outcomes).assign(scheduling_label=label).sort_values(
         ["split", "problem_id", "prefix_algorithm", "seed"],
         kind="mergesort",
     ).to_parquet(outcome_path, index=False)
@@ -124,11 +145,23 @@ def evaluate_one_switch_online(
         ["split", "problem_id", "prefix_algorithm", "seed"],
         kind="mergesort",
     ).to_parquet(resource_path, index=False)
+    if record_segments:
+        pd.DataFrame(segments).sort_values(
+            ["split", "problem_id", "prefix_algorithm", "seed", "segment_index"],
+            kind="mergesort",
+        ).to_parquet(segment_path, index=False)
     return {
         "policy_runs": len(outcomes),
         "opportunity_action_rows": len(opportunities),
         "resource_rows": len(resources),
+        "segment_rows": len(segments),
     }
+
+
+def _log10_gap(gap: float, config: ExperimentConfig) -> float:
+    return float(
+        np.log10(np.clip(gap, config.log10_gap_floor, config.log10_gap_cap))
+    )
 
 
 def run_one_switch_policy(
@@ -141,7 +174,21 @@ def run_one_switch_policy(
     prefix_algorithm: str,
     bundle: dict[str, Any],
     switch_rule: str = "first_trigger",
-) -> tuple[dict, list[dict], dict]:
+    minimum_dwell_fe: int = 0,
+    hysteresis_margin: float = 0.0,
+    scheduling_label: str | None = None,
+    gap_checkpoints: tuple[int, ...] = (),
+    collect_segments: bool = False,
+) -> tuple[dict, list[dict], dict, list[dict], list[dict]]:
+    """Run the online policy with separated clocks.
+
+    Observation clock: every native optimizer update feeds the recorder and the
+    Behavior bookkeeping. Decision check clock: predictions are evaluated at the
+    existing budget milestones and event states only. Switch eligibility clock:
+    a prediction triggers a switch only when the current segment has lived at
+    least ``minimum_dwell_fe`` evaluations and, when ``hysteresis_margin`` is
+    positive, the top1-top2 candidate score margin exceeds it.
+    """
     if switch_rule not in ("first_trigger", "per_opportunity"):
         raise ValueError(
             f"switch rule must be first_trigger or per_opportunity: {switch_rule}"
@@ -150,6 +197,7 @@ def run_one_switch_policy(
     policy_protocol = (
         POLICY_PROTOCOL if not multi_switch else POLICY_PROTOCOL_PER_OPPORTUNITY
     )
+    label = scheduling_label or switch_rule
     problem = make_experiment_problem(
         suite,
         function=function,
@@ -161,8 +209,14 @@ def run_one_switch_policy(
     evaluation_count = 0
     first_hit_fe: int | None = None
     opportunity_rows: list[dict] = []
+    segment_rows: list[dict] = []
     switches: list[dict] = []
+    switch_fe_sequence: list[int] = []
+    switch_target_sequence: list[str] = []
+    checkpoint_rows: list[dict] = []
     current_algorithm = prefix_algorithm
+    segment_start_fe = 0
+    segment_native_updates = 0
     recorder = TrajectoryRecorder(sampling_protocol=config.sampling_protocol)
 
     def observe_evaluation(point: np.ndarray, value: float) -> None:
@@ -175,6 +229,68 @@ def run_one_switch_policy(
         if first_hit_fe is None and gap <= config.success_gap_target:
             first_hit_fe = evaluation_count
 
+    def segment_gap(state) -> float:
+        reference = problem.reference_value
+        return float(
+            min(
+                max(float(state.best_fitness) - float(reference), 0.0),
+                config.failure_loss_cap,
+            )
+        )
+
+    current_segment: dict[str, Any] | None = None
+
+    def open_segment(state, *, switch_in_fe: int | None, source: str | None) -> None:
+        nonlocal current_segment, segment_start_fe, segment_native_updates
+        segment_start_fe = int(switch_in_fe or 0)
+        segment_native_updates = 0
+        current_segment = {
+            "algorithm": current_algorithm,
+            "segment_start_FE": segment_start_fe,
+            "switch_in_FE": switch_in_fe,
+            "source_algorithm": source,
+            "best_gap_at_segment_start": segment_gap(state),
+        }
+
+    def close_segment(state, end_fe: int, *, target: str | None = None) -> None:
+        if not collect_segments or current_segment is None:
+            return
+        start_gap = float(current_segment["best_gap_at_segment_start"])
+        end_gap = segment_gap(state)
+        segment_rows.append(
+            {
+                "run_id": (
+                    f"{problem.problem_id}:{prefix_algorithm}:seed{int(seed)}:"
+                    f"i{int(instance)}"
+                ),
+                "split": suite.split,
+                "suite": suite.suite,
+                "problem_id": problem.problem_id,
+                "prefix_algorithm": prefix_algorithm,
+                "seed": int(seed),
+                "scheduling_label": label,
+                "switch_rule": switch_rule,
+                "initial_prefix_algorithm": prefix_algorithm,
+                "segment_index": len(segment_rows),
+                "algorithm": current_segment["algorithm"],
+                "segment_start_FE": int(current_segment["segment_start_FE"]),
+                "segment_end_FE": int(end_fe),
+                "segment_lifetime_FE": int(end_fe - current_segment["segment_start_FE"]),
+                "switch_in_FE": current_segment["switch_in_FE"],
+                "switch_out_FE": int(end_fe) if target is not None else None,
+                "source_algorithm": current_segment["source_algorithm"],
+                "target_algorithm": target,
+                "number_native_updates": int(segment_native_updates),
+                "best_gap_at_segment_start": start_gap,
+                "best_gap_at_segment_end": end_gap,
+                "log10_gap_at_segment_start": _log10_gap(start_gap, config),
+                "log10_gap_at_segment_end": _log10_gap(end_gap, config),
+                "segment_log10_improvement": float(
+                    _log10_gap(start_gap, config) - _log10_gap(end_gap, config)
+                ),
+            }
+        )
+
     status = "completed"
     failure_type = ""
     failure_message = ""
@@ -184,6 +300,39 @@ def run_one_switch_policy(
     selected_opportunity: int | None = None
     selected_score: float | None = None
     state = None
+    checkpoint_index = 0
+    ordered_checkpoints = tuple(sorted(int(value) for value in gap_checkpoints))
+
+    def record_checkpoints() -> None:
+        nonlocal checkpoint_index
+        if state is None:
+            return
+        reference = problem.reference_value
+        while (
+            checkpoint_index < len(ordered_checkpoints)
+            and evaluation_count >= ordered_checkpoints[checkpoint_index]
+        ):
+            gap = float(
+                min(
+                    max(float(state.best_fitness) - float(reference), 0.0),
+                    config.failure_loss_cap,
+                )
+            )
+            checkpoint_rows.append(
+                {
+                    "run_id": (
+                        f"{problem.problem_id}:{prefix_algorithm}:seed{int(seed)}:"
+                        f"i{int(instance)}"
+                    ),
+                    "scheduling_label": label,
+                    "checkpoint_FE": int(ordered_checkpoints[checkpoint_index]),
+                    "recorded_FE": int(evaluation_count),
+                    "best_gap": gap,
+                    "log10_gap": _log10_gap(gap, config),
+                }
+            )
+            checkpoint_index += 1
+
     try:
         if problem.boundary_handling != config.boundary_handling:
             raise ValueError("online problem boundary handling differs from the experiment config")
@@ -200,6 +349,7 @@ def run_one_switch_policy(
             on_evaluation=observe_evaluation,
         )
         global_native_updates = 1
+        open_segment(state, switch_in_fe=None, source=None)
         recorder.observe(
             problem=problem,
             algorithm=prefix_algorithm,
@@ -216,8 +366,9 @@ def run_one_switch_policy(
             previous_records = len(recorder.records)
 
             def observe_update(updated) -> None:
-                nonlocal global_native_updates
+                nonlocal global_native_updates, segment_native_updates
                 global_native_updates += 1
+                segment_native_updates += 1
                 recorder.observe(
                     problem=problem,
                     algorithm=current_algorithm,
@@ -240,6 +391,7 @@ def run_one_switch_policy(
                 on_native_update=observe_update,
                 on_evaluation=observe_evaluation,
             )
+            record_checkpoints()
             if len(recorder.records) == previous_records:
                 continue
             if len(recorder.records) != previous_records + 1:
@@ -265,11 +417,22 @@ def run_one_switch_policy(
                     -config.algorithms.index(algorithm),
                 ),
             )
+            ranked_scores = sorted(
+                (float(scores[algorithm]) for algorithm in candidates),
+                reverse=True,
+            )
+            margin_ok = True
+            if hysteresis_margin > 0.0:
+                margin_ok = ranked_scores[0] - ranked_scores[1] > hysteresis_margin
+            dwell_fe = int(record.FE) - segment_start_fe
+            dwell_ok = dwell_fe >= minimum_dwell_fe
+            switch_eligible = bool(dwell_ok and margin_ok)
             for candidate in candidates:
                 opportunity_rows.append(
                     {
                         "policy_protocol": policy_protocol,
                         "switch_rule": switch_rule,
+                        "scheduling_label": label,
                         "initial_prefix_algorithm": prefix_algorithm,
                         "split": suite.split,
                         "suite": suite.suite,
@@ -287,31 +450,43 @@ def run_one_switch_policy(
                         "predicted_action_class": classes[candidate],
                         "predicted_improve_probability": float(scores[candidate]),
                         "decision_threshold": float(bundle["decision_threshold"]),
+                        "top2_score_margin": float(
+                            ranked_scores[0] - ranked_scores[1]
+                        ),
+                        "dwell_FE": int(dwell_fe),
+                        "minimum_dwell_FE": int(minimum_dwell_fe),
+                        "switch_eligible": switch_eligible,
                         "candidate_ranked_first": bool(candidate == selected_candidate),
                         "would_trigger": bool(
                             candidate == selected_candidate
+                            and switch_eligible
                             and float(scores[candidate])
                             > float(bundle["decision_threshold"])
                         ),
                     }
                 )
             candidate_score = float(scores[selected_candidate])
-            if candidate_score <= float(bundle["decision_threshold"]):
+            if candidate_score <= float(bundle["decision_threshold"]) or not switch_eligible:
                 continue
+            switch_fe = int(record.FE)
+            if collect_segments:
+                close_segment(state, switch_fe, target=selected_candidate)
             switches.append(
                 {
-                    "FE": int(record.FE),
+                    "FE": switch_fe,
                     "from_algorithm": current_algorithm,
                     "to_algorithm": selected_candidate,
                     "score": candidate_score,
                 }
             )
             if len(switches) == 1:
-                selected_fe = int(record.FE)
+                selected_fe = switch_fe
                 selected_opportunity = int(opportunity_index)
                 selected_score = candidate_score
             selected_algorithm = selected_candidate
             switch_triggered = True
+            switch_fe_sequence.append(switch_fe)
+            switch_target_sequence.append(selected_candidate)
             state = initialize_transferred_optimizer_state(
                 algorithm=selected_algorithm,
                 source_state=state,
@@ -321,7 +496,8 @@ def run_one_switch_policy(
                 instance=instance,
                 event=NO_QUERY_TRANSFER_EVENT + len(switches),
             )
-            current_algorithm = selected_algorithm
+            current_algorithm = selected_candidate
+            open_segment(state, switch_in_fe=switch_fe, source=switches[-1]["from_algorithm"])
             if multi_switch:
                 continue
             advance_optimizer_state(
@@ -330,6 +506,7 @@ def run_one_switch_policy(
                 fe_budget=config.fe_total - evaluation_count,
                 on_evaluation=observe_evaluation,
             )
+            record_checkpoints()
         if evaluation_count != config.fe_total:
             raise RuntimeError(
                 f"online policy used {evaluation_count} FE, expected {config.fe_total}"
@@ -356,17 +533,24 @@ def run_one_switch_policy(
         final_gap = config.failure_loss_cap
     finally:
         problem.close()
+    if collect_segments and state is not None:
+        close_segment(state, evaluation_count)
     elapsed = float(perf_counter() - started)
     selected_equals_prefix = selected_algorithm == prefix_algorithm
     outcome = {
         "policy_protocol": policy_protocol,
+        "scheduling_label": label,
         "initial_prefix_algorithm": prefix_algorithm,
         "switch_rule": switch_rule,
+        "minimum_dwell_fe": int(minimum_dwell_fe),
+        "hysteresis_margin": float(hysteresis_margin),
         "switch_count": len(switches),
         "switch_chain": " -> ".join(
             f"{item['FE']}:{item['from_algorithm']}->{item['to_algorithm']}"
             for item in switches
         ),
+        "switch_fe_sequence": switch_fe_sequence,
+        "switch_target_sequence": switch_target_sequence,
         "split": suite.split,
         "suite": suite.suite,
         "problem_id": problem.problem_id,
@@ -384,15 +568,7 @@ def run_one_switch_policy(
         "best_fitness": best_fitness,
         "benchmark_reference_value": problem.reference_value,
         "final_gap": float(final_gap),
-        "log10_gap": float(
-            np.log10(
-                np.clip(
-                    final_gap,
-                    config.log10_gap_floor,
-                    config.log10_gap_cap,
-                )
-            )
-        ),
+        "log10_gap": _log10_gap(final_gap, config),
         "success": bool(
             status == "completed" and final_gap <= config.success_gap_target
         ),
@@ -427,7 +603,7 @@ def run_one_switch_policy(
         "timing_source": "single_online_policy_execution_diagnostic",
         "timing_replay_status": status,
     }
-    return outcome, opportunity_rows, resources
+    return outcome, opportunity_rows, resources, segment_rows, checkpoint_rows
 
 
 def predict_switch_scores(
@@ -486,15 +662,20 @@ def _evaluate_function(
     suite: SuiteConfig,
     function: int,
     prefixes: tuple[str, ...],
-    switch_rule: str = "first_trigger",
-) -> tuple[list[dict], list[dict], list[dict]]:
+    switch_rule: str,
+    minimum_dwell_fe: int,
+    hysteresis_margin: float,
+    scheduling_label: str | None,
+    record_segments: bool,
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     outcomes: list[dict] = []
     opportunities: list[dict] = []
     resources: list[dict] = []
+    segments: list[dict] = []
     for instance in suite.instances:
         for seed in config.seeds:
             for prefix in prefixes:
-                outcome, rows, resource = run_one_switch_policy(
+                outcome, rows, resource, segment_rows, _checkpoints = run_one_switch_policy(
                     config=config,
                     suite=suite,
                     function=function,
@@ -503,11 +684,16 @@ def _evaluate_function(
                     prefix_algorithm=prefix,
                     bundle=bundle,
                     switch_rule=switch_rule,
+                    minimum_dwell_fe=minimum_dwell_fe,
+                    hysteresis_margin=hysteresis_margin,
+                    scheduling_label=scheduling_label,
+                    collect_segments=record_segments,
                 )
                 outcomes.append(outcome)
                 opportunities.extend(rows)
                 resources.append(resource)
-    return outcomes, opportunities, resources
+                segments.extend(segment_rows)
+    return outcomes, opportunities, resources, segments
 
 
 def _validate_model_bundle(bundle: dict[str, Any], config: ExperimentConfig) -> None:
@@ -587,6 +773,10 @@ def main() -> None:
         choices=("first_trigger", "per_opportunity"),
         default="first_trigger",
     )
+    parser.add_argument("--minimum-dwell-fe", type=int, default=0)
+    parser.add_argument("--hysteresis-margin", type=float, default=0.0)
+    parser.add_argument("--scheduling-label", default=None)
+    parser.add_argument("--record-segments", action="store_true")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -601,6 +791,10 @@ def main() -> None:
         initial_algorithm=args.initial_algorithm,
         workers=args.workers,
         switch_rule=args.switch_rule,
+        minimum_dwell_fe=args.minimum_dwell_fe,
+        hysteresis_margin=args.hysteresis_margin,
+        scheduling_label=args.scheduling_label,
+        record_segments=args.record_segments,
         overwrite=args.overwrite,
     )
     print(

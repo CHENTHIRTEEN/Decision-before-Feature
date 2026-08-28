@@ -478,7 +478,7 @@ def _dispatch_policy(
         )
         return outcome, rows, []
     if policy_name == "phase1_action_gain":
-        outcome, rows, _ = run_one_switch_policy(
+        outcome, rows, _, _, _ = run_one_switch_policy(
             **common,
             bundle=phase1_bundle,
         )
@@ -486,7 +486,7 @@ def _dispatch_policy(
     if policy_name == V2_REGRESSION_POLICY_NAME:
         if v2_regression_bundle is None:
             raise RuntimeError("v2 regression policy has no model bundle")
-        outcome, rows, _ = run_one_switch_policy(
+        outcome, rows, _, _, _ = run_one_switch_policy(
             **common,
             bundle=v2_regression_bundle,
         )
