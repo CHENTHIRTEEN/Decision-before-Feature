@@ -1,0 +1,51 @@
+{
+  "distribution": {
+    "median": 0.9282289374506281,
+    "iqr": 1.679914539639599,
+    "q90": 3.232350732856146,
+    "q95": 3.7062972796599203,
+    "max": 5.914437039012101
+  },
+  "strata_std": [
+    {
+      "stratum": "prefix_algorithm",
+      "value": "cmaes",
+      "within_state_gain_std": 3.835922615232298
+    },
+    {
+      "stratum": "prefix_algorithm",
+      "value": "pso",
+      "within_state_gain_std": 2.369052158124633
+    },
+    {
+      "stratum": "prefix_algorithm",
+      "value": "shade",
+      "within_state_gain_std": 3.5160236419699387
+    },
+    {
+      "stratum": "candidate_action",
+      "value": "cmaes",
+      "within_state_gain_std": 2.9721449823587363
+    },
+    {
+      "stratum": "candidate_action",
+      "value": "pso",
+      "within_state_gain_std": 3.9005333308680403
+    },
+    {
+      "stratum": "candidate_action",
+      "value": "shade",
+      "within_state_gain_std": 2.678646376297687
+    },
+    {
+      "stratum": "phase",
+      "value": "early",
+      "within_state_gain_std": 4.15288449518096
+    },
+    {
+      "stratum": "phase",
+      "value": "mid",
+      "within_state_gain_std": 3.0890702940703934
+    }
+  ]
+}

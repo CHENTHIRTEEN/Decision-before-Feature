@@ -1,0 +1,39 @@
+{
+  "correlation": {
+    "mean_abs_cross_correlation": 0.2724937082082532,
+    "max_abs_cross_correlation": 0.925078138694483,
+    "share_pairs_above_0.5": 0.15372670807453417,
+    "share_pairs_above_0.7": 0.046583850931677016,
+    "bf_features_with_any_lf_partner_above_0.7": 8,
+    "lf_features_with_any_bf_partner_above_0.7": 9
+  },
+  "cross_group_r2": {
+    "bf_to_lf": {
+      "median_target_r2": 0.3761619690995385,
+      "share_targets_r2_above_0.5": 0.2608695652173913
+    },
+    "lf_to_bf": {
+      "median_target_r2": 0.4753849388271691,
+      "share_targets_r2_above_0.5": 0.4642857142857143
+    }
+  },
+  "state_level_disagreement": {
+    "states": 25469,
+    "top1_disagreement_rate": 0.016019474655463505,
+    "a3_better_count": 68,
+    "a1_better_count": 338,
+    "mean_true_gain_delta_if_forcing_a3": -2.580732505346856,
+    "median_true_gain_delta_if_forcing_a3": -2.2990526874603723
+  },
+  "run_level_disagreement": {
+    "runs": 1620,
+    "same_selected_action": 0.9864197530864197,
+    "same_selected_fe": 0.9944444444444445,
+    "mean_gain_delta_forcing_a3": -0.06326032247113951
+  },
+  "block_permutation_importance": {
+    "bf_block_importance": 1.1562668798220428,
+    "lf_block_importance": 2.6744135805013247,
+    "lf_share": 0.6981562696763185
+  }
+}

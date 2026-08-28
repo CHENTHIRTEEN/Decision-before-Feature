@@ -1,0 +1,38 @@
+{
+  "model_protocol": "behavior_action_loss_regression_v2",
+  "decision_threshold": 0.1450865030153754,
+  "pairwise_ranking_accuracy_oof": 0.7606502022066041,
+  "top1_action_accuracy_oof": 0.6453335427382307,
+  "policy_train_oof": {
+    "run_count": 1620,
+    "function_balanced_mean_gain": 1.3140577895177807,
+    "function_balanced_mean_log10_loss": -4.513172660429203,
+    "function_balanced_mean_regret": 0.8955582192922216,
+    "function_balanced_mean_normalized_regret": 0.256406427016698,
+    "median_gain": 0.0,
+    "median_regret": 0.14560779291836706,
+    "median_normalized_regret": 0.05936486897710724,
+    "switch_rate": 0.6666666666666666,
+    "acceptable_policy_rate": 0.8567901234567902,
+    "harmful_switch_rate": 0.046296296296296294,
+    "switch_fe_p10": 2000.0,
+    "switch_fe_p50": 2000.0,
+    "switch_fe_p90": 2000.0
+  },
+  "policy_validation": {
+    "run_count": 540,
+    "function_balanced_mean_gain": 1.850392420650319,
+    "function_balanced_mean_log10_loss": -4.573120164839437,
+    "function_balanced_mean_regret": 0.35760219349605854,
+    "function_balanced_mean_normalized_regret": 0.16362707760988093,
+    "median_gain": 0.27986498697555506,
+    "median_regret": 0.16119904470903212,
+    "median_normalized_regret": 0.06068557178354493,
+    "switch_rate": 0.6666666666666666,
+    "acceptable_policy_rate": 0.9592592592592593,
+    "harmful_switch_rate": 0.0,
+    "switch_fe_p10": 2000.0,
+    "switch_fe_p50": 2000.0,
+    "switch_fe_p90": 2000.0
+  }
+}

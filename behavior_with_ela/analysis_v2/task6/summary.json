@@ -1,0 +1,8 @@
+{
+  "states": 25469,
+  "decision_switch_rate": 0.6776865993953434,
+  "harmful_switch_rate": 0.029094192940437396,
+  "missed_helpful_rate": 0.002355805096391692,
+  "practical_delta": 1.4639205643726332,
+  "threshold_A1": 0.1450865030153754
+}
