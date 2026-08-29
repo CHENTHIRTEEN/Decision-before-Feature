@@ -2,8 +2,12 @@ from optimizers.registry import OptimizerRunResult, run_optimizer
 from optimizers.settings import OptimizerSettings
 from optimizers.state import (
     CMAESState,
+    CSOState,
     DEState,
+    GAState,
+    LShadeState,
     NO_QUERY_TRANSFER_EVENT,
+    PSOLocalState,
     PSOState,
     SHADEState,
     QUERY_TRANSFER_EVENT,
@@ -15,10 +19,14 @@ from optimizers.state import (
 
 __all__ = [
     "CMAESState",
+    "CSOState",
     "DEState",
+    "GAState",
+    "LShadeState",
     "NO_QUERY_TRANSFER_EVENT",
     "OptimizerRunResult",
     "OptimizerSettings",
+    "PSOLocalState",
     "PSOState",
     "SHADEState",
     "QUERY_TRANSFER_EVENT",

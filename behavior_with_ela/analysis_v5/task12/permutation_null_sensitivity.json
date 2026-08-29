@@ -1,0 +1,28 @@
+{
+  "H_best_given_problem_FE": {
+    "bbob": {
+      "observed": 1.0006132172867763,
+      "null_mean_global_shuffle": 1.1465002155087267,
+      "null_p05_global_shuffle": 1.127707766481135,
+      "marginal_entropy": 1.2538035569022525
+    },
+    "mabbob": {
+      "observed": 0.9055905841011012,
+      "null_mean_global_shuffle": 1.2035200971396793,
+      "null_p05_global_shuffle": 1.171904283146412,
+      "marginal_entropy": 1.3058668590536942
+    }
+  },
+  "P_varies": {
+    "bbob": {
+      "observed": 0.5955555555555555,
+      "null_mean": 0.6966444444444445,
+      "null_p95": 0.7222222222222222
+    },
+    "mabbob": {
+      "observed": 0.5777777777777777,
+      "null_mean": 0.7484999999999999,
+      "null_p95": 0.7777777777777778
+    }
+  }
+}

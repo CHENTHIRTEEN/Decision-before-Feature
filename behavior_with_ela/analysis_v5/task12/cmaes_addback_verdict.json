@@ -1,0 +1,18 @@
+{
+  "bbob": {
+    "cmaes_practical_win_rate": 0.27111111111111114,
+    "delta_dynamic_3_solvers": 0.11366128844144407,
+    "delta_dynamic_4_solvers": 0.09431054716459619,
+    "delta_dynamic_ratio_4_over_3": 0.8297508189270881,
+    "max_practical_dominance_4": 0.48962962962962964,
+    "verdict": "NO COLLAPSE"
+  },
+  "mabbob": {
+    "cmaes_practical_win_rate": 0.37407407407407406,
+    "delta_dynamic_3_solvers": 0.0854190377243551,
+    "delta_dynamic_4_solvers": 0.08309293649338745,
+    "delta_dynamic_ratio_4_over_3": 0.9727683512605946,
+    "max_practical_dominance_4": 0.4111111111111111,
+    "verdict": "NO COLLAPSE"
+  }
+}

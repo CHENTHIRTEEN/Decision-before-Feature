@@ -18,6 +18,10 @@ NATIVE_STREAMS = {
     "pso": 202,
     "cmaes": 303,
     "shade": 404,
+    "lbestpso": 205,
+    "lshade": 405,
+    "ga": 505,
+    "cso": 606,
 }
 
 TRANSFER_STREAMS = {
@@ -25,6 +29,10 @@ TRANSFER_STREAMS = {
     "pso": 1202,
     "cmaes": 1303,
     "shade": 1404,
+    "lbestpso": 1205,
+    "lshade": 1405,
+    "ga": 1505,
+    "cso": 1606,
 }
 
 DE_MUTATION_FACTOR = 0.5
@@ -34,6 +42,21 @@ PSO_COGNITIVE = 1.49
 PSO_SOCIAL = 1.49
 PSO_MAX_VELOCITY_RATE = 0.2
 SHADE_MEMORY_SIZE = 5
+# Task 12 candidate parameters, frozen before any outcome was generated.
+# lbest-PSO: closed ring informants of size 3 (self + 2 ring neighbors),
+# otherwise identical update constants to the project's global PSO.
+LBEST_NEIGHBORHOOD_SIZE = 3
+# L-SHADE: linear population reduction from the shared initial population to
+# the canonical minimum 4 over the fixed screening budget of 10000 FE.
+LSHADE_MIN_POPULATION = 4
+LSHADE_MAX_FE = 10000
+# Real-coded GA: binary tournament selection, SBX crossover, polynomial
+# mutation, generational replacement (Deb's canonical continuous GA).
+GA_SBX_ETA = 15.0
+GA_CROSSOVER_RATE = 0.9
+GA_MUTATION_ETA = 20.0
+# CSO (Cheng & Jin 2015) social coefficient.
+CSO_PHI = 0.5
 NO_QUERY_TRANSFER_EVENT = 1
 QUERY_TRANSFER_EVENT = 2
 BOUNDARY_HANDLING_CLIP = "clip"
@@ -161,7 +184,119 @@ class SHADEState:
         return "shade"
 
 
-OptimizerState: TypeAlias = DEState | PSOState | CMAESState | SHADEState
+@dataclass
+class PSOLocalState:
+    """lbest-PSO on a closed ring of ``neighborhood_size`` informants."""
+
+    positions: np.ndarray
+    fitness: np.ndarray
+    velocities: np.ndarray
+    personal_bests: np.ndarray
+    personal_best_fitness: np.ndarray
+    neighborhood_size: int
+    generation: int
+    rng_state: dict
+    evaluations: int
+    best_fitness: float
+    best_position: np.ndarray
+    inertia: float
+    cognitive: float
+    social: float
+    max_velocity_rate: float
+    pending_positions: np.ndarray | None = None
+    pending_velocities: np.ndarray | None = None
+    pending_fitness: np.ndarray | None = None
+    pending_index: int = 0
+
+    @property
+    def algorithm(self) -> str:
+        return "lbestpso"
+
+    @property
+    def population(self) -> np.ndarray:
+        return self.positions
+
+
+@dataclass
+class LShadeState:
+    """SHADE with canonical linear population reduction over a fixed budget."""
+
+    population: np.ndarray
+    fitness: np.ndarray
+    memory_f: np.ndarray
+    memory_cr: np.ndarray
+    archive: np.ndarray
+    memory_index: int
+    initial_population_size: int
+    min_population_size: int
+    reduction_max_fe: int
+    generation: int
+    rng_state: dict
+    evaluations: int
+    best_fitness: float
+    best_position: np.ndarray
+    pending_population: np.ndarray | None = None
+    pending_fitness: np.ndarray | None = None
+    pending_f: np.ndarray | None = None
+    pending_cr: np.ndarray | None = None
+    pending_index: int = 0
+
+    @property
+    def algorithm(self) -> str:
+        return "lshade"
+
+
+@dataclass
+class GAState:
+    population: np.ndarray
+    fitness: np.ndarray
+    crossover_rate: float
+    sbx_eta: float
+    mutation_eta: float
+    mutation_probability: float
+    generation: int
+    rng_state: dict
+    evaluations: int
+    best_fitness: float
+    best_position: np.ndarray
+    pending_population: np.ndarray | None = None
+    pending_fitness: np.ndarray | None = None
+    pending_index: int = 0
+
+    @property
+    def algorithm(self) -> str:
+        return "ga"
+
+
+@dataclass
+class CSOState:
+    positions: np.ndarray
+    fitness: np.ndarray
+    velocities: np.ndarray
+    phi: float
+    generation: int
+    rng_state: dict
+    evaluations: int
+    best_fitness: float
+    best_position: np.ndarray
+    pending_positions: np.ndarray | None = None
+    pending_velocities: np.ndarray | None = None
+    pending_loser_indices: np.ndarray | None = None
+    pending_fitness: np.ndarray | None = None
+    pending_index: int = 0
+
+    @property
+    def algorithm(self) -> str:
+        return "cso"
+
+    @property
+    def population(self) -> np.ndarray:
+        return self.positions
+
+
+OptimizerState: TypeAlias = (
+    DEState | PSOState | CMAESState | SHADEState | PSOLocalState | LShadeState | GAState | CSOState
+)
 
 
 @dataclass
@@ -258,6 +393,61 @@ def initialize_optimizer_state(
             max_velocity_rate=PSO_MAX_VELOCITY_RATE,
             **common,
         )
+    if key == "lbestpso":
+        span = problem.upper_bounds - problem.lower_bounds
+        velocities = rng.uniform(
+            -PSO_MAX_VELOCITY_RATE * span,
+            PSO_MAX_VELOCITY_RATE * span,
+            size=population.shape,
+        )
+        common["rng_state"] = _rng_state(rng)
+        return PSOLocalState(
+            positions=population.copy(),
+            velocities=velocities,
+            personal_bests=population.copy(),
+            personal_best_fitness=fitness.copy(),
+            neighborhood_size=min(LBEST_NEIGHBORHOOD_SIZE, population_size),
+            inertia=PSO_INERTIA,
+            cognitive=PSO_COGNITIVE,
+            social=PSO_SOCIAL,
+            max_velocity_rate=PSO_MAX_VELOCITY_RATE,
+            **common,
+        )
+    if key == "lshade":
+        return LShadeState(
+            population=population.copy(),
+            memory_f=np.full(SHADE_MEMORY_SIZE, 0.5, dtype=float),
+            memory_cr=np.full(SHADE_MEMORY_SIZE, 0.5, dtype=float),
+            archive=np.empty((0, problem.dimension), dtype=float),
+            memory_index=0,
+            initial_population_size=population_size,
+            min_population_size=LSHADE_MIN_POPULATION,
+            reduction_max_fe=LSHADE_MAX_FE,
+            **common,
+        )
+    if key == "ga":
+        return GAState(
+            population=population.copy(),
+            crossover_rate=GA_CROSSOVER_RATE,
+            sbx_eta=GA_SBX_ETA,
+            mutation_eta=GA_MUTATION_ETA,
+            mutation_probability=1.0 / problem.dimension,
+            **common,
+        )
+    if key == "cso":
+        span = problem.upper_bounds - problem.lower_bounds
+        velocities = rng.uniform(
+            -PSO_MAX_VELOCITY_RATE * span,
+            PSO_MAX_VELOCITY_RATE * span,
+            size=population.shape,
+        )
+        common["rng_state"] = _rng_state(rng)
+        return CSOState(
+            positions=population.copy(),
+            velocities=velocities,
+            phi=CSO_PHI,
+            **common,
+        )
     return SHADEState(
         population=population.copy(),
         memory_f=np.full(SHADE_MEMORY_SIZE, 0.5, dtype=float),
@@ -345,6 +535,79 @@ def initialize_transferred_optimizer_state(
             best_position=best_position,
             rng=rng,
         )
+    if key == "lbestpso":
+        span = problem.upper_bounds - problem.lower_bounds
+        velocities = rng.uniform(
+            -PSO_MAX_VELOCITY_RATE * span,
+            PSO_MAX_VELOCITY_RATE * span,
+            size=population.shape,
+        )
+        return PSOLocalState(
+            positions=population,
+            fitness=fitness,
+            velocities=velocities,
+            personal_bests=population.copy(),
+            personal_best_fitness=fitness.copy(),
+            neighborhood_size=min(LBEST_NEIGHBORHOOD_SIZE, population.shape[0]),
+            generation=0,
+            rng_state=_rng_state(rng),
+            evaluations=0,
+            best_fitness=best_fitness,
+            best_position=best_position,
+            inertia=PSO_INERTIA,
+            cognitive=PSO_COGNITIVE,
+            social=PSO_SOCIAL,
+            max_velocity_rate=PSO_MAX_VELOCITY_RATE,
+        )
+    if key == "lshade":
+        return LShadeState(
+            population=population,
+            fitness=fitness,
+            memory_f=np.full(SHADE_MEMORY_SIZE, 0.5, dtype=float),
+            memory_cr=np.full(SHADE_MEMORY_SIZE, 0.5, dtype=float),
+            archive=np.empty((0, problem.dimension), dtype=float),
+            memory_index=0,
+            initial_population_size=population.shape[0],
+            min_population_size=LSHADE_MIN_POPULATION,
+            reduction_max_fe=LSHADE_MAX_FE,
+            generation=0,
+            rng_state=_rng_state(rng),
+            evaluations=0,
+            best_fitness=best_fitness,
+            best_position=best_position,
+        )
+    if key == "ga":
+        return GAState(
+            population=population,
+            fitness=fitness,
+            crossover_rate=GA_CROSSOVER_RATE,
+            sbx_eta=GA_SBX_ETA,
+            mutation_eta=GA_MUTATION_ETA,
+            mutation_probability=1.0 / problem.dimension,
+            generation=0,
+            rng_state=_rng_state(rng),
+            evaluations=0,
+            best_fitness=best_fitness,
+            best_position=best_position,
+        )
+    if key == "cso":
+        span = problem.upper_bounds - problem.lower_bounds
+        velocities = rng.uniform(
+            -PSO_MAX_VELOCITY_RATE * span,
+            PSO_MAX_VELOCITY_RATE * span,
+            size=population.shape,
+        )
+        return CSOState(
+            positions=population,
+            fitness=fitness,
+            velocities=velocities,
+            phi=CSO_PHI,
+            generation=0,
+            rng_state=_rng_state(rng),
+            evaluations=0,
+            best_fitness=best_fitness,
+            best_position=best_position,
+        )
     return SHADEState(
         population=population,
         fitness=fitness,
@@ -386,6 +649,14 @@ def advance_optimizer_state(
         evaluations = _advance_cmaes(state, problem, fe_budget, on_native_update, on_evaluation)
     elif isinstance(state, SHADEState):
         evaluations = _advance_shade(state, problem, fe_budget, on_native_update, on_evaluation)
+    elif isinstance(state, PSOLocalState):
+        evaluations = _advance_pso_local(state, problem, fe_budget, on_native_update, on_evaluation)
+    elif isinstance(state, LShadeState):
+        evaluations = _advance_lshade(state, problem, fe_budget, on_native_update, on_evaluation)
+    elif isinstance(state, GAState):
+        evaluations = _advance_ga(state, problem, fe_budget, on_native_update, on_evaluation)
+    elif isinstance(state, CSOState):
+        evaluations = _advance_cso(state, problem, fe_budget, on_native_update, on_evaluation)
     else:
         raise TypeError(f"unsupported optimizer state: {type(state).__name__}")
     if evaluations != fe_budget:
@@ -680,7 +951,8 @@ def _start_shade_generation(state: SHADEState, problem: Problem) -> None:
         cr_value = float(np.clip(rng.normal(state.memory_cr[slot], 0.1), 0.0, 1.0))
         f_values[i] = f_value
         cr_values[i] = cr_value
-        pbest_limit = max(2, int(np.ceil(rng.uniform(2.0 / pop_size, 0.2) * pop_size)))
+        pbest_ratio_low = min(2.0 / pop_size, 0.2)
+        pbest_limit = max(2, int(np.ceil(rng.uniform(pbest_ratio_low, 0.2) * pop_size)))
         pbest = population[int(rng.choice(rank[:pbest_limit]))]
         r1, r2 = _shade_sample_donor_indices(
             rng=rng,
@@ -732,6 +1004,385 @@ def _finish_shade_generation(state: SHADEState) -> None:
     state.pending_cr = None
     state.pending_index = 0
     state.generation += 1
+
+
+def _advance_pso_local(
+    state: PSOLocalState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
+) -> int:
+    completed = 0
+    while completed < fe_budget:
+        if state.pending_positions is None:
+            _start_pso_local_generation(state, problem)
+        remaining = len(state.positions) - state.pending_index
+        batch = min(remaining, fe_budget - completed)
+        start = state.pending_index
+        stop = start + batch
+        values = problem.evaluate(state.pending_positions[start:stop])
+        state.pending_fitness[start:stop] = values
+        for offset, value in enumerate(values):
+            _update_best(state, float(value), state.pending_positions[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_positions[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
+        state.pending_index = stop
+        state.evaluations += batch
+        completed += batch
+        if state.pending_index == len(state.positions):
+            improved = state.pending_fitness < state.personal_best_fitness
+            state.personal_bests[improved] = state.pending_positions[improved]
+            state.personal_best_fitness[improved] = state.pending_fitness[improved]
+            state.positions = state.pending_positions
+            state.velocities = state.pending_velocities
+            state.fitness = state.pending_fitness
+            state.pending_positions = None
+            state.pending_velocities = None
+            state.pending_fitness = None
+            state.pending_index = 0
+            state.generation += 1
+            if on_native_update is not None:
+                on_native_update(state)
+    return completed
+
+
+def _start_pso_local_generation(state: PSOLocalState, problem: Problem) -> None:
+    rng = _restore_rng(state.rng_state)
+    count = len(state.positions)
+    # closed ring informants: each particle and its two ring neighbors
+    neighborhood = np.stack(
+        [
+            (np.arange(count) + offset) % count
+            for offset in range(-(state.neighborhood_size // 2), state.neighborhood_size - state.neighborhood_size // 2)
+        ],
+        axis=1,
+    )
+    informant_fitness = state.personal_best_fitness[neighborhood]
+    lbest_index = neighborhood[np.arange(count), np.argmin(informant_fitness, axis=1)]
+    lbest_positions = state.personal_bests[lbest_index]
+    shape = state.positions.shape
+    r1 = rng.random(shape)
+    r2 = rng.random(shape)
+    velocities = (
+        state.inertia * state.velocities
+        + state.cognitive * r1 * (state.personal_bests - state.positions)
+        + state.social * r2 * (lbest_positions - state.positions)
+    )
+    maximum = state.max_velocity_rate * (problem.upper_bounds - problem.lower_bounds)
+    velocities = np.clip(velocities, -maximum, maximum)
+    positions = _apply_boundary_handling(
+        state.positions + velocities,
+        problem.lower_bounds,
+        problem.upper_bounds,
+        boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+    )
+    state.pending_positions = positions
+    state.pending_velocities = velocities
+    state.pending_fitness = np.full(len(positions), np.nan, dtype=float)
+    state.pending_index = 0
+    state.rng_state = _rng_state(rng)
+
+
+def _advance_lshade(
+    state: LShadeState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
+) -> int:
+    completed = 0
+    while completed < fe_budget:
+        if state.pending_population is None:
+            _start_lshade_generation(state, problem)
+        remaining = len(state.pending_population) - state.pending_index
+        batch = min(remaining, fe_budget - completed)
+        start = state.pending_index
+        stop = start + batch
+        values = problem.evaluate(state.pending_population[start:stop])
+        state.pending_fitness[start:stop] = values
+        for offset, value in enumerate(values):
+            _update_best(state, float(value), state.pending_population[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_population[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
+        state.pending_index = stop
+        state.evaluations += batch
+        completed += batch
+        if state.pending_index == len(state.pending_population):
+            _finish_lshade_generation(state)
+            if on_native_update is not None:
+                on_native_update(state)
+    return completed
+
+
+def _start_lshade_generation(state: LShadeState, problem: Problem) -> None:
+    rng = _restore_rng(state.rng_state)
+    population = state.population
+    pop_size, dimension = population.shape
+    rank = np.argsort(state.fitness)
+    union = np.vstack([population, state.archive]) if len(state.archive) else population
+    trials = np.empty_like(population)
+    f_values = np.empty(pop_size, dtype=float)
+    cr_values = np.empty(pop_size, dtype=float)
+    for i in range(pop_size):
+        slot = int(rng.integers(len(state.memory_f)))
+        f_value = _sample_cauchy_positive(rng, state.memory_f[slot])
+        cr_value = float(np.clip(rng.normal(state.memory_cr[slot], 0.1), 0.0, 1.0))
+        f_values[i] = f_value
+        cr_values[i] = cr_value
+        pbest_ratio_low = min(2.0 / pop_size, 0.2)
+        pbest_limit = max(2, int(np.ceil(rng.uniform(pbest_ratio_low, 0.2) * pop_size)))
+        pbest = population[int(rng.choice(rank[:pbest_limit]))]
+        r1, r2 = _shade_sample_donor_indices(
+            rng=rng,
+            current_index=i,
+            population_size=pop_size,
+            union_size=len(union),
+        )
+        mutant = population[i] + f_value * (pbest - population[i]) + f_value * (population[r1] - union[r2])
+        mutant = _apply_boundary_handling(
+            mutant,
+            problem.lower_bounds,
+            problem.upper_bounds,
+            boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+        )
+        mask = rng.random(dimension) < cr_value
+        mask[int(rng.integers(dimension))] = True
+        trials[i] = np.where(mask, mutant, population[i])
+    state.pending_population = trials
+    state.pending_fitness = np.full(pop_size, np.nan, dtype=float)
+    state.pending_f = f_values
+    state.pending_cr = cr_values
+    state.pending_index = 0
+    state.rng_state = _rng_state(rng)
+
+
+def _finish_lshade_generation(state: LShadeState) -> None:
+    _finish_shade_generation(state)
+    if state.evaluations < state.reduction_max_fe:
+        target_size = int(
+            round(
+                state.initial_population_size
+                + (state.min_population_size - state.initial_population_size)
+                * state.evaluations
+                / state.reduction_max_fe
+            )
+        )
+        target_size = max(state.min_population_size, min(state.initial_population_size, target_size))
+        if target_size < len(state.population):
+            order = np.argsort(state.fitness)[:target_size]
+            state.population = state.population[order].copy()
+            state.fitness = state.fitness[order].copy()
+        if len(state.archive) > len(state.population):
+            rng = _restore_rng(state.rng_state)
+            keep = rng.choice(len(state.archive), size=len(state.population), replace=False)
+            state.archive = state.archive[keep]
+            state.rng_state = _rng_state(rng)
+
+
+def _advance_ga(
+    state: GAState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
+) -> int:
+    completed = 0
+    while completed < fe_budget:
+        if state.pending_population is None:
+            _start_ga_generation(state, problem)
+        remaining = len(state.pending_population) - state.pending_index
+        batch = min(remaining, fe_budget - completed)
+        start = state.pending_index
+        stop = start + batch
+        values = problem.evaluate(state.pending_population[start:stop])
+        state.pending_fitness[start:stop] = values
+        for offset, value in enumerate(values):
+            _update_best(state, float(value), state.pending_population[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_population[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
+        state.pending_index = stop
+        state.evaluations += batch
+        completed += batch
+        if state.pending_index == len(state.pending_population):
+            state.population = state.pending_population
+            state.fitness = state.pending_fitness
+            state.pending_population = None
+            state.pending_fitness = None
+            state.pending_index = 0
+            state.generation += 1
+            if on_native_update is not None:
+                on_native_update(state)
+    return completed
+
+
+def _ga_binary_tournament(rng: np.random.Generator, fitness: np.ndarray) -> int:
+    first, second = rng.integers(0, len(fitness), size=2)
+    return first if fitness[first] <= fitness[second] else second
+
+
+def _ga_sbx(
+    rng: np.random.Generator,
+    parent_a: np.ndarray,
+    parent_b: np.ndarray,
+    eta: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    child_a = parent_a.copy()
+    child_b = parent_b.copy()
+    for dimension in range(parent_a.shape[0]):
+        if rng.random() > 0.5:
+            continue
+        if abs(parent_a[dimension] - parent_b[dimension]) <= 1e-14:
+            continue
+        u = float(rng.random())
+        if u <= 0.5:
+            beta = (2.0 * u) ** (1.0 / (eta + 1.0))
+        else:
+            beta = (1.0 / (2.0 * (1.0 - u))) ** (1.0 / (eta + 1.0))
+        low = 0.5 * ((1.0 + beta) * parent_a[dimension] + (1.0 - beta) * parent_b[dimension])
+        high = 0.5 * ((1.0 - beta) * parent_a[dimension] + (1.0 + beta) * parent_b[dimension])
+        child_a[dimension] = np.clip(low, lower[dimension], upper[dimension])
+        child_b[dimension] = np.clip(high, lower[dimension], upper[dimension])
+    return child_a, child_b
+
+
+def _ga_polynomial_mutation(
+    rng: np.random.Generator,
+    child: np.ndarray,
+    eta: float,
+    probability: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> np.ndarray:
+    for dimension in range(child.shape[0]):
+        if rng.random() > probability:
+            continue
+        u = float(rng.random())
+        span = upper[dimension] - lower[dimension]
+        value = child[dimension]
+        if u <= 0.5:
+            delta = (2.0 * u + (1.0 - 2.0 * u) * (1.0 - value / span) ** (eta + 1.0)) ** (1.0 / (eta + 1.0)) - 1.0
+            child[dimension] = value + delta * (value - lower[dimension])
+        else:
+            delta = 1.0 - (2.0 * (1.0 - u) + 2.0 * (u - 0.5) * (value / span) ** (eta + 1.0)) ** (1.0 / (eta + 1.0))
+            child[dimension] = value + delta * (upper[dimension] - value)
+        child[dimension] = np.clip(child[dimension], lower[dimension], upper[dimension])
+    return child
+
+
+def _start_ga_generation(state: GAState, problem: Problem) -> None:
+    rng = _restore_rng(state.rng_state)
+    count, dimension = state.population.shape
+    trials = np.empty_like(state.population)
+    pair_count = count // 2
+    for pair in range(pair_count):
+        parent_a = state.population[_ga_binary_tournament(rng, state.fitness)]
+        parent_b = state.population[_ga_binary_tournament(rng, state.fitness)]
+        if rng.random() < state.crossover_rate:
+            child_a, child_b = _ga_sbx(
+                rng, parent_a, parent_b, state.sbx_eta,
+                problem.lower_bounds, problem.upper_bounds,
+            )
+        else:
+            child_a, child_b = parent_a.copy(), parent_b.copy()
+        for child in (child_a, child_b):
+            _ga_polynomial_mutation(
+                rng, child, state.mutation_eta, state.mutation_probability,
+                problem.lower_bounds, problem.upper_bounds,
+            )
+        trials[2 * pair] = child_a
+        trials[2 * pair + 1] = child_b
+    if count % 2 == 1:
+        trials[count - 1] = state.population[_ga_binary_tournament(rng, state.fitness)]
+        _ga_polynomial_mutation(
+            rng, trials[count - 1], state.mutation_eta, state.mutation_probability,
+            problem.lower_bounds, problem.upper_bounds,
+        )
+    state.pending_population = trials
+    state.pending_fitness = np.full(count, np.nan, dtype=float)
+    state.pending_index = 0
+    state.rng_state = _rng_state(rng)
+
+
+def _advance_cso(
+    state: CSOState,
+    problem: Problem,
+    fe_budget: int,
+    on_native_update: Callable[[OptimizerState], None] | None,
+    on_evaluation: Callable[[np.ndarray, float], None] | None = None,
+) -> int:
+    completed = 0
+    while completed < fe_budget:
+        if state.pending_positions is None:
+            _start_cso_generation(state, problem)
+        remaining = len(state.pending_positions) - state.pending_index
+        batch = min(remaining, fe_budget - completed)
+        start = state.pending_index
+        stop = start + batch
+        values = problem.evaluate(state.pending_positions[start:stop])
+        state.pending_fitness[start:stop] = values
+        for offset, value in enumerate(values):
+            _update_best(state, float(value), state.pending_positions[start + offset])
+        if on_evaluation is not None:
+            for point, value in zip(state.pending_positions[start:stop], values, strict=True):
+                on_evaluation(np.asarray(point, dtype=float), float(value))
+        state.pending_index = stop
+        state.evaluations += batch
+        completed += batch
+        if state.pending_index == len(state.pending_positions):
+            loser_indices = state.pending_loser_indices
+            state.positions[loser_indices] = state.pending_positions
+            state.velocities[loser_indices] = state.pending_velocities
+            state.fitness[loser_indices] = state.pending_fitness
+            state.pending_positions = None
+            state.pending_velocities = None
+            state.pending_loser_indices = None
+            state.pending_fitness = None
+            state.pending_index = 0
+            state.generation += 1
+            if on_native_update is not None:
+                on_native_update(state)
+    return completed
+
+
+def _start_cso_generation(state: CSOState, problem: Problem) -> None:
+    rng = _restore_rng(state.rng_state)
+    count = len(state.positions)
+    permutation = rng.permutation(count)
+    pairs = permutation[: 2 * (count // 2)].reshape(count // 2, 2)
+    left_wins = state.fitness[pairs[:, 0]] <= state.fitness[pairs[:, 1]]
+    winners = np.where(left_wins, pairs[:, 0], pairs[:, 1])
+    losers = np.where(left_wins, pairs[:, 1], pairs[:, 0])
+    population_mean = np.mean(state.positions, axis=0)
+    loser_positions = state.positions[losers]
+    loser_velocities = state.velocities[losers]
+    winner_positions = state.positions[winners]
+    shape = loser_positions.shape
+    r1 = rng.random(shape)
+    r2 = rng.random(shape)
+    r3 = float(rng.random())
+    velocities = (
+        r1 * loser_velocities
+        + r2 * (winner_positions - loser_positions)
+        + state.phi * r3 * (population_mean - loser_positions)
+    )
+    positions = _apply_boundary_handling(
+        loser_positions + velocities,
+        problem.lower_bounds,
+        problem.upper_bounds,
+        boundary_handling=getattr(problem, 'boundary_handling', 'clip'),
+    )
+    state.pending_positions = positions
+    state.pending_velocities = velocities
+    state.pending_loser_indices = losers
+    state.pending_fitness = np.full(len(positions), np.nan, dtype=float)
+    state.pending_index = 0
+    state.rng_state = _rng_state(rng)
 
 
 def _empty_cmaes_state(

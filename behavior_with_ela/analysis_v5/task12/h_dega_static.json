@@ -1,0 +1,84 @@
+{
+  "static": [
+    {
+      "FE": 2000,
+      "suite": "bbob",
+      "P_tie": 0.562962962962963,
+      "P_de_better": 0.43333333333333335,
+      "P_ga_better": 0.003703703703703704,
+      "DCM": 0.49629629629629635,
+      "de_exclusive_win": 0.003703703703703704,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 2000,
+      "suite": "mabbob",
+      "P_tie": 0.35,
+      "P_de_better": 0.65,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.0,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 4000,
+      "suite": "bbob",
+      "P_tie": 0.6296296296296297,
+      "P_de_better": 0.37037037037037035,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.0,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 4000,
+      "suite": "mabbob",
+      "P_tie": 0.3416666666666667,
+      "P_de_better": 0.6583333333333333,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.0,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 6000,
+      "suite": "bbob",
+      "P_tie": 0.6074074074074074,
+      "P_de_better": 0.3925925925925926,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.007407407407407408,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 6000,
+      "suite": "mabbob",
+      "P_tie": 0.2833333333333333,
+      "P_de_better": 0.7166666666666667,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.0,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 10000,
+      "suite": "bbob",
+      "P_tie": 0.5703703703703704,
+      "P_de_better": 0.42962962962962964,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.007407407407407408,
+      "ga_exclusive_win": 0.0
+    },
+    {
+      "FE": 10000,
+      "suite": "mabbob",
+      "P_tie": 0.25833333333333336,
+      "P_de_better": 0.7416666666666667,
+      "P_ga_better": 0.0,
+      "DCM": 0.5,
+      "de_exclusive_win": 0.0,
+      "ga_exclusive_win": 0.0
+    }
+  ]
+}
