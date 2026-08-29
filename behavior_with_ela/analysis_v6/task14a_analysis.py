@@ -1,9 +1,9 @@
 """Task 14A analysis: post-handoff noise calibration, practical action space,
 oracle ladder, absorbing-state audit, natural-vs-post comparison, reset
-confound effects and the frozen margin-policy confirmation diagnostic.
+confound effects and the pre-fixed margin-policy confirmation diagnostic.
 
 Zero new objective FE beyond the committed collection; all statistics reuse
-the collected parquets. The margin diagnostic applies the Task 13 frozen
+the collected parquets. The margin diagnostic applies the Task 13 pre-fixed
 carrier (same pipeline/parameters) fitted once on the full development set
 to the post-handoff states with the Task 13.1 pooled deployment scales; it
 is a confirmation diagnostic only and cannot re-select kappa.
@@ -405,7 +405,7 @@ def main() -> None:
     reset_effects = pd.DataFrame(reset_effect_rows)
     reset_effects.to_parquet(T14A_LIGHT / "reset_effect_summary.parquet", index=False)
 
-    # ---- frozen margin-policy confirmation diagnostic (16h) ----
+    # ---- pre-fixed margin-policy confirmation diagnostic (16h) ----
     dev = pd.read_parquet(T13_HEAVY / "behavior_action_dataset_task13.parquet")
     dummies = pd.get_dummies(dev["current_algorithm"], prefix="cur", dtype=float)
     dev = pd.concat([dev.reset_index(drop=True), dummies.reset_index(drop=True)], axis=1)

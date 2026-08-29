@@ -68,11 +68,11 @@ $$
 1. transfer/clone/RNG 语义与 Task 12 完全同源（`initialize_transferred_optimizer_state` / `clone_optimizer_state` / `make_event_rng`）；
 2. reset 经 `dataclasses.replace` 实现：保留 population/fitness/best/evaluations/schedule（initial/min NP、max_evaluations、reduction_max_fe），重置 memory_f/cr（回 0.5 初值）、archive（清空）、memory_index、RNG（fresh 语义事件），清除 partial-generation 状态（最多吸收一个未完成 generation 的 FE，账目不变）；
 3. segment 窗口为 **segment 相对定义**（fe_total=1000；w02/w05/w10=20/50/100 FE）——segment 年龄恰为 1000 FE 时全局口径的 anchor 会越出段首，故 14B 的 B_segment 一律沿用本定义；
-4. margin 确认使用 §25 允许的 frozen cross-group carrier（Task 13 正式协议在全开发域拟合一次），仅作诊断。
+4. margin 确认使用 §25 允许的预先固定跨 group carrier（Task 13 正式协议在全开发域拟合一次），仅作诊断。
 
 ## 四、停止声明
 
-按工作单 §35 链条全部执行：hygiene 门（H1）→ 6 方向冻结 → source checkpoints → A→B transfer → 1000FE commitment → checkpoint+bg/bs 保存 → next-action fork → outcome-blind repetitions → 必做 reset controls → 噪声/实用动作分析 → natural-vs-post 对照 → 吸收态审计 → reset 混杂分析 → A/RC verdicts → 14B readiness → **STOP**。未自动执行 Task 14B 训练、κ 选择、seeds 6–10 分析、validation 或 CEC。
+按工作单 §35 链条全部执行：hygiene 门（H1）→ 6 方向预先固定 → source checkpoints → A→B transfer → 1000FE commitment → checkpoint+bg/bs 保存 → next-action fork → outcome-blind repetitions → 必做 reset controls → 噪声/实用动作分析 → natural-vs-post 对照 → 吸收态审计 → reset 混杂分析 → A/RC verdicts → 14B readiness → **STOP**。未自动执行 Task 14B 训练、κ 选择、seeds 6–10 分析、validation 或 CEC。
 
 ## 五、下一步建议
 

@@ -29,7 +29,7 @@ $$
 - $M_0=[current,FE,dwell]$；$M_G=[current,FE,dwell,B^{global}]$；$M_S=[\dots,B^{segment}]$；$M_{GS}=$ 并集；
 - 核心问题：**$B^{segment}$ 是否超越 $B^{global}$**；
 - 载体与 OOF 协议沿用 Task 13（正式 RF + Ridge 对照、leave-cv_group-out、fb paired bootstrap）；
-- 基线注意：16h 显示 natural 域冻结策略在本域增益≈0，故 14B 的 M0 必须在本域 OOF 内重建，不得沿用 natural 域模型；
+- 基线注意：16h 显示 natural 域预先固定策略在本域增益≈0，故 14B 的 M0 必须在本域 OOF 内重建，不得沿用 natural 域模型；
 - dwell=1000 恒定 → dwell 列无变异（保留字段以兼容后续多 dwell 轮）。
 
 ## 4. 封存项
