@@ -45,7 +45,7 @@ $$
 两个 operating points（κ=0.5 与 κ=1.0）共同进入后续确认协议；Task 14A **不得**用 confirmation data 再调 κ。本轮不写"κ=0.5 is selected"。
 
 
-> 措辞说明：工作单原文的 "frozen candidate" 标签依 AGENTS.md §0.3 的用语规范改写为 "pre-fixed candidate"（预先固定候选点），含义不变。
+> 措辞说明：工作单原文的候选点标签依 AGENTS.md §0.3 的用语规范改写为 "pre-fixed candidate"（预先固定候选点），含义不变。
 
 ## 五、成本与停止声明
 
