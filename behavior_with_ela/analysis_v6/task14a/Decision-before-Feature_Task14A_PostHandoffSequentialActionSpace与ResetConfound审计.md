@@ -85,7 +85,7 @@ $$
 先读 AGENTS.md、analysis_v6/task14a/ 总报告与 16a-16i、analysis_v5/task13 与
 task13_1 总报告。当前状态：Task 14A verdict A1 + RC1 → Task 14B GO；
 post-handoff 3780 states（6 方向）、B_global/B_segment 特征与 1000-FE
-真实标签已就绪（results/analysis_v6/task14a/）；16h 证明 natural 域冻结
+真实标签已就绪（results/analysis_v6/task14a/）；16h 证明 natural 域预先固定
 策略在 post-handoff 域增益≈0，M0 必须本域重建。
 
 本轮任务：Task 14B —— B_segment 增量测试（零新增 objective FE）。
