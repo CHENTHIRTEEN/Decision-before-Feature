@@ -1,0 +1,63 @@
+{
+  "n_states": 3780,
+  "n_bg": 28,
+  "n_bs": 28,
+  "bg_nan": 0,
+  "bs_nan": 0,
+  "bg_constant": [],
+  "bs_constant": [],
+  "identical_columns_bg_bs": [
+    "fe_ratio",
+    "diversity_mean_pairwise",
+    "covariance_spectral_concentration",
+    "elite_concentration",
+    "covariance_effective_rank_w05"
+  ],
+  "stability_clip_bound": 1000000.0,
+  "denormal_snap_threshold": 1e-12,
+  "denormal_snap_cells": 0,
+  "stability_clip_cells": 0,
+  "bg_bs_per_feature_correlation": {
+    "mean": 0.4438122392262166,
+    "min": -0.036283318837910764,
+    "max": 1.0,
+    "highest": [
+      [
+        1.0,
+        "fe_ratio"
+      ],
+      [
+        1.0,
+        "elite_concentration"
+      ],
+      [
+        1.0,
+        "diversity_mean_pairwise"
+      ],
+      [
+        1.0,
+        "covariance_spectral_concentration"
+      ],
+      [
+        1.0,
+        "covariance_effective_rank_w05"
+      ]
+    ]
+  },
+  "time_like_features": [
+    "bg_fe_ratio",
+    "bs_fe_ratio"
+  ],
+  "route_counts": {
+    "cso->lshade": 630,
+    "cso->shade": 630,
+    "lshade->cso": 630,
+    "lshade->shade": 630,
+    "shade->cso": 630,
+    "shade->lshade": 630
+  },
+  "suite_counts": {
+    "bbob": 2700,
+    "mabbob": 1080
+  }
+}
