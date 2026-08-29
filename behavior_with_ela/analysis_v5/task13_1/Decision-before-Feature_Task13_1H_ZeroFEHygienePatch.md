@@ -37,12 +37,15 @@ $$
 | 6 | gain vs lookup 方向一致？ | **是**（κ=0.5：+0.040/+0.044；κ=1.0：+0.033/+0.030） |
 | 7 | pooled-vs-fold loss 差 CI 含 0？ | 基本含 0；两处小幅贴 0（幅度 ≤0.005），最大差 0.008 且方向不定 |
 | 8 | R1 是否仍成立 | **是**（κ=0.5/1.0 max 的全部 R1 条件逐项复核通过） |
-| 9 | κ=0.5 保留？ | **是**：performance-oriented frozen candidate |
-| 10 | κ=1.0 保留？ | **是**：risk-oriented frozen candidate |
+| 9 | κ=0.5 保留？ | **是**：performance-oriented pre-fixed candidate（性能导向的预先固定候选点） |
+| 10 | κ=1.0 保留？ | **是**：risk-oriented pre-fixed candidate（风险导向的预先固定候选点） |
 | 11 | hygiene verdict | **H1 NEGLIGIBLE** |
 | 12 | 是否允许进入 Task 14A | **是（GO 不变）** |
 
 两个 operating points（κ=0.5 与 κ=1.0）共同进入后续确认协议；Task 14A **不得**用 confirmation data 再调 κ。本轮不写"κ=0.5 is selected"。
+
+
+> 措辞说明：工作单原文的 "frozen candidate" 标签依 AGENTS.md §0.3 的用语规范改写为 "pre-fixed candidate"（预先固定候选点），含义不变。
 
 ## 五、成本与停止声明
 

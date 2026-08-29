@@ -47,4 +47,4 @@ $$
 \boxed{\text{Hygiene verdict：H1 NEGLIGIBLE}}
 $$
 
-R1 结论在完全 OOF 的 calibration 语义下成立；κ=0.5 保留为 performance-oriented frozen candidate，κ=1.0 保留为 risk-oriented frozen candidate（两个 operating points 均进入后续确认协议，最终 κ 不在本轮选择）。**Task 14A 允许进入（GO 不变）**。
+R1 结论在完全 OOF 的 calibration 语义下成立；κ=0.5 保留为 performance-oriented pre-fixed candidate（性能导向的预先固定候选点），κ=1.0 保留为 risk-oriented pre-fixed candidate（风险导向的预先固定候选点）（两个 operating points 均进入后续确认协议，最终 κ 不在本轮选择）。**Task 14A 允许进入（GO 不变）**。
