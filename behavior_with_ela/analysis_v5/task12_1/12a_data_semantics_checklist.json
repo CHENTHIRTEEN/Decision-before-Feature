@@ -1,0 +1,23 @@
+{
+  "1_all_states_natural_current": true,
+  "2_no_real_post_handoff_states": true,
+  "3_source_equals_current_always": true,
+  "4_handoff_performed_always_false": true,
+  "5_states_store_checkpoint_log_gap": false,
+  "5_note": "absent in Task 12 states; recovered in task12_1 from stage-1 marks (states_with_checkpoint_gap.parquet)",
+  "6_states_store_bg_behavior": false,
+  "7_states_store_bs_behavior": false,
+  "8_practical_best_uses_tied_first": true,
+  "8_note": "task12_stage2_analysis.py resolves the tie set with `tied[0]`",
+  "8b_tie_set_gt1_share": 0.5026455026455027,
+  "8c_tie_resolved_away_from_raw_argmin_share": 0.2417989417989418,
+  "9_candidate_order_fixed": true,
+  "9_note": "CANDIDATES = ('shade', 'lshade', 'cso') defines the tie order",
+  "10_oracle_lacks_current_condition": true,
+  "10_note": "Task 12 oracles condition on problem / problem+FE only",
+  "11_addback_lacks_cmaes_current_states": true,
+  "11_note": "cmaes appears only as an action branch, never as current_algorithm",
+  "12_repetition_fraction_state_action": 0.09823633156966491,
+  "13_continue_branch_is_t_plus_1000_current_outcome": "verified bit-exactly against stage-1 marks (replay_alignment.parquet)",
+  "14_horizon_exact_1000_evaluations": "enforced by RuntimeError assert in _run_horizon_branch"
+}

@@ -1,0 +1,7 @@
+{
+  "replay_executed": false,
+  "max_terminal_abs_diff": 0.0,
+  "max_continue_abs_diff": 0.0,
+  "n_states_checked": 1890,
+  "checkpoint_gap_source": "task12 stage1 natural marks (replicate 0)"
+}
