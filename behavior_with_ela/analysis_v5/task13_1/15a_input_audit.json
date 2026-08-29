@@ -1,0 +1,24 @@
+{
+  "head_commit": "c55563f",
+  "m2_oof_reproduced": true,
+  "max_pred_abs_diff": 0.0,
+  "selected_all_match": true,
+  "realized_all_match": true,
+  "lookup_check": {
+    "bbob": {
+      "fb_lookup_loss": -1.5856252324824254,
+      "reference": -1.5856252324824254,
+      "abs_diff": 0.0
+    },
+    "mabbob": {
+      "fb_lookup_loss": -4.529829531596376,
+      "reference": -4.529829531596376,
+      "abs_diff": 0.0
+    }
+  },
+  "delta_pool": {
+    "shade": 0.07395952269902838,
+    "lshade": 0.11517277993511138,
+    "cso": 0.07603322004468577
+  }
+}
