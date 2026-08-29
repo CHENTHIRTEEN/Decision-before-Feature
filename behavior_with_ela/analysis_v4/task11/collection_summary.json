@@ -1,0 +1,10 @@
+{
+  "states": 4680,
+  "branch_rows": 16800,
+  "base_branches": 14040,
+  "sampled_states": 460,
+  "ledger_total_base_fe": 7020000,
+  "ledger_total_branch_fe": 114936000,
+  "wall_seconds_total": 4018.2212789156474,
+  "max_rss_mb": 165504.0
+}

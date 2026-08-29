@@ -1,0 +1,5 @@
+{
+  "reversal_events_any_interval": 25,
+  "reversal_events_below_1000fe": 24,
+  "statement": "Both prior numbers trace to the same parquet: 25 is the count of A->B->A reversals at any interval, 24 is the count restricted to reversal interval < 1000 FE. The unique correct values under the two definitions are recorded here; the chattering metric used in Task 10 verdicts is the <1000 FE count."
+}
