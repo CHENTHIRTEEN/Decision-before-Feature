@@ -113,7 +113,6 @@ def build_window_statistics(
     if not snapshots:
         raise ValueError("native-update history must not be empty")
     current = snapshots[-1]
-    population_size = int(current.population.shape[0])
     if fe_total <= 0:
         raise ValueError("FE_total must be positive")
     windows = []
@@ -125,7 +124,18 @@ def build_window_statistics(
         if anchor is None:
             raise ValueError(f"missing native-update history for strict {suffix} window")
         span = int(current.fe - anchor.fe)
-        if span < target_span or span >= target_span + population_size:
+        # the allowed quantization excess is one native update measured at the
+        # anchor region (the update that bounds the anchor from above), not the
+        # current population size; for constant-population solvers the two are
+        # identical, but a shrinking population (L-SHADE) would otherwise fail
+        # although the window respects the native-update-aligned contract
+        anchor_index = next(
+            (index for index, snapshot in enumerate(snapshots[:-1]) if snapshot is anchor),
+            len(snapshots) - 2,
+        )
+        next_after_anchor = snapshots[anchor_index + 1] if anchor_index + 1 < len(snapshots) else current
+        local_update_gap = int(next_after_anchor.fe - anchor.fe)
+        if span < target_span or span >= target_span + local_update_gap:
             raise ValueError(f"native-update-aligned {suffix} window exceeds one update of FE quantization")
         anchors[suffix] = anchor
         windows.append(
@@ -188,8 +198,8 @@ def _window_row(
     algorithm: str,
     initial_fitness_iqr: float,
 ) -> dict:
-    if current.population.shape != anchor.population.shape:
-        raise ValueError("window endpoint populations must have identical shapes")
+    if current.population.ndim != 2 or anchor.population.ndim != 2:
+        raise ValueError("window endpoint populations must be two-dimensional")
     current_population, current_fitness = _ordered_arrays(current.population, current.fitness)
     anchor_population, anchor_fitness = _ordered_arrays(anchor.population, anchor.fitness)
     current_diversity = _mean_pairwise_distance(current_population, problem_id=problem_id)
@@ -221,8 +231,20 @@ def _window_row(
 
     anchor_quantiles = np.sort(anchor_fitness)
     current_quantiles = np.sort(current_fitness)
-    quantile_improvements = anchor_quantiles - current_quantiles
-    threshold = EPS * np.maximum(1.0, np.abs(anchor_quantiles))
+    if anchor_quantiles.shape == current_quantiles.shape:
+        # legacy path: sorted endpoints of equal length cancel positionally
+        quantile_improvements = anchor_quantiles - current_quantiles
+        quantile_anchor_levels = anchor_quantiles
+    else:
+        # shrinking-population solvers (e.g. L-SHADE) change NP every update,
+        # so the endpoints have different lengths; compare the quantile
+        # functions on a common probability grid of the larger size
+        levels = (np.arange(max(anchor_quantiles.size, current_quantiles.size)) + 0.5) / max(
+            anchor_quantiles.size, current_quantiles.size
+        )
+        quantile_anchor_levels = np.quantile(anchor_fitness, levels)
+        quantile_improvements = quantile_anchor_levels - np.quantile(current_fitness, levels)
+    threshold = EPS * np.maximum(1.0, np.abs(quantile_anchor_levels))
     fitness_iqr_baseline = initial_fitness_iqr
     fitness_iqr_current = _fitness_iqr(current_fitness)
     fitness_iqr_rel = fitness_iqr_current / max(fitness_iqr_baseline, EPS)

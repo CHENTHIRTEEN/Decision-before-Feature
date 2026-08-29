@@ -1,0 +1,37 @@
+{
+  "n_states": 1890,
+  "n_behavior_features": 28,
+  "nan_by_column": {},
+  "inf_total": 0,
+  "constant_columns": [],
+  "time_like_columns": [
+    "bf_fe_ratio"
+  ],
+  "maturity_columns_excluded": [
+    "bf_search_maturity",
+    "bf_search_maturity_linear",
+    "bf_explore_exploit_ratio"
+  ],
+  "availability_by_current_solver": {
+    "shade": {
+      "n": 630,
+      "nan_total": 0,
+      "all_features_available_rows": 630
+    },
+    "lshade": {
+      "n": 630,
+      "nan_total": 0,
+      "all_features_available_rows": 630
+    },
+    "cso": {
+      "n": 630,
+      "nan_total": 0,
+      "all_features_available_rows": 630
+    }
+  },
+  "availability_by_FE": {
+    "2000": 630,
+    "4000": 630,
+    "6000": 630
+  }
+}

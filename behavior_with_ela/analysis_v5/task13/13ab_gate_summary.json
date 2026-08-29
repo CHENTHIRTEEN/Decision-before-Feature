@@ -1,0 +1,38 @@
+{
+  "independent_bias_overall": {
+    "bbob": {
+      "n": 137,
+      "pooled_mean": 0.1003155776451704,
+      "fb_mean": 0.1118467016531719,
+      "ci_low": 0.020292154628205047,
+      "ci_high": 0.22337552909134073,
+      "coverage": "ok"
+    },
+    "mabbob": {
+      "n": 57,
+      "pooled_mean": 0.032251996794027495,
+      "fb_mean": 0.0336042795068178,
+      "ci_low": -0.0028400984978747667,
+      "ci_high": 0.071966736486535,
+      "coverage": "ok"
+    }
+  },
+  "delta_rules": {
+    "max": {
+      "min_switch_required": 0.2577777777777778,
+      "min_direction_probability": 0.13037037037037036
+    },
+    "quadrature": {
+      "min_switch_required": 0.22592592592592592,
+      "min_direction_probability": 0.12296296296296297
+    },
+    "sum": {
+      "min_switch_required": 0.18666666666666668,
+      "min_direction_probability": 0.10592592592592592
+    }
+  },
+  "delta_verdict": "STABLE",
+  "gate": "PROCEED",
+  "wall_seconds": 0.28862245893105865,
+  "peak_rss_mb": 205344.0
+}
