@@ -1,0 +1,11 @@
+{
+  "part_a_verdict": "CA1 CORRECTIONS DO NOT CHANGE NO-GO",
+  "part_b_status": "SB3 SCALE DOES NOT RESCUE SEGMENT",
+  "final_verdict": "F3 FINAL GENERIC-BEHAVIOR NO-GO",
+  "new_objective_fe": 0,
+  "new_action_label_fe": 0,
+  "outputs": {
+    "light": "behavior_with_ela/analysis_v6/task14b_1",
+    "heavy": "behavior_with_ela/results/analysis_v6/task14b_1"
+  }
+}
