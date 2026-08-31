@@ -1,0 +1,14 @@
+{
+  "final_verdict": "D2 NOISE-LIMITED DECISION GEOMETRY",
+  "supported_pooled_t2_pairs": 3,
+  "task17c_allowed": false,
+  "new_feature_allowed": false,
+  "new_selector_allowed": false,
+  "fuzzy_allowed": false,
+  "seeds_6_10_allowed": false,
+  "cec_allowed": false,
+  "additional_repetitions_allowed": false,
+  "paper_consolidation_status": "EVALUATE_ONLY",
+  "mainline_stop": true,
+  "new_objective_fe": 0
+}
