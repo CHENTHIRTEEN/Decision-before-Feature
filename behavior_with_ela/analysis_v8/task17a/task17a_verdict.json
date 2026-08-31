@@ -1,0 +1,23 @@
+{
+  "heterogeneity_verdict":"DH1 NONTRIVIAL",
+  "domain_heterogeneity":{
+    "natural":"DH1 NONTRIVIAL",
+    "post_handoff":"DH1 NONTRIVIAL"
+  },
+  "ladder_verdict":"RL2 PARTIAL",
+  "h_suff_supported":false,
+  "h_suff_consistent_metric_count":6,
+  "post_majority_da3_counts":{
+    "compact6":0,
+    "compact_issd24":0,
+    "global28":0,
+    "issd18":0,
+    "segment_matched28":0,
+    "segment_old28":0
+  },
+  "final_verdict":"V2 DISTRIBUTION-DEPENDENT SUFFICIENCY",
+  "next_step_allowed":"STOP",
+  "new_selector_allowed":false,
+  "seeds_6_10_allowed":false,
+  "cec_allowed":false
+}
