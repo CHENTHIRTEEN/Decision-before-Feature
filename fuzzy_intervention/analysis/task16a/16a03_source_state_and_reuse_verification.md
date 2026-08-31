@@ -1,0 +1,9 @@
+# 16a03 Source state 与复用核对
+
+实际状态数：2520。最大 source FE 对齐偏差：19 FE。可复用旧 FE：0；3 类候选产物均缺少完整自然状态数值对齐条件。
+
+| candidate_artifact                                                                      | candidate_scope                              | full_population_available   | full_fitness_available   | adaptive_state_available   | rng_state_available   | reuse_eligible   | reason                                                                                                 |
+|:----------------------------------------------------------------------------------------|:---------------------------------------------|:----------------------------|:-------------------------|:---------------------------|:----------------------|:-----------------|:-------------------------------------------------------------------------------------------------------|
+| behavior_with_ela/results/analysis_v5/task12/dynamic_action_outcomes_1000.parquet       | natural Continue/Switch at 2000/4000/6000 FE | False                       | False                    | False                      | False                 | False            | the artifact stores scalar outcomes but not the complete source state required for numerical alignment |
+| behavior_with_ela/results/analysis_v6/task14a/post_handoff_action_outcomes_1000.parquet | mature post-handoff states                   | False                       | False                    | False                      | False                 | False            | state class differs from the required natural incumbent source states                                  |
+| behavior_with_ela/results/trajectories                                                  | main portfolio trajectories                  | True                        | True                     | False                      | False                 | False            | the stored algorithm set does not provide complete SHADE/L-SHADE/CSO native optimizer states           |
