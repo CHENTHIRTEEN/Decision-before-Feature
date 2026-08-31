@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import resource
+import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
@@ -50,6 +51,12 @@ ACTION_CODES = {
     "switch_lshade": 12,
     "switch_cso": 13,
 }
+
+
+def _peak_rss_mb() -> float:
+    value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    divisor = 1024.0 * 1024.0 if sys.platform == "darwin" else 1024.0
+    return value / divisor
 
 
 def _pending(state):
@@ -428,7 +435,7 @@ def _collect_unit(job: dict) -> dict:
         "source_fe_used": int(source_fe_used),
         "action_fe_used": int(action_fe_used),
         "wall_seconds": float(perf_counter() - started),
-        "peak_rss_mb": float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0),
+        "peak_rss_mb": _peak_rss_mb(),
     }
 
 
