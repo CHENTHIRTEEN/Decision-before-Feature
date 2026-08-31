@@ -1,0 +1,9 @@
+# 17a1_13 Resource Usage
+
+Task17A.1 是零 FE 的统计正确性与估计对象复核。目的不是获得更漂亮的显著性，而是判断 Task17A 哪些机制结论在统一统计口径后仍然成立。
+
+## 实测资源
+
+|   new_objective_fe |   natural_states_reused |   post_states_reused |   natural_pairs_reused |   post_pairs_reused |   bootstrap_draws |   permutations |   random_neighbor_controls |   analysis_cpu_seconds |   wall_seconds |   peak_rss_mb | figures                                                                                                                                                                                                                                                                              | input_scope                              |
+|-------------------:|------------------------:|---------------------:|-----------------------:|--------------------:|------------------:|---------------:|---------------------------:|-----------------------:|---------------:|--------------:|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------|
+|                  0 |                    1890 |                 3780 |                   3780 |                7560 |              5000 |            100 |                        100 |                67.2992 |        69.4472 |       440.484 | behavior_with_ela/analysis_v8/task17a1/figures/figure_a_corrected_within_stratum_alignment.png;behavior_with_ela/analysis_v8/task17a1/figures/figure_b_local_ava10_representation_check.png;behavior_with_ela/analysis_v8/task17a1/figures/figure_c_natural_post_primary_metrics.png | Task 17A products in the current project |

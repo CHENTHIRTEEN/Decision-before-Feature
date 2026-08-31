@@ -1,0 +1,18 @@
+{
+  "heterogeneity_verdict": "DH1 NONTRIVIAL",
+  "final_verdict": "C1 ROBUST PARTIAL DECISION ALIGNMENT WITH SUBSTANTIAL RESIDUAL ALIASING",
+  "shift_verdict": "DS2 NO ROBUST SHIFT",
+  "ladder_verdict": "LR2 PARTIAL OR INCONSISTENT",
+  "all_base_pooled_ca1": true,
+  "no_suite_significantly_inverse": true,
+  "substantial_post_local_aliasing": true,
+  "observable_proximity_reduces_aliasing": true,
+  "scientific_statement": "Observable search behavior shows statistically detectable within-context alignment with observed alternate-action decision geometry, while substantial action-value aliasing remains among locally nearest observable states.",
+  "behavior_sufficient_for_dynamic_selection": false,
+  "new_selector_allowed": false,
+  "solver_internal_state_allowed": false,
+  "seeds_6_10_allowed": false,
+  "cec_allowed": false,
+  "next_step_requires_task17a1_based_redesign": true,
+  "new_objective_fe": 0
+}
