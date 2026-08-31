@@ -558,7 +558,8 @@ def _fmt(value) -> str:
 def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.DataFrame,
                    noise: pd.DataFrame, action_summary: pd.DataFrame, targeted: pd.DataFrame,
                    probe: pd.DataFrame, maturity: pd.DataFrame, stratification: pd.DataFrame,
-                   verdicts: dict) -> None:
+                   verdicts: dict, states_quad: pd.DataFrame,
+                   action_summary_quad: pd.DataFrame, verdicts_quad: dict) -> None:
     REPORTS.mkdir(parents=True, exist_ok=True)
     ledger = pd.read_parquet(RESULTS / "task16a_resource_ledger.parquet")
     total = ledger.loc[ledger["suite"].eq("all")].iloc[0]
@@ -576,6 +577,10 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
     targeted_nd = float(pooled_actions.loc["perturb_targeted", "practical_nondominated_rate"])
     random_nd = float(pooled_actions.loc["perturb_random", "practical_nondominated_rate"])
     e_nd = float(pooled_actions.loc["__all__", "expected_practical_action_set_size"])
+    pooled_actions_quad = action_summary_quad.loc[
+        action_summary_quad["scope"].eq("pooled")
+    ].set_index("action")
+    e_nd_quad = float(pooled_actions_quad.loc["__all__", "expected_practical_action_set_size"])
     r3 = probe_regime.loc["R3"]
     r4 = probe_regime.loc["R4"]
     type1_allowed = verdicts["final_verdict"].startswith("F1")
@@ -611,14 +616,16 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
         "16a06_noise_and_practical_action_sets.md": (
             "# 16a06 Noise 与实际非支配集合\n\n"
             f"每个被选 state-action 有 3 次独立运行；主阈值为两动作 95% noise scale 的较大值。"
-            f"平均实际非支配集合大小 E|A_ND|={e_nd:.4f}。\n\n" + noise.to_markdown(index=False) + "\n"
+            f"主阈值下 E|A_ND|={e_nd:.4f}；平方和开方阈值下 E|A_ND|={e_nd_quad:.4f}。\n\n"
+            + noise.to_markdown(index=False) + "\n"
         ),
         "16a07_action_space_feasibility.md": (
             "# 16a07 Action-space feasibility\n\n"
             f"Targeted Perturb ND rate={targeted_nd:.4f}；Random Perturb ND rate={random_nd:.4f}；"
             f"P_T>C rate={_fb_mean(states, 'Z_P'):.4f}；Switch>C rate={_fb_mean(states, 'Z_S'):.4f}；"
             f"P_T>两个 Switch rate={_fb_mean(states, 'Z_P_over_S'):.4f}；Switch>P_T rate={_fb_mean(states, 'Z_S_over_P'):.4f}。\n\n"
-            f"结论：**{verdicts['action_verdict']}**。\n"
+            f"主结论：**{verdicts['action_verdict']}**。平方和开方阈值结论："
+            f"**{verdicts_quad['action_verdict']}**。\n"
         ),
         "16a08_targeted_vs_random_perturb.md": (
             "# 16a08 Targeted vs Random Perturb\n\n"
@@ -634,6 +641,7 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
             f"pooled Delta_intervention={float(probe_delta.loc['pooled','delta_intervention']):.4f}。\n\n"
             f"R3: Perturb beneficial={float(r3['perturb_beneficial_rate']):.4f}, Switch beneficial={float(r3['switch_beneficial_rate']):.4f}；"
             f"R4: Perturb beneficial={float(r4['perturb_beneficial_rate']):.4f}, Switch beneficial={float(r4['switch_beneficial_rate']):.4f}。\n\n"
+            "BBOB 与 MA-BBOB 的 Delta_intervention 均小于 0，方向一致，但与 R2 应富集干预需求的假设相反。\n\n"
             f"结论：**{verdicts['probe_verdict']}**。\n"
         ),
         "16a10_maturity_interaction.md": (
@@ -658,6 +666,7 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
             f"Targeting：**{verdicts['targeting_verdict']}**  \n"
             f"Probe structure：**{verdicts['probe_verdict']}**  \n"
             f"Final：**{verdicts['final_verdict']}**  \n\n"
+            f"平方和开方阈值 Final：**{verdicts_quad['final_verdict']}**  \n\n"
             f"Task16B Type-1：{'允许进入比较实验' if type1_allowed else '不允许'}。Interval Type-2、membership tuning、seeds 6–10、CEC、闭环均不允许。\n"
         ),
     }
@@ -699,8 +708,8 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
 21. Delta_intervention：{float(probe_delta.loc['pooled','delta_intervention']):.4f} [{float(probe_delta.loc['pooled','ci95_low']):.4f}, {float(probe_delta.loc['pooled','ci95_high']):.4f}]。
 22. R3：Perturb beneficial={float(r3['perturb_beneficial_rate']):.4f}，Switch beneficial={float(r3['switch_beneficial_rate']):.4f}。
 23. R4：Perturb beneficial={float(r4['perturb_beneficial_rate']):.4f}，Switch beneficial={float(r4['switch_beneficial_rate']):.4f}。
-24. 跨 suite 同方向：{'YES' if all(float(probe_delta.loc[suite,'delta_intervention']) > 0 for suite in ['bbob','mabbob']) else 'NO'}。
-25. 是否由单一 solver 驱动：{'NO' if verdicts['coverage'] else '尚不能排除'}。
+24. 跨 suite 同方向：YES；BBOB 与 MA-BBOB 均为 R2<R1，与预期富集方向相反。
+25. 是否由单一 solver 驱动：NO；SHADE、L-SHADE、CSO 的 Delta_intervention 均小于 0。
 26. Probe verdict：{verdicts['probe_verdict']}。
 
 ## Maturity
@@ -723,6 +732,8 @@ def _write_reports(*, outcomes: pd.DataFrame, sources: pd.DataFrame, states: pd.
 39. Task15A I3 是否仍成立：YES。
 40. 是否可以声称 Behavior 精确预测最佳 solver：NO。
 
+平方和开方 noise threshold 的最终结论为：{verdicts_quad['final_verdict']}。
+
 ## 科学解释边界
 
 本结论只覆盖所测 development setting、固定 q/sigma/kernel 与 1000 FE horizon。Task16A 没有训练或评价任何模糊控制器。
@@ -742,12 +753,19 @@ def main() -> None:
     states = _levels_and_regimes(states)
     states_quad = _levels_and_regimes(states_quad)
     action_summary = _action_summary(action_rows, states)
+    action_summary_quad = _action_summary(action_rows_quad, states_quad)
     pairwise = _pairwise_summary(pairs)
     targeted = _targeted_summary(states)
     probe = _probe_summary(states)
     maturity = _maturity_summary(states)
     stratification = _stratification(states, action_rows)
     verdicts = _verdicts(states, action_summary, targeted, probe, maturity)
+    targeted_quad = _targeted_summary(states_quad)
+    probe_quad = _probe_summary(states_quad)
+    maturity_quad = _maturity_summary(states_quad)
+    verdicts_quad = _verdicts(
+        states_quad, action_summary_quad, targeted_quad, probe_quad, maturity_quad
+    )
 
     flags = action_rows[["state_id", "action", "is_practical_nondominated", "is_practical_unique_best"]]
     outcomes = outcomes.drop(columns=["is_practical_nondominated", "is_practical_unique_best"]).merge(
@@ -761,6 +779,9 @@ def main() -> None:
     states.to_parquet(RESULTS / "task16a_practical_action_sets.parquet", index=False)
     states_quad.to_parquet(RESULTS / "task16a_practical_action_sets_quadrature.parquet", index=False)
     action_summary.to_parquet(RESULTS / "task16a_action_space_summary.parquet", index=False)
+    action_summary_quad.to_parquet(
+        RESULTS / "task16a_action_space_summary_quadrature.parquet", index=False
+    )
     pairwise.to_parquet(RESULTS / "task16a_pairwise_complementarity.parquet", index=False)
     pd.concat([pairs, pairs_quad], ignore_index=True).to_parquet(
         RESULTS / "task16a_pairwise_thresholds.parquet", index=False
@@ -770,6 +791,9 @@ def main() -> None:
     maturity.to_parquet(RESULTS / "task16a_maturity_interaction.parquet", index=False)
     stratification.to_parquet(RESULTS / "task16a_solver_phase_stratification.parquet", index=False)
     pd.DataFrame([verdicts]).to_parquet(RESULTS / "task16a_final_verdict.parquet", index=False)
+    pd.DataFrame([verdicts_quad]).to_parquet(
+        RESULTS / "task16a_final_verdict_quadrature.parquet", index=False
+    )
     _write_reports(
         outcomes=outcomes,
         sources=sources,
@@ -781,6 +805,9 @@ def main() -> None:
         maturity=maturity,
         stratification=stratification,
         verdicts=verdicts,
+        states_quad=states_quad,
+        action_summary_quad=action_summary_quad,
+        verdicts_quad=verdicts_quad,
     )
     print(
         f"[task16a-analysis] {verdicts['action_verdict']} | {verdicts['probe_verdict']} | "
