@@ -14,10 +14,10 @@ Task15A 的 I3 结论保持不变。本模块与主 Decision 数据、标签和 
 - algorithms：SHADE、L-SHADE、CSO，仅用于本独立探索性模块；
 - development seeds：1–5；
 - problems：Task14A 的 BBOB 30 个问题与 selected MA-BBOB 12 个问题；
-- natural source checkpoints：2000、4000、6000、8000 FE；
+- nominal natural source checkpoints：2000、4000、6000、8000 FE；实际状态采用不晚于名义位置的最近完整原生 update，并保存对齐偏差；
 - action horizon：1000 FE，Perturb 评价计入该预算。
 
-每个 problem × current algorithm × seed × checkpoint 都保留，不按探针值筛选，预计 2520 个自然状态。
+每个 problem × current algorithm × seed × checkpoint 都保留，不按探针值筛选，预计 2520 个自然状态。实际 source FE 与名义 checkpoint 的差必须小于一次局部原生 update；maturity 使用名义 checkpoint/10000。
 
 ## 动作
 
@@ -71,4 +71,3 @@ Targeted 对 Random 的 paired gain 定义为 `L_random - L_targeted`。主区�
 ## 停止边界
 
 Task16A 完成 A/T/P 与 F1/F2/F3 结论后停止。本阶段不得实现 Type-1、Interval Type-2、membership tuning、规则搜索、闭环控制、RL、动作分类器、ELA、ProgressForecast、新求解器、seeds 6–10、CEC 或工程问题。
-
