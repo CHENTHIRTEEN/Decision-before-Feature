@@ -1,0 +1,13 @@
+suite,current_algorithm,switch_target,states,conditional_share
+bbob,cso,lshade,71,0.6016949152542372
+bbob,cso,shade,47,0.3983050847457627
+bbob,lshade,cso,73,0.6403508771929824
+bbob,lshade,shade,41,0.35964912280701755
+bbob,shade,cso,40,0.3448275862068966
+bbob,shade,lshade,76,0.6551724137931034
+mabbob,cso,lshade,29,0.6444444444444445
+mabbob,cso,shade,16,0.35555555555555557
+mabbob,lshade,cso,37,0.6981132075471698
+mabbob,lshade,shade,16,0.3018867924528302
+mabbob,shade,cso,27,0.6
+mabbob,shade,lshade,18,0.4

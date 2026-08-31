@@ -1,0 +1,50 @@
+{
+  "crosswalk_version": "pbalanced_literature_crosswalk_v1",
+  "current_artifacts": {
+    "task12_natural_states": 1890,
+    "task13_natural_behavior_states": 1890,
+    "task14_post_handoff_states": 3780,
+    "current_portfolio": [
+      "shade",
+      "lshade",
+      "cso"
+    ],
+    "query_pbalanced_artifact": "/Users/bingchen/Desktop/Decision-before-Feature/behavior_with_ela/results/analysis_v5/task13/query_action_dataset.parquet",
+    "query_pbalanced_artifact_status": "not_materialized",
+    "natural_switch_required_rate": 0.2597883597883598,
+    "post_handoff_switch_required_rate_sum": 0.17566137566137566,
+    "post_handoff_switch_required_rate_max": 0.22433862433862434
+  },
+  "state_contract": {
+    "natural": {
+      "info_time": "state FE 之前的 natural trajectory Behavior",
+      "action": "continue current 或 switch 到 P_balanced 其余两个算法",
+      "label": "1000-FE FE-indexed action loss / practical switch_required",
+      "split": "function-grouped OOF；within-problem LOSO 作诊断"
+    },
+    "query": {
+      "info_time": "独立 query 执行前只可用 pre-query Behavior；query descriptors 只在 gate 触发后可用",
+      "action": "execute/skip fixed query，然后由 downstream Selector 选择后续动作",
+      "label": "paired skip/query 的 g_fe_selected_path；主标签不含 runtime",
+      "split": "nested function-level OOF；validation 不参与 fit"
+    },
+    "post_handoff": {
+      "info_time": "handoff 后 commitment 状态；segment Behavior 必须从 handoff 点重新定义",
+      "action": "post-handoff continue current 或 switch 到其余两个 P_balanced 算法",
+      "label": "真实 1000-FE post-handoff action outcome；reset controls 单列",
+      "split": "function/route/source-FE grouped OOF；within-route LOSO"
+    }
+  },
+  "status_values": [
+    "FAIL",
+    "NOT_APPLICABLE",
+    "NOT_MATERIALIZED",
+    "PARTIAL",
+    "PASS"
+  ],
+  "paper_count": 8,
+  "retained_design_count": 8,
+  "query_evidence_status": "not_materialized",
+  "new_objective_fe": 0,
+  "model_fitted": false
+}

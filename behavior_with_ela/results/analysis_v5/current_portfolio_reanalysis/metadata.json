@@ -1,0 +1,16 @@
+{
+  "portfolio": [
+    "shade",
+    "lshade",
+    "cso"
+  ],
+  "natural_states": 1890,
+  "task13_behavior_features": 28,
+  "task13_new_action_label_fe": 0,
+  "task14_post_handoff_states": 3780,
+  "excluded_old_phase1_action_root": "/Users/bingchen/Desktop/Decision-before-Feature/behavior_with_ela/results/actions",
+  "model_fitted": false,
+  "runtime_used": false,
+  "new_objective_fe": 0,
+  "report": "/Users/bingchen/Desktop/Decision-before-Feature/behavior_with_ela/analysis_v5/current_portfolio_reanalysis.md"
+}
